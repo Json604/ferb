@@ -4737,3 +4737,15 @@ why = "Owner 2026-11-23: \"theres no live preview box neither x active tasks in 
 evidence = "apps/mac/FERBNotch Tests/NotchCoreTests/TemporaryChatTests.swift testItsRunningTaskShowsInItsWorkRowWithItsPicture, testATaskItStartsMovesToItsWorkRow."
 paths = ["apps/mac/FERBNotch/Sources/FERBNotch/TaskList.swift", "apps/mac/FERBNotch/Sources/FERBNotch/TemporaryChatModel.swift", "apps/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift"]
 live = ["LIVE-1194"]
+
+[APP-1126]
+title = "The temporary chat is the normal chat with another data source"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "issue in temp mode, it doesnt open when it answer is complete. i told you to match normal chat and temp chat UI, why are they even diff???"
+words_source = "Owner 2026-11-24, after a temporary chat's answer arrived on his Mac and the notch stayed closed, where the normal chat's answer opens it."
+rule = "FERB.app's temporary chat behaves exactly as the normal chat: the same messages and streaming, the same arrivals (an answer, a task's end or a question opens the notch without focus, glows and sounds as in the normal chat, with the same banner fallback), the same question cards and placement, the same work row, live pictures and task rows, the same composer. Only where its conversation comes from differs (the daemon's memory, never saved), with what ORCH-700 and APP-1122 decide apart: nothing of it in the chat history or archive, its banner, ended only by its icon."
+why = "Two copies of the chat drifted apart (its own task list, journal 194; no arrival, journal 199); one path can't."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/TemporaryChatModel.swift", "apps/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "apps/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "apps/mac/FERBNotch/Sources/FERBNotch/EntryWatch.swift", "apps/mac/FERBNotch/Sources/NotchCore/TemporaryChat.swift"]
+live = ["LIVE-1194"]

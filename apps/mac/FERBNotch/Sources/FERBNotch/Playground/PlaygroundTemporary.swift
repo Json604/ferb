@@ -52,13 +52,16 @@ final class PlaygroundTemporaryChat {
     }
 
     /// A message into the temporary chat: its ack, then an invented answer; each entry change is published.
-    func send(_ text: String, pause: (Double) async -> Void, yield: ([String: Any]) -> Void) async throws {
+    /// `client`: the sending app's id, kept on its message entry as the daemon keeps it.
+    func send(_ text: String, client: String? = nil, pause: (Double) async -> Void,
+              yield: ([String: Any]) -> Void) async throws {
         if chat == nil {
             chat = Chat(id: String(UUID().uuidString.prefix(8)).lowercased(), startedAt: Self.now())
         }
         guard let id = chat?.id else { return }
         let request = "playground-temp-" + UUID().uuidString.prefix(8)
-        let message = add(kind: "message", request: request, body: ["text": text, "attachments": [], "hidden": []])
+        let message = add(kind: "message", request: request, client: client,
+                          body: ["text": text, "attachments": [], "hidden": []])
         yield(["type": "ack", "request_id": request, "fresh": true, "conversation": "temporary:" + id, "at": Self.now()])
         await pause(1.0)
         try Task.checkCancellation()
@@ -69,7 +72,8 @@ final class PlaygroundTemporaryChat {
     }
 
     @discardableResult
-    private func add(kind: String, request: String, answers: String? = nil, body: [String: Any]) -> String {
+    private func add(kind: String, request: String, answers: String? = nil, client: String? = nil,
+                     body: [String: Any]) -> String {
         guard var current = chat else { return "" }
         let pos = current.entries.count + 1
         let id = "tmp-\(current.id)-\(pos)"
@@ -79,6 +83,7 @@ final class PlaygroundTemporaryChat {
                                     "created_at": now, "updated_at": now, "day": String(now.prefix(10)), "body": body,
                                     "deleted": false]
         if let answers { entry["answers"] = answers }
+        if let client { entry["client_id"] = client }
         current.entries.append(entry)
         current.rev += 1
         chat = current

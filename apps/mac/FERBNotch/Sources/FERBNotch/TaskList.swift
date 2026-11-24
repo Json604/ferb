@@ -68,14 +68,12 @@ struct TaskListCache {
     }
 
     fileprivate var built: Built?
-    /// The temporary chat's list (its own turns and running tasks), built while it is on.
+    /// The temporary chat's list (its own turns, sessions and running tasks), built while it is on.
     fileprivate var builtTemporary: Built?
     /// How many times a list was built (tests count rebuilds).
     fileprivate(set) var builds = 0
 
     mutating func invalidate() { built = nil; builtTemporary = nil }
-    /// The temporary chat changed (a streamed word, its entries read again): only its own list is built again.
-    mutating func invalidateTemporary() { builtTemporary = nil }
 }
 
 @MainActor
@@ -136,7 +134,7 @@ extension NotchModel {
 
     private var builtTaskList: TaskListCache.Built {
         if let built = taskListCache.built { return built }
-        let built = makeTaskList()
+        let built = makeTaskList(.saved)
         taskListCache.built = built
         taskListCache.builds += 1
         return built
@@ -144,7 +142,7 @@ extension NotchModel {
 
     private var builtTemporaryTaskList: TaskListCache.Built {
         if let built = taskListCache.builtTemporary { return built }
-        let built = makeTemporaryTaskList()
+        let built = makeTaskList(.temporary)
         taskListCache.builtTemporary = built
         taskListCache.builds += 1
         return built
@@ -178,20 +176,19 @@ extension NotchModel {
     private func draftIsTaskTitle(_ work: NotchSession) -> Bool {
         guard let local = work.activeTaskID, work.result?.request == nil,
               work.backendTaskID.flatMap({ runningTasks[$0] }) == nil else { return false }
-        return !conversation.turns.contains { $0.id == local }
+        let turns = source(ofTurn: local) == .temporary ? temporaryChat?.archive.turns ?? [] : savedConversation.turns
+        return !turns.contains { $0.id == local }
     }
 
-    /// Builds the saved chat's list from the conversation, the task sessions, the daemon's running tasks, open
-    /// questions and loops.
-    func makeTaskList() -> TaskListCache.Built {
+    /// Builds one chat's list from its conversation, its task sessions and its running tasks, with the open questions
+    /// and loops: the same list for both chats, each with only its own (APP-1125).
+    func makeTaskList(_ source: ChatSource) -> TaskListCache.Built {
         var sessions = workSessions
         if let id = session.activeTaskID { sessions[id] = session }
-        return makeTaskList(turns: conversation.turns, sessions: sessions, running: runningTasks)
-    }
-
-    /// Builds the temporary chat's list: its own turns and its running tasks (it sends with no task session).
-    func makeTemporaryTaskList() -> TaskListCache.Built {
-        makeTaskList(turns: temporaryChat?.archive.turns ?? [], sessions: [:], running: temporaryRunning)
+        sessions = sessions.filter { self.source(ofTurn: $0.key) == source }
+        let running = runningTasks.filter { self.source(ofTask: $0.key) == source }
+        let turns = source == .temporary ? temporaryChat?.archive.turns ?? [] : savedConversation.turns
+        return makeTaskList(turns: turns, sessions: sessions, running: running)
     }
 
     private func makeTaskList(turns: [ConversationTurn], sessions: [UUID: NotchSession],
@@ -292,12 +289,14 @@ extension NotchModel {
                 let trace = try await rpc.call("trace.get", params: ["task_id": backend])
                 guard taskInspectionRequest == request, !Task.isCancelled else { return }
                 if let outcome = trace["outcome"] as? [String: Any],
-                   let result = outcome["result"] as? [String: Any], let status = result["status"] as? String,
-                   let turn = conversation.turns.first(where: { $0.backendTaskID == backend }) {
-                    conversation.finish(id: turn.id, answer: result["answer"] as? String ?? result["summary"] as? String ?? turn.answer,
-                        status: status, artifacts: (result["artifacts"] as? [String] ?? []).filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) },
-                        displayText: result["display_text"] as? String, verified: result["verified"] as? Bool ?? false)
-                    saveConversation()
+                   let result = outcome["result"] as? [String: Any], let status = result["status"] as? String {
+                    inChat(source(ofTask: backend)) {
+                        guard let turn = conversation.turns.first(where: { $0.backendTaskID == backend }) else { return }
+                        conversation.finish(id: turn.id, answer: result["answer"] as? String ?? result["summary"] as? String ?? turn.answer,
+                            status: status, artifacts: (result["artifacts"] as? [String] ?? []).filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) },
+                            displayText: result["display_text"] as? String, verified: result["verified"] as? Bool ?? false)
+                        saveConversation()
+                    }
                 }
                 let url = try await taskRecordFiles.write(trace)
                 guard taskInspectionRequest == request, !Task.isCancelled else {

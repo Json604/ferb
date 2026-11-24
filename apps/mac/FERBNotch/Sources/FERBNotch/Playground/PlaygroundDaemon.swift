@@ -222,7 +222,7 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
             yield(["type": "done", "preview": true, "request_id": id])
         case "chat.send" where params["fresh"] as? Bool == true:
             // the temporary chat: an invented answer, kept in the playground's memory only
-            try await temporary.send(params["text"] as? String ?? "", pause: { await self.state.pause($0) }, yield: yield)
+            try await temporary.send(params["text"] as? String ?? "", client: params["client_id"] as? String, pause: { await self.state.pause($0) }, yield: yield)
         case "chat.send":
             if workspace.enabled {
                 try await workspace.chat(params["text"] as? String ?? "", yield: yield)

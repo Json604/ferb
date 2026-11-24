@@ -61,7 +61,7 @@ final class PausedWorkRowTests: XCTestCase {
                                                                 "answer": "Stopped, as you asked."]])
         XCTAssertFalse(model.pausedTasks.contains("read"))
         XCTAssertEqual(model.workRowText, "1 active task")
-        XCTAssertEqual(model.makeTaskList().rows, model.taskItems)
+        XCTAssertEqual(model.makeTaskList(.saved).rows, model.taskItems)
     }
 
     // decision: APP-901

@@ -6,22 +6,24 @@ import SwiftUI
 
 @MainActor
 final class ChatDetailsTests: XCTestCase {
-    // decision: APP-571
+    // In both chats alike: the saved one and the temporary one (APP-1126).
+    // decision: APP-571, APP-1126
     func testFreshRepliesAndErrorsRevealWithoutFocusAndDuplicatesStayClosed() {
-        for type in ["reply", "error"] {
-            let model = NotchModel(preferences: scratchDefaults())
-            model.session.draft = "Task"
-            let id = model.session.beginWork()!
-            model.conversation.begin(id: id, request: "Task", sources: [])
-            model.collapse()
-            var focus = 0
-            model.onPresentationChange = { _ in focus += 1 }
-            model.receiveChatEvent(["type": type, "text": "Result"], localID: id)
-            XCTAssertTrue(model.bodyVisible, type)
-            XCTAssertEqual(focus, 0)
-            model.collapse()
-            model.receiveChatEvent(["type": type, "text": "Result"], localID: id)
-            XCTAssertFalse(model.bodyVisible, type)
+        for source in bothChats {
+            for type in ["reply", "error"] {
+                let (model, _, _) = chatModel(source, "FreshReplies")
+                let id = model.sendFromComposer("Task")
+                model.collapse()
+                var focus = 0
+                model.onPresentationChange = { _ in focus += 1 }
+                model.receiveChatEvent(["type": type, "text": "Result"], localID: id)
+                XCTAssertTrue(model.bodyVisible, "\(source) \(type)")
+                XCTAssertEqual(focus, 0, "\(source) \(type)")
+                model.collapse()
+                model.receiveChatEvent(["type": type, "text": "Result"], localID: id)
+                XCTAssertFalse(model.bodyVisible, "\(source) \(type)")
+                model.disconnectDaemon()
+            }
         }
     }
 

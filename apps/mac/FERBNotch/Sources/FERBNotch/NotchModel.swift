@@ -96,10 +96,37 @@ final class NotchModel: ObservableObject {
     }
     var submissions: [UUID: Task<Void, Never>] = [:]
     @Published var pendingStops = Set<UUID>()
-    @Published var conversation = ConversationArchive() { didSet { taskListCache.invalidate(); shownTranscript = nil } }
+    /// The saved chat: kept in the chat history (APP-805) and the archive.
+    @Published var savedConversation = ConversationArchive() {
+        didSet { taskListCache.invalidate(); shownTranscript = nil }
+    }
     /// The temporary chat while it is on (owner 2026-11-23; TemporaryChatModel.swift): what the chat shows instead of
-    /// the saved one, held in memory only and read from the daemon. `conversation` stays as it was meanwhile.
-    @Published var temporaryChat: TemporaryChat? { didSet { shownTranscript = nil; taskListCache.invalidateTemporary() } }
+    /// the saved one, held in memory only and read from the daemon. Its `archive` is written by the same pipeline.
+    @Published var temporaryChat: TemporaryChat? { didSet { shownTranscript = nil; taskListCache.invalidate() } }
+    /// Which chat the chat pipeline reads and writes now: the saved one, or the temporary one inside `inChat`.
+    private(set) var chatSource = ChatSource.saved
+    /// The conversation the chat pipeline reads and writes (a message sent, its stream's frames, a task's outcome, a
+    /// question's place, an entry another device made): the saved chat's, or the temporary chat's inside
+    /// `inChat(.temporary)`. Every turn goes through the same code whichever chat holds it (owner 2026-11-24: "i told
+    /// you to match normal chat and temp chat UI, why are they even diff???").
+    var conversation: ConversationArchive {
+        get { chatSource == .temporary ? temporaryChat?.archive ?? ConversationArchive() : savedConversation }
+        set {
+            if chatSource == .temporary { temporaryChat?.archive = newValue } else { savedConversation = newValue }
+        }
+    }
+    /// Runs `body` with the chat pipeline on `source`'s conversation (and its entries' state, `entryWatch`), as
+    /// `withWorkSession` runs a stream's frame on its session. Synchronous only: nothing can come between. A chat
+    /// that ended takes nothing more: `body` doesn't run (its turns' late frames reach no chat, the saved one least).
+    @discardableResult
+    func inChat<Result>(_ source: ChatSource, otherwise: Result, _ body: () -> Result) -> Result {
+        if source == .temporary && temporaryChat == nil { return otherwise }
+        let before = chatSource
+        chatSource = source
+        defer { chatSource = before }
+        return body()
+    }
+    func inChat(_ source: ChatSource, _ body: () -> Void) { inChat(source, otherwise: (), body) }
     /// The temporary chat's icon was tapped and FERB hasn't answered yet.
     @Published var temporaryToggling = false
     let temporary = TemporaryChatState()
@@ -109,7 +136,10 @@ final class NotchModel: ObservableObject {
     /// Where the chat is kept and what the daemon holds of it (APP-805).
     let chatStore = HistoryState()
     /// The engine's shared conversation as this app follows it (ENG-10): turns other devices sent (`EntryWatch.swift`).
-    let entryWatch = EntryWatchState()
+    let savedEntryWatch = EntryWatchState()
+    /// The entries' state of the chat the pipeline is on (`chatSource`): the saved chat's watch, or the temporary
+    /// chat's (`temporary.entries`), read by the same entry path.
+    var entryWatch: EntryWatchState { chatSource == .temporary ? temporary.entries : savedEntryWatch }
     /// What is shown of each day (APP-806); changed only through `updateWindow`.
     var dayWindows: [Date: DayWindow] = [:]
     /// The days the daemon has chat for (History), read when History opens.
@@ -193,7 +223,7 @@ final class NotchModel: ObservableObject {
 
     var menuBarState: MenuBarState {
         MenuBarState.derive(link: daemonLink.state, paused: daemonPaused, stopped: daemonStopped,
-                            questions: pendingApprovals.count, running: runningTasks.count + temporaryRunning.count,
+                            questions: pendingApprovals.count, running: runningTasks.count,
                             settingUp: serviceSettingUp)
     }
 
@@ -225,26 +255,22 @@ final class NotchModel: ObservableObject {
     /// another open question stays answerable meanwhile (several are open at once: a plan's asks, a safety check).
     @Published var sendingAnswers: Set<String> = []
     func isSending(_ approval: DaemonApproval) -> Bool { sendingAnswers.contains(approval.id) }
-    /// The saved chat's running tasks (a temporary chat's are `temporaryRunning`), by task: their headings.
+    /// The running tasks of both chats, by task: their headings. Which chat's work row shows one is the task list's
+    /// (`makeTaskList(_:)`, by `source(ofTask:)`).
     @Published var runningTasks: [String: String] = [:] {
         didSet { if runningTasks != oldValue { runningChanged(from: oldValue) } }
     }
-    /// The temporary chat's running tasks (marked `temporary` by the daemon, or its own turns'), by task: its work row,
-    /// round pictures and Tasks list while it shows, as `runningTasks` are the saved chat's (TemporaryChatModel.swift).
-    @Published var temporaryRunning: [String: String] = [:] {
-        didSet { if temporaryRunning != oldValue { runningChanged(from: oldValue) } }
-    }
 
     /// Whether a task runs now, in either chat.
-    func isRunning(task id: String) -> Bool { runningTasks[id] != nil || temporaryRunning[id] != nil }
+    func isRunning(task id: String) -> Bool { runningTasks[id] != nil }
 
-    /// One of the two running lists changed (`old`: what it was).
+    /// The running tasks changed (`old`: what they were).
     private func runningChanged(from old: [String: String]) {
         taskListCache.invalidate()
         // When each running task started, for the work row's timer (a friend's feedback 2026-10-27): kept for
         // tasks still running; one first seen here starts now unless the daemon's status says otherwise.
         var since = runningSince.filter { isRunning(task: $0.key) }
-        for id in Array(runningTasks.keys) + Array(temporaryRunning.keys) where since[id] == nil { since[id] = Date() }
+        for id in runningTasks.keys where since[id] == nil { since[id] = Date() }
         if since != runningSince { runningSince = since }
         // a task that ended is no longer paused
         let ended = pausedTasks.filter { old[$0] != nil && !isRunning(task: $0) }
@@ -920,11 +946,6 @@ final class NotchModel: ObservableObject {
         // Held pastes go back in at their places, marked as pastes like any other (APP-935)
         let whole = pasteProvenance.expanded(session.draft)
         let outgoing = PastedRequest(text: whole.text, provenance: whole.provenance).markedText
-        // While the temporary chat is on, everything typed goes to it, and nothing of it to the saved chat
-        if inTemporaryChat {
-            sendTemporary(text: PasteMarkers.removed(from: whole.text), outgoing: outgoing, sources: session.attachments)
-            return
-        }
         if handleLocalNotchCommand(session.draft) { return }
         // The bubble shows the words without leaked paste markers until the ack brings the daemon's text (APP-713)
         begin(request: PasteMarkers.removed(from: whole.text), outgoing: outgoing, sources: session.attachments,
@@ -991,8 +1012,18 @@ final class NotchModel: ObservableObject {
         }
     }
 
+    /// A message of the owner's, sent into the chat that shows (the composer's, `composerSource`): while the temporary
+    /// chat is on, it goes there and nothing of it to the saved chat; the same turn, session and stream either way.
     @discardableResult
     private func begin(request: String, outgoing: String, sources: [URL], keepComposer: Bool) -> UUID? {
+        let source = composerSource
+        return inChat(source, otherwise: nil) {
+            begin(request: request, outgoing: outgoing, sources: sources, keepComposer: keepComposer, in: source)
+        }
+    }
+
+    private func begin(request: String, outgoing: String, sources: [URL], keepComposer: Bool,
+                       in source: ChatSource) -> UUID? {
         localSettingReply = nil
         let held = (draft: session.draft, sources: session.attachments)
         if let active = session.activeTaskID { workSessions[active] = session }
@@ -1002,10 +1033,12 @@ final class NotchModel: ObservableObject {
         next.expand()
         session = next
         guard let id = session.beginWork() else { return nil }
+        if source == .temporary { temporary.turns.insert(id) }
         followsToday = true
         selectedDay = Calendar.current.startOfDay(for: Date())
         promptError = nil
-        // The sent message joins the saved conversation; an unsent draft is only ever in memory (L20).
+        // The sent message joins its conversation (kept only for the saved chat); an unsent draft is only ever in
+        // memory (L20).
         conversation.begin(id: id, request: session.draft, sources: session.attachments, unredacted: true)
         session.clearComposer()
         if keepComposer {
@@ -1349,8 +1382,10 @@ final class NotchModel: ObservableObject {
         // Questions are shown inline in today's chat; arriving never moves keyboard focus.
         followsToday = true
         selectedDay = Calendar.current.startOfDay(for: Date())
-        // The question comes forward: its row when it belongs to one, else its card at the end (APP-720).
-        let target = conversation.rowPlacements([approval])[approval.id]
+        // The question comes forward: its row when it belongs to one, else its card at the end (APP-720), in the chat
+        // it belongs to.
+        let source: ChatSource = isTemporaryApproval(approval) ? .temporary : .saved
+        let target = inChat(source, otherwise: nil) { conversation.rowPlacements([approval])[approval.id] }
             .map { TranscriptTarget.row(turn: $0.turnID, part: $0.part) } ?? TranscriptTarget.question(approval.id)
         requestScroll(target, .needsYou)
         announceAttention(key, item: approval.id)

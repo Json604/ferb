@@ -28,19 +28,21 @@ final class AttentionReconciliationTests: XCTestCase {
         XCTAssertFalse(restored.attentionTraceVisible)
     }
 
-    // decision: APP-301
+    // In both chats alike: the saved one and the temporary one (APP-1126).
+    // decision: APP-301, APP-1126
     func testNewFollowupRevealsButOrdinaryReplyStaysQuiet() {
-        let model = NotchModel(preferences: scratchDefaults())
-        model.session.draft = "Question"
-        let local = model.session.beginWork()!
-        model.conversation.begin(id: local, request: "Question", sources: [])
-        model.collapse()
-        model.receiveChatEvent(["type": "clarify", "text": "Which app?"], localID: local)
-        XCTAssertTrue(model.bodyVisible)
-        XCTAssertTrue(model.attentionTraceVisible)
-        model.collapse()
-        model.receiveChatEvent(["type": "clarify", "text": "Which app?"], localID: local)
-        XCTAssertFalse(model.bodyVisible)
+        for source in bothChats {
+            let (model, _, _) = chatModel(source, "Followup")
+            let local = model.sendFromComposer("Question")
+            model.collapse()
+            model.receiveChatEvent(["type": "clarify", "text": "Which app?"], localID: local)
+            XCTAssertTrue(model.bodyVisible, "\(source)")
+            XCTAssertTrue(model.attentionTraceVisible, "\(source)")
+            model.collapse()
+            model.receiveChatEvent(["type": "clarify", "text": "Which app?"], localID: local)
+            XCTAssertFalse(model.bodyVisible, "\(source)")
+            model.disconnectDaemon()
+        }
     }
 
     // decision: APP-577

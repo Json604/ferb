@@ -209,14 +209,27 @@ extension NotchModel {
         return turn
     }
 
-    /// One changed entry. Applied only to a turn this app did not send: an own entry (this install's client id) is
-    /// left to the turn's own stream, unless this run adopted its request. Questions (held apart, `pendingApprovals`,
-    /// from the bus), notices, posts, imported entries and entries of no message's turn are left as today's paths show
-    /// them. Quiet (`live` or not): no sound, no notch opening; what it changed is saved. Returns whether it did.
+    /// One changed entry of the saved chat's watch: its day is read first when it is another client's turn (with FERB's
+    /// database as the store, so a turn already kept there is found), then it is applied (`applyEntry`).
     @discardableResult
     func applyEntryChange(_ entry: ChatEntry, live: Bool) async -> Bool {
-        // A temporary chat's entry is never written here: that chat lives in the daemon's memory only
+        // A temporary chat's entry is never written here: that chat's entries come with its own reading
+        // (`applyTemporaryChat`), on its own conversation
         guard !entry.deleted, !TemporaryChat.isTemporary(entry.conversationID) else { return false }
+        if entry.clientID != clientID, entry.requestID != nil, ["message", "plan", "answer", "error"].contains(entry.kind) {
+            await loadEntryDay(entry)
+        }
+        return applyEntry(entry)
+    }
+
+    /// One changed entry, on the conversation the chat pipeline is on (`inChat`: the saved chat's, or the temporary
+    /// chat's). Applied only to a turn this app did not send: an own entry (this install's client id) is left to the
+    /// turn's own stream, unless this run adopted its request. Questions (held apart, `pendingApprovals`, from the
+    /// bus), notices, posts, imported entries and entries of no message's turn are left as today's paths show them.
+    /// Quiet: no sound, no notch opening; what it changed is saved (the saved chat only). Returns whether it did.
+    @discardableResult
+    func applyEntry(_ entry: ChatEntry) -> Bool {
+        guard !entry.deleted else { return false }
         // MEM-461: a notice the engine folded into another place is marked here too (by its id, the entry's ref) and
         // not drawn again
         if entry.kind == "notice", let ref = entry.ref, let place = entry.body["folded"] as? String, !place.isEmpty,
@@ -243,7 +256,6 @@ extension NotchModel {
             return false
         }
         guard ["message", "plan", "answer", "error"].contains(entry.kind) else { return false }
-        if !own { await loadEntryDay(entry) }
         let changed: UUID?
         if entry.kind == "message" {
             if conversation.turn(requestID: request) == nil, let filed = entryWatch.recovered.removeValue(forKey: request),
@@ -304,6 +316,14 @@ extension NotchModel {
     /// `chat.send`'s params for this install (ENG-14): its client id and a new submission id, so a resend after a
     /// dropped link never starts a second turn. Unchanged with a daemon without entries.
     func entrySendParams(_ params: [String: Any]) -> [String: Any] {
+        if chatSource == .temporary {
+            // the temporary chat (ORCH-699): `fresh`, and this install's id, so its entries are known as this app's
+            // turns; no submission id: the daemon keeps none for it, so a resend would be a second turn
+            var sent = params
+            sent["fresh"] = true
+            sent["client_id"] = clientID
+            return sent
+        }
         guard entryWatch.supported else { return params }
         var sent = params
         sent["client_id"] = clientID

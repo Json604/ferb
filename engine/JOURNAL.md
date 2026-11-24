@@ -11535,3 +11535,122 @@ an unknown `ferb` command exits 2, which Claude Code treats as a blocking hook e
 is his); that Claude Code writes its settings in the same two-space layout (an entry formatted otherwise would be
 re-laid out, its values unchanged). An older FERB.app or phone talking to this daemon is refused the sessions calls
 (-32001, "not allowed"; its Sessions page shows that as an error; nothing else breaks).
+
+## 2026-11-24 · 199 · The temporary chat is the normal chat with another data source: its answers open the notch
+
+**What the owner saw (APP-1126).** "issue in temp mode, it doesnt open when it answer is complete. i told you to match
+normal chat and temp chat UI, why are they even diff???" In the normal chat, an answer or a question opens the notch
+without taking focus (APP-301, APP-571), with the completion glow (APP-564) and its sound (APP-532, APP-533). In a
+temporary chat the notch stayed closed.
+
+**Cause (read from the code at bd89cad5).** FERB.app had a second copy of the chat for the temporary one, and the copy
+never had the arrival handling:
+- A message went through `sendTemporary` (TemporaryChatModel.swift:179), not `begin`/`submitToDaemon`. Its frames went to
+  `receiveTemporaryFrame` (:218), not `receiveChatEvent`/`handleChatEvent`. The copy kept the streamed words and played a
+  failure's sound (:241), but it never called `presentIncomingAnswer` (the first words), `showCompletionTrace` or
+  `presentResult` (the answer). So nothing opened the notch or glowed.
+- A task's end went to `receiveOutcome`, which returned early for a temporary task (DaemonConnection.swift:782): no
+  filing, no sound, no opening.
+- It was the same root as journal 194: a separate task list (`temporaryRunning`), a separate archive (a full entry fold
+  with `pending` sends on top, NotchCore TemporaryChat.swift) and separate send state. Each piece had to be patched
+  apart, and the arrival never was.
+
+**The fix: one pipeline, two data sources.**
+- `ChatSource` (`.saved`, `.temporary`, TemporaryChatModel.swift:6) names where a turn's conversation comes from.
+- `NotchModel.conversation` (NotchModel.swift:112) is now the conversation the chat pipeline is on. It is the saved chat
+  (`savedConversation`, the stored property, history and archive as before), or inside `inChat(.temporary)` (:122) the
+  temporary chat's `archive`. `entryWatch` (:142) is the same for the entries' state: the saved watch, or the temporary
+  chat's own (`temporary.entries`).
+- `inChat` is synchronous, like `withWorkSession` for sessions, so nothing comes in between. It runs nothing for a chat
+  that ended, so a late frame of an ended temporary chat reaches no chat, the saved one least of all.
+- `saveConversation` (Conversation.swift:122) writes only the saved chat. That is the one place where "never kept" is
+  enforced.
+- Each entry point runs on its turn's or task's chat:
+  - `begin` (NotchModel.swift:1018): the composer sends into the chat that shows. Its turn is noted in
+    `temporary.turns`.
+  - `submitToDaemon` (DaemonConnection.swift:317): `fresh: true` and this install's `client_id` through
+    `entrySendParams` (EntryWatch.swift:318). There is no submission id (the daemon keeps none for a fresh message), so
+    there is no resend.
+  - `receiveChatEvent` (:404) and `finishSubmission` (:379): by the turn.
+  - `receiveOutcome` (:809): by the event, or by the stream's own chat for its `outcome` frame (:534, :585).
+  - `receivePart`, `receiveStep` (:752, :768), the status's cards and checklists (:154, :163), the reconcile
+    (:274) and Inspect's trace (TaskList.swift:293): by the task.
+  - `announceApproval`'s placement (NotchModel.swift:1388): by the question's chat.
+- So a temporary chat's answer now goes through the same calls as the saved chat's:
+  - its first words: `presentIncomingAnswer` (DaemonConnection.swift:505);
+  - the answer: `showCompletionTrace` (:517), the outcome sound, `presentResult` (:521);
+  - the task's end: `handleOutcome`;
+  - a follow-up question: `announceAttention`;
+  - a question: `announceApproval`.
+- The turns other devices sent: the daemon's entries go through the saved chat's entry code.
+  - `applyEntryChange` is now the day-loading wrapper. `applyEntry` (EntryWatch.swift:231) is the synchronous core both
+    chats use.
+  - `applyTemporaryEntries` (TemporaryChatModel.swift:133) runs it on the temporary chat.
+  - A turn this app sent before a relaunch (its own `client_id`, but no stream of this run holds it) is taken up as the
+    saved chat takes up a resent message (`adopted`), unless a send still waits for its request id.
+- One running list: `runningTasks` holds both chats' tasks. `makeTaskList(_ source:)` (TaskList.swift:185) builds each
+  chat's work row from its own turns, sessions and tasks (APP-1125 unchanged).
+  - The profile menu and the menu bar now count a temporary chat's running task too. Journal 194 left that open.
+- The playground's temporary chat keeps the sender's `client_id` on its message entry, as the daemon does.
+
+**Removed.**
+- TemporaryChatModel.swift: `sendTemporary`, `receiveTemporaryFrame`, `changeTemporary`, `adoptTemporaryTasks`,
+  `noteTemporaryApproval` (now `noteTemporaryRow`), `TemporaryChatState.sends` and `formerTasks` (now `tasks`), and
+  the refresh after every own frame.
+- NotchCore TemporaryChat.swift: `PendingSend`, `pending`, `folded`, `requests`, `tasks`, `take`, `send`, `bind`,
+  `planned`, `stream`, `failed`, `ended`, `rebuild`, `owns(row:)` and its whole-snapshot fold. 179 lines became 63; what
+  stays is the reply's header, `entries(of:)`, the id marks and `holds(taskID:)`.
+- NotchModel: `temporaryRunning` and the `inTemporaryChat` branch of `startWork`. TaskList: `makeTemporaryTaskList` and
+  `invalidateTemporary`. DaemonConnection: the status's separate temporary rows, the `task.created`/`task.steered`
+  branches, `receiveOutcome`'s early return. Application: the `$temporaryRunning` watch.
+
+**Different by decision, and still different.**
+- Nothing is kept: `saveConversation`; the entry watch still refuses a temporary conversation's entry.
+- The dashed bubble and the banner (TemporaryChatViews.swift, ChatBody's banner and empty line).
+- No days: `visibleEntries` draws it whole; ChatHistoryStore's day windows skip it.
+- Ended only by its icon (ORCH-700).
+- Its tasks are never remembered to be taken up at a launch (APP-975 key, DaemonConnection.swift:478). A restart ends
+  the chat.
+
+**Evidence.**
+- The normal chat's arrival tests now run on both chats (`bothChats`, Tests/Support/BothChats.swift):
+  - ContinuousChatTests `testFirstStreamedAnswerReopensFERBAndShowsAttentionWithoutTakingFocus`;
+  - ChatDetailsTests `testFreshRepliesAndErrorsRevealWithoutFocusAndDuplicatesStayClosed`;
+  - AttentionReconciliationTests `testNewFollowupRevealsButOrdinaryReplyStaysQuiet`.
+- New BothChatsArrivalTests (5), each on both chats:
+  - a completed answer opens the notch with no focus and glows, with the same sound as the saved chat (none for done,
+    APP-533);
+  - a failed reply or an `error` opens it and sounds `.error` once;
+  - a task's end (its stream's `outcome`) opens it, glows, files its answer and ends its work row;
+  - a question opens it, glows as attention, sounds `.needsYou` once, is drawn in its own chat and doesn't open twice;
+  - only the data source differs: `fresh` on the temporary send, its turn in its archive and none in the saved chat.
+- Checked against the old behaviour: with presentation skipped for the temporary chat (as `receiveTemporaryFrame` did),
+  4 assertions fail in BothChatsArrivalTests and ChatDetailsTests.
+- TemporaryChatTests (8) were rewritten for the shared path:
+  - the composer's message is sent with `fresh` and `client_id`; its own entry read again never makes a second turn;
+    nothing reaches `chat.history.put`;
+  - a relaunch shows its own earlier turn and a phone's (the phone's marked as sent elsewhere);
+  - a task its stream's plan names moves to its work row, the saved chat's row never counting it.
+- Full `swift test` in apps/mac/FERBNotch: 950 tests, 8 skipped, 0 failures.
+- `kb check` ok.
+
+**The phones (read only, nothing changed).**
+- Both draw the temporary chat's rows with the same fold as the chat (`ChatModel.rows`), mark its rows and questions by
+  the status's `temporary`, and send with `fresh` straight to the Mac.
+- iPhone: it draws them in the shared `ChatList` (FerbDesign ChatList.swift:300, "shared by every conversation the
+  phone shows").
+- Android: the temporary chat is its own composable (Main.kt:497 `TemporaryChat`). It follows the end of the chat as
+  the chat does (`rememberChatFollow`), but it has no arrival fade-in (`motionItem`, Main.kt:482), no `ChatOverlays`
+  (the new-message pill and the way back to the latest), and its own-row test is `ChatRow.Owner`, where the chat's is
+  the outbox.
+- Neither phone has a notch to open. A phone's arrival is its list following the end, which both chats share. So the
+  owner's bug is not there.
+- Both learn of a temporary chat's change only through the status `rev`, with no streamed frames (journal 187). An
+  answer there shows later than in the normal chat.
+
+**Open / unverified.**
+- No live check (LIVE-1194, now naming APP-1126 and the arrival), and no installed build.
+- A temporary chat's turn sent from a phone: its result reaches the Mac only as entries. The daemon publishes no
+  `task.result` for a temporary task (ORCH-702), so the Mac doesn't open for it, where it does for a phone's task in
+  the normal chat.
+- Android's separate composable (above).

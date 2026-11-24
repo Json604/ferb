@@ -5116,9 +5116,9 @@ sitting = "after this build is installed"
 title = "A temporary chat starts from nothing, keeps nothing, and ends only by its icon"
 area = "orchestration"
 surface = "FERB.app with this build and a paired phone (Android or iPhone) with its build"
-request = "Tap the dashed bubble in the chat's header. Ask \"what's my name?\" and then a small task (\"make a note that says hello\"). Quit and reopen FERB.app, lock and unlock the phone: the temporary chat is still there on both. On a narrow phone, or with the text size at its largest, the bubble and the profile fold into one three-line button whose menu has Temporary chat. Tap the dashed bubble again (on either device). Ask the normal chat \"what did I just ask you?\"; open Tasks."
-pass = "In the temporary chat FERB doesn't know your name or anything from earlier chats, still does the task with its usual questions; the banner shows on Mac and phone; after the relaunch and unlock it is still on; one tap on the same icon ends it everywhere and the normal chat comes back as it was; the normal chat knows nothing of the temporary one and Tasks doesn't list its task."
-decisions = ["ORCH-699", "ORCH-700", "ORCH-701", "ORCH-702", "APP-1122", "PHN-818", "PHN-819", "PHN-820"]
+request = "Tap the dashed bubble in the chat's header. Ask \"what's my name?\" and then a small task (\"make a note that says hello\") with the notch closed. Quit and reopen FERB.app, lock and unlock the phone: the temporary chat is still there on both. On a narrow phone, or with the text size at its largest, the bubble and the profile fold into one three-line button whose menu has Temporary chat. Tap the dashed bubble again (on either device). Ask the normal chat \"what did I just ask you?\"; open Tasks."
+pass = "In the temporary chat FERB doesn't know your name or anything from earlier chats, still does the task with its usual questions; each answer and question opens the notch, glows and sounds as in the normal chat; the banner shows on Mac and phone; after the relaunch and unlock it is still on; one tap on the same icon ends it everywhere and the normal chat comes back as it was; the normal chat knows nothing of the temporary one and Tasks doesn't list its task."
+decisions = ["ORCH-699", "ORCH-700", "ORCH-701", "ORCH-702", "APP-1122", "APP-1126", "PHN-818", "PHN-819", "PHN-820"]
 sitting = "one sitting, about 10 minutes"
 
 [LIVE-1195]

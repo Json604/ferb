@@ -25,6 +25,8 @@ final class TemporaryChatTests: XCTestCase {
         private var _approvals: [[String: Any]] = []
         private var _running: [[String: Any]] = []
         private var _reply = "Fresh answer"
+        private var _script: [[String: Any]]?
+        private var held: [AsyncThrowingStream<[String: Any], Error>.Continuation] = []
         private var subscribers: [AsyncThrowingStream<[String: Any], Error>.Continuation] = []
 
         init(history: HistoryRPC = HistoryRPC()) { self.history = history }
@@ -34,6 +36,9 @@ final class TemporaryChatTests: XCTestCase {
         var running: [[String: Any]] { get { lock.withLock { _running } } set { lock.withLock { _running = newValue } } }
         /// What a fresh chat.send streams, after its message entry is kept.
         var reply: String { get { lock.withLock { _reply } } set { lock.withLock { _reply = newValue } } }
+        /// When set, a fresh chat.send streams its ack and then these frames (each with its request id), and stays
+        /// open (a task still running).
+        var script: [[String: Any]]? { get { lock.withLock { _script } } set { lock.withLock { _script = newValue } } }
 
         var calls: [(String, [String: Any])] { lock.withLock { recorded } }
         func params(of method: String) -> [[String: Any]] { calls.filter { $0.0 == method }.map(\.1) }
@@ -79,10 +84,19 @@ final class TemporaryChatTests: XCTestCase {
                     self.lock.withLock { self.subscribers.append(continuation) }
                 case "chat.send" where params["fresh"] as? Bool == true:
                     let text = params["text"] as? String ?? ""
-                    let (request, id, reply) = self.lock.withLock { ("temporary-r\(self._entries.count + 1)", self._id, self._reply) }
-                    self.keep("message", request: request, body: ["text": text, "attachments": [], "hidden": []])
+                    let (request, id, reply, script) = self.lock.withLock {
+                        ("temporary-r\(self._entries.count + 1)", self._id, self._reply, self._script)
+                    }
+                    // the message entry carries the sending app's id, as the daemon keeps it
+                    self.keep("message", request: request, client: params["client_id"] as? String,
+                              body: ["text": text, "attachments": [], "hidden": []])
                     continuation.yield(["type": "ack", "request_id": request, "fresh": true,
                                         "conversation": "temporary:" + id])
+                    if let script {
+                        for frame in script { continuation.yield(frame.merging(["request_id": request]) { $1 }) }
+                        self.lock.withLock { self.held.append(continuation) }
+                        return
+                    }
                     continuation.yield(["type": "reply_delta", "request_id": request, "text": "Fresh"])
                     self.keep("answer", request: request, body: ["text": reply, "status": "done"])
                     continuation.yield(["type": "reply", "request_id": request, "text": reply, "status": "done"])
@@ -94,7 +108,7 @@ final class TemporaryChatTests: XCTestCase {
         }
 
         /// Keeps an entry of the temporary chat (on, if it wasn't) and tells the bus.
-        func keep(_ kind: String, request: String, task: String? = nil, body: [String: Any]) {
+        func keep(_ kind: String, request: String, task: String? = nil, client: String? = nil, body: [String: Any]) {
             let (id, rev) = lock.withLock {
                 if !_on { _on = true; _rev = 1 }
                 let pos = _entries.count + 1
@@ -103,6 +117,7 @@ final class TemporaryChatTests: XCTestCase {
                                             "request_id": request, "created_at": "2026-11-23T10:00:0\(min(pos, 9))Z",
                                             "updated_at": "2026-11-23T10:00:00Z", "day": "2026-11-23", "body": body]
                 if let task { entry["task_id"] = task }
+                if let client { entry["client_id"] = client }
                 _entries.append(entry)
                 _rev += 1
                 return (_id, _rev)
@@ -118,15 +133,16 @@ final class TemporaryChatTests: XCTestCase {
         }
 
         func endAll() {
-            for subscriber in lock.withLock({ subscribers }) { subscriber.finish() }
-            lock.withLock { subscribers = [] }
+            for subscriber in lock.withLock({ subscribers + held }) { subscriber.finish() }
+            lock.withLock { subscribers = []; held = [] }
         }
     }
 
     // MARK: helpers
 
-    private func connected(_ rpc: TemporaryRPC, _ name: String) throws -> NotchModel {
+    private func connected(_ rpc: TemporaryRPC, _ name: String, clientID: String? = nil) throws -> NotchModel {
         let defaults = scratchDefaults(name)
+        if let clientID { defaults.set(clientID, forKey: NotchModel.clientIDKey) }
         defaults.set(try JSONEncoder().encode(HistoryImport(at: Date(), entries: 0, archiveSHA256: "")),
                      forKey: NotchModel.historyImportKey)
         let model = NotchModel(rpc: rpc, preferences: defaults)
@@ -242,7 +258,10 @@ final class TemporaryChatTests: XCTestCase {
         XCTAssertEqual(send["fresh"] as? Bool, true)
         XCTAssertEqual(send["text"] as? String, "Draft a haiku about rain")
         XCTAssertTrue(model.session.draft.isEmpty, "the composer clears on sending")
-        await until { model.temporaryChat?.pending.isEmpty == true }
+        await until { model.submissions.isEmpty }
+        // its own message entry, read again with the chat, is the turn already shown: never a second one
+        await model.refreshTemporaryChat()
+        XCTAssertEqual(shown(model), ["Draft a haiku about rain", "Fresh answer"])
 
         try await Task.sleep(for: .milliseconds(400))        // longer than the history's write debounce
         XCTAssertEqual(model.conversation, saved, "no turn of the temporary chat in the saved chat")
@@ -254,15 +273,22 @@ final class TemporaryChatTests: XCTestCase {
 
     // MARK: relaunch and the daemon's word
 
-    // Relaunching FERB.app doesn't end it: the new app reads it from the daemon and shows it.
-    // decision: ORCH-700
+    // Relaunching FERB.app doesn't end it: the new app reads it from the daemon and shows it, its own earlier turns
+    // (sent from this Mac before the relaunch, so no stream of this run holds them) taken up from the entries.
+    // decision: ORCH-700, APP-1126
     func testARelaunchKeepsIt() async throws {
         let rpc = TemporaryRPC()
-        rpc.keep("message", request: "temporary-p1", body: ["text": "Still here?", "attachments": [], "hidden": []])
+        rpc.keep("message", request: "temporary-p1", client: "mac-1",
+                 body: ["text": "Still here?", "attachments": [], "hidden": []])
         rpc.keep("answer", request: "temporary-p1", body: ["text": "Yes", "status": "done"])
-        let model = try connected(rpc, "TempRelaunch")
+        rpc.keep("message", request: "temporary-p2", client: "phone-1",
+                 body: ["text": "And from the phone?", "attachments": [], "hidden": []])
+        rpc.keep("answer", request: "temporary-p2", body: ["text": "Also", "status": "done"])
+        let model = try connected(rpc, "TempRelaunch", clientID: "mac-1")
         await until { model.inTemporaryChat }
-        XCTAssertEqual(shown(model), ["Still here?", "Yes"])
+        XCTAssertEqual(shown(model), ["Still here?", "Yes", "And from the phone?", "Also"])
+        XCTAssertEqual(model.shownArchive.turns.map { $0.sentElsewhere == true }, [false, true],
+                       "its own turn as its own, the phone's as sent elsewhere, as in the saved chat")
         XCTAssertTrue(rpc.params(of: "chat.temporary.set").isEmpty, "only the icon turns it on or off")
     }
 
@@ -303,7 +329,7 @@ final class TemporaryChatTests: XCTestCase {
         await until { model.inTemporaryChat && model.pendingApprovals.count == 2 }
         let saved = model.conversation
         XCTAssertEqual(Set(model.inlineQuestions.map(\.id)), ["ap-temp", "ap-saved"])
-        XCTAssertEqual(Array(model.runningTasks.keys), ["task-saved"], "its task isn't the saved chat's work")
+        XCTAssertEqual(model.makeTaskList(.saved).rows.map(\.id), ["task-saved"], "its task isn't the saved chat's work")
 
         model.receiveOutcome(["task_id": "task-temp", "request_id": "temporary-p1", "status": "done",
                               "answer": "Booked"])
@@ -338,7 +364,7 @@ final class TemporaryChatTests: XCTestCase {
                         "started_at": "2026-11-23T10:00:00Z"],
                        ["task_id": "task-saved", "goal": "Send the mail", "name": "Send the mail"]]
         let model = try connected(rpc, "TempWorkRow")
-        await until { model.inTemporaryChat && model.activeTaskCount == 1 && !model.runningTasks.isEmpty }
+        await until { model.inTemporaryChat && model.activeTaskCount == 1 && model.runningTasks.count == 2 }
 
         XCTAssertTrue(model.showsWorkRow, "the work row shows under the temporary chat")
         XCTAssertEqual(model.workRowText, "1 active task")
@@ -348,7 +374,7 @@ final class TemporaryChatTests: XCTestCase {
         let pictured = model.taskItems.filter { $0.isUnderway && !model.rowsShowPreview(of: $0.backendID ?? $0.id) }
         XCTAssertEqual(pictured.map(\.id), ["task-temp"], "its round live picture by the row")
         XCTAssertEqual(model.preview(for: try XCTUnwrap(pictured.first)).taskID, "task-temp")
-        XCTAssertEqual(Array(model.runningTasks.keys), ["task-saved"], "still not the saved chat's work")
+        XCTAssertEqual(model.makeTaskList(.saved).rows.map(\.id), ["task-saved"], "still not the saved chat's work")
 
         // its result ends its row there; the saved chat's own task is still the saved chat's
         rpc.running = [["task_id": "task-saved", "goal": "Send the mail", "name": "Send the mail"]]
@@ -364,23 +390,23 @@ final class TemporaryChatTests: XCTestCase {
     }
 
     // A message sent here: its task (named by the stream's `plan`) runs in the temporary chat's work row, even when the
-    // bus's `task.created` came first and the saved chat took it for one of its own.
-    // decision: APP-1125
+    // bus's `task.created` came first, before the chat knew the task as its own.
+    // decision: APP-1125, APP-1126
     func testATaskItStartsMovesToItsWorkRow() async throws {
         let rpc = TemporaryRPC()
         rpc.keep("message", request: "temporary-p1", body: ["text": "Hi", "attachments": [], "hidden": []])
         let model = try connected(rpc, "TempPlan")
-        await until { model.inTemporaryChat }
+        await until { model.inTemporaryChat && rpc.params(of: "logs.subscribe").count == 1 }
         model.receiveBusEvent(["topic": "task.created", "data": ["task_id": "task-new", "goal": "Find a table",
                                                                  "name": "Find a table"]])
-        XCTAssertEqual(model.runningTasks["task-new"], "Find a table", "not known as the temporary chat's yet")
+        XCTAssertEqual(model.makeTaskList(.saved).rows.map(\.id), ["task-new"], "not known as the temporary chat's yet")
 
-        let id = UUID()
-        model.temporaryChat?.send(id: id, text: "Find a table", sources: [], at: Date())
-        model.receiveTemporaryFrame(["type": "plan", "request_id": "temporary-p2", "task_id": "task-new",
-                                     "name": "Find a table"], id: id)
-        XCTAssertNil(model.runningTasks["task-new"])
-        XCTAssertEqual(model.temporaryRunning["task-new"], "Find a table")
+        rpc.script = [["type": "plan", "task_id": "task-new", "name": "Find a table", "text": "I'll look."]]
+        model.session.draft = "Find a table"
+        model.startWork()
+        await until { model.shownArchive.turns.contains { $0.backendTaskID == "task-new" } }
+        XCTAssertTrue(model.makeTaskList(.saved).rows.isEmpty, "the saved chat's row never counts it")
+        XCTAssertEqual(model.runningTasks["task-new"], "Find a table")
         XCTAssertEqual(model.workRowText, "1 active task")
         XCTAssertEqual(model.taskItems.map(\.id), ["task-new"])
     }

@@ -123,7 +123,8 @@ extension NotchModel {
             if let mode = status["insomnia"] { insomnia.apply(mode) }     // APP-980: a missed insomnia.changed
             // The temporary chat as it stands (a missed chat.temporary); a status read begun before a tap says nothing
             if temporary.taps == temporaryTaps { receiveTemporaryStatus(status["temporary"]) }
-            // A temporary chat's tasks never reach the saved chat: not as results, rows, cards or the task taken up
+            // A temporary chat's tasks never reach the saved chat: not as results or the task taken up (the daemon
+            // keeps no result of one, so none is listed)
             let results = (status["results"] as? [[String: Any]] ?? []).filter { !isTemporaryRow($0) }
             for result in results { receiveOutcome(result, announce: false, recordEvent: false) }
             acknowledgeResults(results.compactMap { $0["task_id"] as? String })
@@ -133,37 +134,39 @@ extension NotchModel {
             guard taskStateRevision == snapshotRevision else { return }
             changeIfNeeded(\.connectionStatus, "Connected to FERB")
             let allRunning = status["running"] as? [[String: Any]] ?? []
-            let running = allRunning.filter { !isTemporaryRow($0) }
-            // the temporary chat's own running tasks: its work row while it shows (none while the daemon says it is off;
-            // its status says so even before this app read the chat itself)
-            let temporaryRows = status["temporary"] is [String: Any] ? allRunning.filter(isTemporaryRow) : []
-            func headings(_ rows: [[String: Any]]) -> [String: String] {
-                Dictionary(rows.compactMap { row in
-                    guard let id = row["task_id"] as? String, !id.isEmpty else { return nil }
-                    return (id, Self.heading(row))
-                }, uniquingKeysWith: { _, last in last })
-            }
-            changeIfNeeded(\.temporaryRunning, headings(temporaryRows))
-            changeIfNeeded(\.runningTasks, headings(running))
-            for row in running + temporaryRows {
+            allRunning.forEach(noteTemporaryRow)                // a row marked temporary is that chat's task
+            // Both chats' running tasks; a temporary chat's only while the daemon says one is on (it stops them when it
+            // ends). Each chat's work row counts its own (makeTaskList).
+            let temporaryOn = status["temporary"] is [String: Any]
+            let running = allRunning.filter { temporaryOn || !isTemporaryRow($0) }
+            changeIfNeeded(\.runningTasks, Dictionary(running.compactMap { row in
+                guard let id = row["task_id"] as? String, !id.isEmpty else { return nil }
+                return (id, Self.heading(row))
+            }, uniquingKeysWith: { _, last in last }))
+            for row in running {
                 if let id = row["task_id"] as? String, isRunning(task: id),
                    let started = LiveProgress.time(row["started_at"]), runningSince[id] != started { runningSince[id] = started }
             }
             // A multi-part task's rows as they stand (ORCH-319): live rows after a reconnect, or for a task this
             // chat has no turn for.
-            var cardsChanged = false
+            // Each in its own chat's conversation.
             for row in running {
-                guard let id = row["task_id"] as? String, let card = TurnCard(row["card"], taskID: id),
-                      watchedTurn(taskID: id, requestID: card.requestID.isEmpty ? nil : card.requestID) == nil else { continue }
-                if changeConversation({ $0.showCard(card, goal: Self.heading(row, empty: "")) }) { cardsChanged = true }
+                inChat(source(of: row)) {
+                    guard let id = row["task_id"] as? String, let card = TurnCard(row["card"], taskID: id),
+                          watchedTurn(taskID: id, requestID: card.requestID.isEmpty ? nil : card.requestID) == nil,
+                          changeConversation({ $0.showCard(card, goal: Self.heading(row, empty: "")) }) else { return }
+                    saveConversation()
+                }
             }
             // A single ask's checklist as it stands (APP-894): its steps' live states after a reconnect.
             for row in running {
-                guard let id = row["task_id"] as? String, let checklist = StepChecklist(row["checklist"], taskID: id),
-                      watchedTurn(taskID: id, requestID: nil) == nil else { continue }
-                if changeConversation({ $0.showChecklist(checklist) }) { cardsChanged = true }
+                inChat(source(of: row)) {
+                    guard let id = row["task_id"] as? String, let checklist = StepChecklist(row["checklist"], taskID: id),
+                          watchedTurn(taskID: id, requestID: nil) == nil,
+                          changeConversation({ $0.showChecklist(checklist) }) else { return }
+                    saveConversation()
+                }
             }
-            if cardsChanged { saveConversation() }
             // Standing work only for a task still running (L31).
             let loops = status["loops"] as? [[String: Any]] ?? []
             changeIfNeeded(\.standingWork, Dictionary(loops.compactMap { row in
@@ -174,7 +177,7 @@ extension NotchModel {
             // chat.status names a question's root task only: what the live event said (the step's task id, the part,
             // a runtime offer) is kept, so a question stays in its card row.
             let approvalRows = status["approvals"] as? [[String: Any]] ?? []
-            approvalRows.forEach(noteTemporaryApproval)         // a temporary chat's question shows only there
+            approvalRows.forEach(noteTemporaryRow)              // a temporary chat's question shows only there
             let approvals = approvalRows.map(keepKnownFields).compactMap(normalizeApproval)
             let changed = pendingApprovals != approvals
             if changed { pendingApprovals = approvals; promptError = nil; onBackgroundChange?(true) }
@@ -201,7 +204,8 @@ extension NotchModel {
                 } else if let remembered,
                           let result = results.first(where: { $0["task_id"] as? String == remembered }) {
                     restoreResult(result)
-                } else if let id = running.last?["task_id"] as? String, let goal = runningTasks[id] {
+                } else if let id = running.last(where: { !isTemporaryRow($0) })?["task_id"] as? String,
+                          let goal = runningTasks[id] {
                     session.resumeBackendTask(id, goal: goal)
                     preferences.set(id, forKey: Self.rememberedTaskKey)
                 } else if let remembered {
@@ -267,12 +271,14 @@ extension NotchModel {
                 let notice = "This task is no longer running; FERB has no confirmed final response."
                 if session.backendTaskID == taskID { session.detachUnavailableTask(notice) }
                 workSessions = workSessions.filter { $0.value.backendTaskID != taskID }
-                for turn in conversation.turns where turn.backendTaskID == taskID && ["working", "needs_user"].contains(turn.status)
-                    && !watchWrites(turn) {
-                    conversation.finish(id: turn.id, answer: turn.answer, status: "interrupted", artifacts: turn.artifacts,
-                        displayText: turn.displayText, verified: turn.isVerified, inferred: true)
+                inChat(source(ofTask: taskID)) {
+                    for turn in conversation.turns where turn.backendTaskID == taskID
+                        && ["working", "needs_user"].contains(turn.status) && !watchWrites(turn) {
+                        conversation.finish(id: turn.id, answer: turn.answer, status: "interrupted", artifacts: turn.artifacts,
+                            displayText: turn.displayText, verified: turn.isVerified, inferred: true)
+                    }
+                    saveConversation()
                 }
-                saveConversation()
             }
             reconciledMissingTasks.insert(taskID)
         } catch { connectionStatus = error.localizedDescription }
@@ -306,13 +312,15 @@ extension NotchModel {
         expand()
     }
 
-    /// Typed or dictated, a message is sent the same way: FERB replies in text only, never aloud (VOICE-409).
+    /// Typed or dictated, a message is sent the same way: FERB replies in text only, never aloud (VOICE-409). Into
+    /// either chat: a temporary chat's turn goes with `fresh` (ORCH-699), and each frame is handled on its chat.
     func submitToDaemon(localID: UUID, text: String, sources: [URL]) {
+        let source = self.source(ofTurn: localID)
         submissions[localID] = Task { [weak self] in
             guard let self else { return }
             defer {
                 // Progress arrives only on this stream; once it ends, a live line would show a stale step.
-                self.conversation.clearLiveLine(id: localID)
+                self.inChat(source) { self.conversation.clearLiveLine(id: localID) }
                 self.finishSubmission(localID: localID)
                 self.submissions.removeValue(forKey: localID)
             }
@@ -325,7 +333,7 @@ extension NotchModel {
                 var params: [String: Any] = ["session_id": self.conversationID!, "text": text]
                 if !sources.isEmpty { params["input_paths"] = sources.map(\.path) }
                 // ENG-14: with the shared conversation, this install's ids, so the one resend below is safe
-                params = self.entrySendParams(params)
+                params = self.inChat(source, otherwise: params) { self.entrySendParams(params) }
                 let resendable = params["submission_id"] != nil
                 var resent = false
                 while true {
@@ -335,7 +343,9 @@ extension NotchModel {
                             guard !Task.isCancelled else { return }
                             heard = true
                             self.receiveChatEvent(event, localID: localID)
-                            if event["type"] as? String == "ack" { await self.receiveOwnAck(event, localID: localID) }
+                            if event["type"] as? String == "ack", source == .saved {
+                                await self.receiveOwnAck(event, localID: localID)
+                            }
                         }
                         break
                     } catch {
@@ -345,7 +355,9 @@ extension NotchModel {
                         resent = true
                     }
                 }
-                if self.conversation.turns.contains(where: { $0.id == localID && $0.isProvisional }) {
+                if self.inChat(source, otherwise: false, {
+                    self.conversation.turns.contains(where: { $0.id == localID && $0.isProvisional })
+                }) {
                     self.receiveChatEvent(["type": "reply_abort", "reason": "The stream ended before FERB confirmed its reply."], localID: localID)
                     self.withWorkSession(localID) {
                         self.session.waitForOwner("The response was interrupted. It has not been confirmed.")
@@ -365,6 +377,10 @@ extension NotchModel {
     }
 
     func finishSubmission(localID: UUID) {
+        guard source(ofTurn: localID) == chatSource else {
+            inChat(source(ofTurn: localID)) { finishSubmission(localID: localID) }
+            return
+        }
         // A resent message the engine already had (ENG-14): its turn is filled from the entries, nothing went wrong
         if entryWatch.adoptedTurns.contains(localID) {
             entryWatch.ackSeq.removeValue(forKey: localID)
@@ -383,7 +399,13 @@ extension NotchModel {
         }
     }
 
+    /// One frame of a message's stream, handled on the conversation of the chat it was sent into (`inChat`): the same
+    /// handling, opening, glow and sound for the saved chat's and the temporary chat's.
     func receiveChatEvent(_ event: [String: Any], localID: UUID) {
+        guard source(ofTurn: localID) == chatSource else {
+            inChat(source(ofTurn: localID)) { receiveChatEvent(event, localID: localID) }
+            return
+        }
         let previousPlan = conversation.turns.first(where: { $0.id == localID })?.plan
         var applied = false
         var inSession = false
@@ -452,7 +474,8 @@ extension NotchModel {
             // Several asks (ORCH-319): the asks answered at once, receipts, the plan line, and the card.
             conversation.showPlan(id: localID, text: event["text"] as? String ?? "", details: event)
             saveConversation()
-            preferences.set(id, forKey: Self.rememberedTaskKey)        // a newer task of this chat replaces it
+            // a newer task of this chat replaces it; a temporary chat's is never taken up again (a restart ends it)
+            if chatSource == .saved { preferences.set(id, forKey: Self.rememberedTaskKey) }
             runningTasks[id] = Self.heading(event, empty: session.draft)
             if pendingStops.remove(localID) != nil { requestDaemonStop() }
         case "part":
@@ -508,7 +531,7 @@ extension NotchModel {
             session.finishMerged()
             saveConversation()
             onBackgroundChange?(true)
-        case "outcome": receiveOutcome(event)
+        case "outcome": receiveOutcome(event, in: chatSource)      // its own stream's: the chat it was sent into
         case "error":
             let message = event["text"] as? String ?? "FERB could not start this request."
             conversation.finish(id: localID, answer: message, status: "failed", artifacts: [])
@@ -560,7 +583,7 @@ extension NotchModel {
             presentResult(event)
             return true
         case "outcome":
-            receiveOutcome(event)
+            receiveOutcome(event, in: chatSource)
             return true
         default:
             return false
@@ -583,10 +606,10 @@ extension NotchModel {
         var normalized = value
         if let taskID = value["task_id"] as? String {
             normalized["source_task_id"] = value["source_task_id"] ?? taskID     // ties a step's question to its row
-            var roots = Set(runningTasks.keys).union(temporaryRunning.keys)
-            roots.formUnion(temporaryChat?.tasks ?? [])
+            var roots = Set(runningTasks.keys).union(temporary.tasks)
+            roots.formUnion(temporaryChat?.archive.turns.compactMap(\.backendTaskID) ?? [])
             roots.formUnion(workSessions.values.compactMap(\.backendTaskID))
-            roots.formUnion(conversation.turns.compactMap(\.backendTaskID))
+            roots.formUnion(savedConversation.turns.compactMap(\.backendTaskID))
             if let current = session.backendTaskID { roots.insert(current) }
             if let root = roots.filter({ !$0.isEmpty && (taskID == $0 || taskID.hasPrefix($0 + ".")) })
                 .max(by: { $0.count < $1.count }) {
@@ -631,7 +654,7 @@ extension NotchModel {
         case "timer.changed":                            // DMN-548: set, cancelled (by any path) or fired
             receiveTimerChange(data)
         case "approval.requested":
-            noteTemporaryApproval(data)                  // a temporary chat's question shows only there
+            noteTemporaryRow(data)                       // a temporary chat's question shows only there
             guard let approval = normalizeApproval(data), !pendingApprovals.contains(where: { $0.id == approval.id }) else { return }
             pendingApprovals.append(approval)
             if approval.taskID == session.backendTaskID, approval.taskID != nil { session.waitForOwner(approval.reason) }
@@ -642,16 +665,11 @@ extension NotchModel {
             promptError = nil
             onBackgroundChange?(true)
         case "task.steered":
-            if let taskID, data["goal"] is String || data["name"] is String {
-                if temporaryRunning[taskID] != nil { temporaryRunning[taskID] = Self.heading(data) }
-                else { runningTasks[taskID] = Self.heading(data) }
-            }
+            if let taskID, data["goal"] is String || data["name"] is String { runningTasks[taskID] = Self.heading(data) }
         case "task.created":
-            // a temporary chat's task runs in its work row (one not known as its yet moves there when its turn comes)
-            if let taskID, temporaryChat?.owns(taskID: taskID) == true {
-                temporaryRunning[taskID] = Self.heading(data)
-                taskActivities[taskID] = []
-            } else if let taskID, !isTemporaryTask(taskID) {
+            // either chat's task (one not known as the temporary chat's yet counts there once its turn names it); none
+            // of a temporary chat that ended
+            if let taskID, !(isTemporaryTask(taskID) && temporaryChat == nil) {
                 runningTasks[taskID] = Self.heading(data)
                 taskActivities[taskID] = []
                 knownCompletedTasks.remove(taskID)
@@ -732,6 +750,10 @@ extension NotchModel {
     /// A row's change (ORCH-319), from the turn's stream or the bus: applied once, by its seq, to the card that
     /// shows it. Rows fill quietly: the notch opens only for a question or the task's end (APP-301).
     func receivePart(_ event: [String: Any]) {
+        if let task = event["task_id"] as? String, source(ofTask: task) != chatSource {
+            inChat(source(ofTask: task)) { receivePart(event) }      // on its own chat's card
+            return
+        }
         guard let turnID = conversation.applyPart(event) else { return }
         saveConversation()
         onBackgroundChange?(true)
@@ -744,6 +766,10 @@ extension NotchModel {
 
     /// A plan step's state (ORCH-531): its row's words and spinner. A step no longer running drops its live line.
     func receiveStep(_ event: [String: Any]) {
+        if let task = event["task_id"] as? String, source(ofTask: task) != chatSource {
+            inChat(source(ofTask: task)) { receiveStep(event) }      // on its own chat's turn
+            return
+        }
         guard conversation.applyStep(event) != nil else { return }
         if let step = event["step_task_id"] as? String, event["status"] as? String != "running" {
             stepLive.removeValue(forKey: step)
@@ -777,15 +803,23 @@ extension NotchModel {
         }
     }
 
-    func receiveOutcome(_ event: [String: Any], announce: Bool = true, recordEvent: Bool = true) {
+    /// A task's end, filed and announced in the chat it belongs to (`inChat`): the same opening, glow and sound for the
+    /// saved chat's and the temporary chat's; a task of a temporary chat that ended reaches no chat. `known`: the chat a
+    /// message's own stream was sent into (its outcome is that chat's whatever its fields say).
+    func receiveOutcome(_ event: [String: Any], announce: Bool = true, recordEvent: Bool = true,
+                        in known: ChatSource? = nil) {
         guard let taskID = event["task_id"] as? String else { return }
-        // A temporary chat's task ends in its own entries, never in the saved chat (TemporaryChatModel.swift)
-        if isTemporaryTask(taskID) || isTemporaryRow(event) {
-            runningTasks.removeValue(forKey: taskID)
-            temporaryRunning.removeValue(forKey: taskID)
-            taskActivities.removeValue(forKey: taskID)
-            pausedTasks.remove(taskID)
-            if inTemporaryChat { Task { await refreshTemporaryChat() } }
+        let source = known ?? self.source(of: event)
+        if source != chatSource {
+            let filed = inChat(source, otherwise: false) {
+                receiveOutcome(event, announce: announce, recordEvent: recordEvent, in: source)
+                return true
+            }
+            if !filed {
+                runningTasks.removeValue(forKey: taskID)
+                taskActivities.removeValue(forKey: taskID)
+                pausedTasks.remove(taskID)
+            }
             return
         }
         if recordEvent { taskStateRevision += 1 }

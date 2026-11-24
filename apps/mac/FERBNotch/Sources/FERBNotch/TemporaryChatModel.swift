@@ -1,27 +1,48 @@
 import Foundation
 import NotchCore
 
-/// The temporary chat's housekeeping (TemporaryChat): which reads and taps are newer, the streams of the messages sent
-/// into it, and the tasks of chats that ended this run (their late rows never reach the saved chat).
+/// Where a turn's conversation comes from and goes: the saved chat (the chat history, APP-805) or the temporary chat
+/// (the daemon's memory, never kept). The chat pipeline is one; only this differs.
+enum ChatSource: Equatable {
+    case saved
+    case temporary
+}
+
+/// The temporary chat's housekeeping (TemporaryChat): which reads and taps are newer, which turns, tasks and questions
+/// are its own, and the state of its entries as the shared entry path reads them.
 @MainActor
 final class TemporaryChatState {
     /// Bumped by every read of `chat.temporary.get` and every tap of the icon: an answer to an older one is stale.
     var reads = 0
     var taps = 0
-    /// The streams of the messages sent into the temporary chat, by their turn.
-    var sends: [UUID: Task<Void, Never>] = [:]
-    /// Tasks of temporary chats that ended while this app ran.
-    var formerTasks: Set<String> = []
+    /// The turns this app sent into a temporary chat this run: their frames go to that chat, never the saved one.
+    var turns: Set<UUID> = []
+    /// Tasks known to be a temporary chat's this run (chat.status rows marked `temporary`, those of chats that ended):
+    /// with the tasks its turns hold, they never reach the saved chat.
+    var tasks: Set<String> = []
     /// Open questions a temporary chat's task asks (marked so by the daemon): shown only in the temporary chat.
     var approvalIDs: Set<String> = []
+    /// The temporary chat's entries as the shared entry path keeps them (`EntryWatch.swift`): a new one per chat.
+    var entries = TemporaryChatState.newEntries()
+
+    /// A temporary chat is all entries (the daemon keeps it so, whatever `chat.attach` says of the saved chat).
+    static func newEntries() -> EntryWatchState {
+        let entries = EntryWatchState()
+        entries.supported = true
+        return entries
+    }
 }
 
 /// The temporary chat (owner 2026-11-23: "temporary chat - where there are all the tools n shit BUT no prior context
 /// given"; "it shodln be the same small icon that turned it on taht turns it off"). One icon in the chat's header turns
-/// it on and off (`chat.temporary.set`); while it is on the chat shows only it, read from the daemon, and the composer
-/// sends into it (`chat.send` with `fresh`). Nothing of it is saved here: it never touches `conversation`, so no
-/// chat history row, archive or entry-watch write can carry it. Relaunching FERB.app doesn't end it (it is read again
-/// at each connection); the daemon saying it is off (its bus event, its status, its reply) drops it here.
+/// it on and off (`chat.temporary.set`); while it is on the chat shows only it and the composer sends into it
+/// (`chat.send` with `fresh`). It goes through the same pipeline as the saved chat (owner 2026-11-24: "i told you to
+/// match normal chat and temp chat UI, why are they even diff???"): its messages are sent by `begin`/`submitToDaemon`,
+/// their frames handled by `receiveChatEvent`, its tasks' outcomes by `receiveOutcome`, its questions placed by
+/// `announceApproval`, the turns other devices sent by the entry watch's `applyEntry`, each run on its conversation by
+/// `inChat(.temporary)`. So its answers open the notch, glow and sound as the saved chat's do. What differs is the
+/// data source: its conversation is read from the daemon's memory and is never saved (`saveConversation` writes only
+/// the saved chat), relaunching FERB.app doesn't end it, and the daemon saying it is off drops it here.
 @MainActor
 extension NotchModel {
     // The owner-facing words (contract, 2026-11-23)
@@ -35,7 +56,19 @@ extension NotchModel {
     var inTemporaryChat: Bool { temporaryChat != nil }
 
     /// The archive the chat draws now: the temporary chat's while it is on, else the saved one.
-    var shownArchive: ConversationArchive { temporaryChat?.archive ?? conversation }
+    var shownArchive: ConversationArchive { temporaryChat?.archive ?? savedConversation }
+
+    /// The chat the composer sends into now.
+    var composerSource: ChatSource { inTemporaryChat ? .temporary : .saved }
+
+    /// The chat a turn of this app's is in.
+    func source(ofTurn id: UUID) -> ChatSource { temporary.turns.contains(id) ? .temporary : .saved }
+
+    /// The chat a task is in.
+    func source(ofTask id: String?) -> ChatSource { isTemporaryTask(id) ? .temporary : .saved }
+
+    /// The chat a chat.status row or a bus event's data is about.
+    func source(of row: [String: Any]) -> ChatSource { isTemporaryRow(row) ? .temporary : .saved }
 
     /// The icon: on when off, off when on. A failure says so and changes nothing.
     func toggleTemporaryChat() {
@@ -60,8 +93,8 @@ extension NotchModel {
         }
     }
 
-    /// Reads the temporary chat as the daemon holds it (at each connection, on its bus event, after a frame of an own
-    /// message). An unanswered read changes nothing; an answer older than a newer read or a tap is dropped.
+    /// Reads the temporary chat as the daemon holds it (at each connection, on its bus event, on a status that names a
+    /// change not held yet). An unanswered read changes nothing; an answer older than a newer read or a tap is dropped.
     func refreshTemporaryChat() async {
         temporary.reads += 1
         let read = temporary.reads, taps = temporary.taps
@@ -70,18 +103,18 @@ extension NotchModel {
         applyTemporaryChat(reply)
     }
 
-    /// A reply of `chat.temporary.get` or `.set`: shown when on, dropped when off.
+    /// A reply of `chat.temporary.get` or `.set`: shown when on (its entries applied as the saved chat's watch applies
+    /// another device's), dropped when off.
     func applyTemporaryChat(_ reply: [String: Any]) {
-        guard var next = TemporaryChat(reply: reply) else { endTemporaryChat(); return }
-        if let current = temporaryChat {
-            if current.id == next.id {
-                var kept = current
-                kept.take(next)
-                next = kept
-            } else {
-                forgetTemporaryChat(current)            // another temporary chat: the old one's sends are over
-            }
+        guard let next = TemporaryChat(reply: reply) else { endTemporaryChat(); return }
+        if let current = temporaryChat, current.id == next.id {
+            var kept = current
+            kept.rev = next.rev
+            kept.startedAt = next.startedAt
+            changeIfNeeded(\.temporaryChat, kept)
         } else {
+            if let current = temporaryChat { forgetTemporaryChat(current) }   // another temporary chat: the old one's over
+            temporaryChat = next
             // the temporary chat shows with its composer, wherever the saved chat was
             showingHistory = false
             if !viewingToday {
@@ -89,18 +122,26 @@ extension NotchModel {
                 selectedDay = Calendar.current.startOfDay(for: Date())
             }
         }
-        changeIfNeeded(\.temporaryChat, next)
-        adoptTemporaryTasks()
+        applyTemporaryEntries(TemporaryChat.entries(of: reply))
         onBackgroundChange?(true)
     }
 
-    /// A running task the saved chat took before its turn here named it (`task.created` comes before the temporary
-    /// chat's entries are read again) moves to the temporary chat's work row: added there first, so its time stays.
-    private func adoptTemporaryTasks() {
-        guard let chat = temporaryChat else { return }
-        for (id, heading) in runningTasks where chat.owns(taskID: id) {
-            temporaryRunning[id] = heading
-            runningTasks.removeValue(forKey: id)
+    /// The daemon's entries of the temporary chat, through the saved chat's entry path (`applyEntry`): another device's
+    /// turns are made and filled from them; this app's own turns are its streams' (as in the saved chat), unless no turn
+    /// here holds them (the chat was read again after a relaunch): those are taken up from the entries, as a resent
+    /// message the engine already had is (`receiveOwnAck`).
+    private func applyTemporaryEntries(_ entries: [ChatEntry]) {
+        inChat(.temporary) {
+            // A message sent from here still waiting for its request id could be one of these: none is taken up yet.
+            let sending = conversation.turns.contains { $0.requestID == nil && submissions[$0.id] != nil }
+            for entry in entries where entry.kind == "message" {
+                guard let request = entry.requestID else { continue }
+                entryWatch.positions[request] = entry.pos
+                if entry.clientID == clientID, !sending, conversation.turn(requestID: request) == nil {
+                    entryWatch.adopted.insert(request)
+                }
+            }
+            for entry in entries { applyEntry(entry) }
         }
     }
 
@@ -113,11 +154,27 @@ extension NotchModel {
         onBackgroundChange?(true)
     }
 
+    /// A temporary chat is over: its streams stop (the daemon stops its tasks), its work sessions and running rows go,
+    /// and its tasks stay known as its own, so nothing late of it reaches the saved chat.
     private func forgetTemporaryChat(_ chat: TemporaryChat) {
-        temporary.formerTasks.formUnion(chat.tasks)
-        temporaryRunning = [:]                  // its tasks end with it (the daemon stops them)
-        temporary.sends.values.forEach { $0.cancel() }
-        temporary.sends.removeAll()
+        temporary.tasks.formUnion(chat.archive.turns.compactMap(\.backendTaskID).filter { !$0.isEmpty })
+        for id in temporary.turns {
+            submissions.removeValue(forKey: id)?.cancel()
+            workSessions.removeValue(forKey: id)
+            pendingStops.remove(id)
+        }
+        if let active = session.activeTaskID, temporary.turns.contains(active) {
+            // the composer stays as the owner left it
+            let draft = session.draft, sources = session.attachments, expanded = session.isExpanded
+            session = NotchSession()
+            session.draft = draft
+            session.attach(sources)
+            if expanded { session.expand() }
+        }
+        let ended = runningTasks.keys.filter { isTemporaryTask($0) }
+        if !ended.isEmpty { runningTasks = runningTasks.filter { !ended.contains($0.key) } }
+        temporary.entries = TemporaryChatState.newEntries()
+        taskListCache.invalidate()
     }
 
     /// The bus's `chat.temporary` (`{on, id, rev}`): off drops it; a change it doesn't hold yet is read.
@@ -140,26 +197,30 @@ extension NotchModel {
         Task { await refreshTemporaryChat() }
     }
 
-    /// Whether a task belongs to the temporary chat (now, or one that ended this run): its results and rows never reach
-    /// the saved chat.
+    /// Whether a task belongs to a temporary chat (the one on, or one that ended this run): it is filed there and never
+    /// in the saved chat.
     func isTemporaryTask(_ taskID: String?) -> Bool {
         guard let taskID, !taskID.isEmpty else { return false }
-        if temporaryChat?.owns(taskID: taskID) == true { return true }
-        return temporary.formerTasks.contains { taskID == $0 || taskID.hasPrefix($0 + ".") }
+        if temporaryChat?.holds(taskID: taskID) == true { return true }
+        return temporary.tasks.contains { taskID == $0 || taskID.hasPrefix($0 + ".") }
     }
 
-    /// A chat.status row (running, a result, a question) or a bus event's data of the temporary chat's: marked
-    /// `temporary` by the daemon, a temporary request (`temporary-…`), or one of its tasks.
+    /// A chat.status row (running, a result, a question) or a bus event's data of a temporary chat's: marked
+    /// `temporary` by the daemon, a temporary request (`temporary-…`) or conversation, or one of its tasks.
     func isTemporaryRow(_ row: [String: Any]) -> Bool {
         row["temporary"] as? Bool == true || TemporaryChat.isTemporaryRequest(row["request_id"] as? String)
-            || isTemporaryTask(row["task_id"] as? String) || temporaryChat?.owns(row: row) == true
-            || TemporaryChat.isTemporary(row["conversation"] as? String)
+            || TemporaryChat.isTemporaryRequest((row["card"] as? [String: Any])?["request_id"] as? String)
+            || isTemporaryTask(row["task_id"] as? String) || TemporaryChat.isTemporary(row["conversation"] as? String)
     }
 
-    /// Notes a question's row (chat.status's, approval.requested's): one of a temporary chat's is shown only there.
-    func noteTemporaryApproval(_ row: [String: Any]) {
-        guard let id = row["approval_id"] as? String, !id.isEmpty, isTemporaryRow(row) else { return }
-        temporary.approvalIDs.insert(id)
+    /// Notes a row (chat.status's running row or question, approval.requested's) the daemon marks as a temporary chat's:
+    /// its task and its question are that chat's from now on.
+    func noteTemporaryRow(_ row: [String: Any]) {
+        guard isTemporaryRow(row) else { return }
+        if let task = row["task_id"] as? String, !task.isEmpty, temporary.tasks.insert(task).inserted {
+            taskListCache.invalidate()
+        }
+        if let id = row["approval_id"] as? String, !id.isEmpty { temporary.approvalIDs.insert(id) }
     }
 
     /// Whether an open question belongs to a temporary chat (never shown in the saved chat).
@@ -172,81 +233,5 @@ extension NotchModel {
     /// shows its own and, since a question is live and never kept, the others still waiting.
     var shownApprovals: [DaemonApproval] {
         inTemporaryChat ? pendingApprovals : pendingApprovals.filter { !isTemporaryApproval($0) }
-    }
-
-    /// The composer's message into the temporary chat (`chat.send` with `fresh`): shown at once, then as its entries
-    /// come. Its stream's frames move only this chat: nothing goes to the saved chat or its history.
-    func sendTemporary(text: String, outgoing: String, sources: [URL]) {
-        let id = UUID()
-        localSettingReply = nil
-        promptError = nil
-        changeTemporary { $0.send(id: id, text: text, sources: sources, at: Date()) }
-        session.clearComposer()
-        pasteProvenance = PasteProvenance()
-        shownPaste = nil
-        receivedFiles.sent(sources)            // a pasted picture sent stays for its task (APP-933)
-        showingSources = false
-        showingHistory = false
-        showingActivity = false
-        onInteraction?()
-        onPresentationChange?(true)
-        temporary.sends[id] = Task { [weak self] in
-            guard let self else { return }
-            do {
-                if self.conversationID == nil { try await self.attachDaemon() }
-                var params: [String: Any] = ["text": outgoing, "fresh": true]
-                if let session = self.conversationID { params["session_id"] = session }
-                if !sources.isEmpty && self.supportsAttachments { params["input_paths"] = sources.map(\.path) }
-                for try await event in self.rpc.stream("chat.send", params: params) {
-                    guard !Task.isCancelled else { return }
-                    self.receiveTemporaryFrame(event, id: id)
-                }
-                guard !Task.isCancelled else { return }
-                await self.refreshTemporaryChat()
-                self.changeTemporary { $0.ended(id: id, unconfirmed: "The stream ended before FERB confirmed its reply.") }
-            } catch {
-                guard !Task.isCancelled else { return }
-                self.changeTemporary { $0.failed(id: id, reason: "Connection interrupted before FERB confirmed its reply.") }
-                self.connectionStatus = error.localizedDescription
-            }
-            self.temporary.sends.removeValue(forKey: id)
-        }
-    }
-
-    /// One frame of an own message's stream: its request and task are noted, its streamed words shown, a question it
-    /// asks goes where every question goes; what changed the chat is read again from the daemon.
-    func receiveTemporaryFrame(_ event: [String: Any], id: UUID) {
-        let type = event["type"] as? String ?? ""
-        changeTemporary { $0.bind(id: id, requestID: event["request_id"] as? String, acknowledged: type == "ack") }
-        switch type {
-        case "reply_delta":
-            changeTemporary { $0.stream(id: id, delta: event["text"] as? String ?? "") }
-        case "plan":
-            if let task = event["task_id"] as? String, !task.isEmpty {
-                changeTemporary { $0.planned(id: id, taskID: task) }
-                // its task runs in this chat's work row from now, never the saved chat's
-                let sent = temporaryChat?.pending.first(where: { $0.turn.id == id })?.turn.request
-                temporaryRunning[task] = Self.heading(event, empty: temporaryRunning[task] ?? runningTasks[task]
-                                                         ?? sent ?? "Running task")
-                runningTasks.removeValue(forKey: task)
-            }
-        case "error":
-            changeTemporary { $0.failed(id: id, reason: event["text"] as? String ?? "FERB could not start this request.") }
-        case "event":
-            if event["topic"] as? String == "approval.requested" { receiveBusEvent(event) }
-        default: break
-        }
-        if ["ack", "plan", "reply", "clarify", "error", "merged", "outcome"].contains(type) {
-            if type == "reply", let sound = SoundPolicy.outcomeSound(event["status"] as? String ?? "done") {
-                feedback.play(sound)
-            }
-            Task { await refreshTemporaryChat() }
-        }
-    }
-
-    private func changeTemporary(_ edit: (inout TemporaryChat) -> Void) {
-        guard var chat = temporaryChat else { return }
-        edit(&chat)
-        changeIfNeeded(\.temporaryChat, chat)
     }
 }

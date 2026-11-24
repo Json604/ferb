@@ -169,8 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 // APP-921: a restart a running task deferred is said once in the chat and made when no task runs
                 setup.tell = { [weak model = coordinator.model] id, line in model?.noteFromSetup(id: id, text: line) }
                 // a temporary chat's task is running work too (APP-1125): a restart waits for it
-                taskWatch = coordinator.model.$runningTasks.combineLatest(coordinator.model.$temporaryRunning)
-                    .map { !$0.isEmpty || !$1.isEmpty }
+                taskWatch = coordinator.model.$runningTasks.map { !$0.isEmpty }
                     .combineLatest(coordinator.model.$connectionStatus.map { $0 == "Connected to FERB" })
                     .removeDuplicates { $0 == $1 }
                     .sink { [setup] running, connected in

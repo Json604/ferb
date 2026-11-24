@@ -75,9 +75,9 @@ extension NotchModel {
     /// always say which task asks).
     func questionContext(_ approval: DaemonApproval) -> String? {
         guard let taskID = approval.taskID, !taskID.isEmpty else { return nil }
-        if let goal = runningTasks[taskID] ?? temporaryRunning[taskID], !goal.isEmpty { return goal }
+        if let goal = runningTasks[taskID], !goal.isEmpty { return goal }
         if let turn = (temporaryChat?.archive.turns ?? []).first(where: { $0.backendTaskID == taskID })
-            ?? conversation.turns.first(where: { $0.backendTaskID == taskID }) {
+            ?? savedConversation.turns.first(where: { $0.backendTaskID == taskID }) {
             let title = Self.title(of: turn)
             if title != Self.unknownTaskTitle { return title }
         }
@@ -111,12 +111,16 @@ extension NotchModel {
     func showIdentifier(_ name: String, turnID: UUID) {
         Task { @MainActor in
             guard (try? await rpc.call("secrets.unmask", params: ["name": name])) != nil else { return }
-            conversation.markShown(id: turnID, name: name)
-            saveConversation()
+            inChat(source(ofTurn: turnID)) {
+                conversation.markShown(id: turnID, name: name)
+                saveConversation()
+            }
         }
     }
 
+    /// Keeps the saved chat. The temporary chat is never kept (ORCH-702): inside `inChat(.temporary)` nothing is written.
     func saveConversation() {
+        guard chatSource == .saved else { return }
         // In FERB's database (APP-805): the entries that changed are written; the preferences archive stays as it was.
         if chatStore.store == .daemon { writeHistorySoon(); return }
         guard !archiveBlocked else {

@@ -37,22 +37,23 @@ final class ContinuousChatTests: XCTestCase {
         model.disconnectDaemon()
     }
 
-    // decision: APP-571
+    // In both chats alike: the saved one and the temporary one (APP-1126).
+    // decision: APP-571, APP-1126
     func testFirstStreamedAnswerReopensFERBAndShowsAttentionWithoutTakingFocus() {
-        let model = NotchModel(rpc: ChatRPC(), preferences: scratchDefaults())
-        model.session.draft = "First task"
-        model.startWork()
-        let turnID = model.conversation.turns[0].id
-        model.collapse()
-        let focusRequest = model.focusRequest
+        for source in bothChats {
+            let (model, _, _) = chatModel(source, "FirstStreamed")
+            let turnID = model.sendFromComposer("First task")
+            model.collapse()
+            let focusRequest = model.focusRequest
 
-        model.receiveChatEvent(["type": "reply_delta", "text": "First words"], localID: turnID)
+            model.receiveChatEvent(["type": "reply_delta", "text": "First words"], localID: turnID)
 
-        XCTAssertTrue(model.expanded)
-        XCTAssertTrue(model.showsTraceGlow)
-        XCTAssertEqual(model.focusRequest, focusRequest)
-        XCTAssertEqual(model.conversation.turns[0].answer, "First words")
-        model.disconnectDaemon()
+            XCTAssertTrue(model.expanded, "\(source)")
+            XCTAssertTrue(model.showsTraceGlow, "\(source)")
+            XCTAssertEqual(model.focusRequest, focusRequest, "\(source)")
+            XCTAssertEqual(model.shownTurn(turnID)?.answer, "First words", "\(source)")
+            model.disconnectDaemon()
+        }
     }
 
     private func describe(_ entry: TranscriptEntry) -> String {

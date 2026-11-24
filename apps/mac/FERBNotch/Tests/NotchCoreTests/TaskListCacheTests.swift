@@ -251,7 +251,7 @@ final class TaskListCacheTests: XCTestCase {
 
     private func assertFresh(_ model: NotchModel, _ step: String, file: StaticString = #filePath, line: UInt = #line) {
         let kept = model.taskItems
-        let fresh = model.makeTaskList().rows
+        let fresh = model.makeTaskList(.saved).rows
         XCTAssertEqual(kept, fresh, step, file: file, line: line)
         XCTAssertEqual(model.activeTaskCount, fresh.filter(\.isRunning).count, step, file: file, line: line)
         XCTAssertEqual(model.keptGoingCount, fresh.filter { $0.status == "standing" }.count, step,
