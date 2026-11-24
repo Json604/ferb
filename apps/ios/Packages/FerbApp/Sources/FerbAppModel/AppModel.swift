@@ -497,6 +497,7 @@ public final class AppModel {
             if item.waitingFor == "unlock" { macLocked() }
             refresh()
         }
+        outgoing.onSentTemporary = { [weak self] t in self?.showTemporary(t) }
         ui.chatDay = today()
         followAccount()
         start()
@@ -517,7 +518,8 @@ public final class AppModel {
         let day = ui.chatDay > 0 ? ui.chatDay : today()
         let rows = self.rows
         let days = self.days
-        let all = rows + outgoing.messages.map { ChatRow.withFiles(key: "send:\($0.id)", item: $0) }
+        // (a temporary chat's message with files shows only in it)
+        let all = rows + outgoing.messages.filter { !$0.temporary }.map { ChatRow.withFiles(key: "send:\($0.id)", item: $0) }
         let make = { (ChatModel.split(ChatModel.withDays(all, days, today: day), day: day), ChatModel.said(rows, days, from: day)) }
         if all.count <= Self.offMainEntries {
             publishPlaces(make())
@@ -561,7 +563,8 @@ public final class AppModel {
                 case .closed: break
                 case .status: statusChanged()
                 case .mac: readMac()
-                case .temporary: readTemporary()
+                // the temporary chat's watch moved it, as transcript/live move the chat: read from memory (ORCH-715)
+                case .temporary: showLastTemporary()
                 case .locationWanted(let id):
                     pendingLocation = id
                     showPending()
@@ -1570,23 +1573,37 @@ public final class AppModel {
     public func send() -> Task<Void, Never> {
         busy("send") { [self] in
             let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-            // the temporary chat: its words go to the Mac's memory only (never the outbox; files stay in the box)
+            let files = transfers.ready
+            // the temporary chat sends as the chat does (the owner, 2026-11-24, ORCH-715), to the Mac's memory only
+            // (never the outbox): the box's files go to the Mac first, then the message with them; files already on the
+            // Mac go with it now
             if temporary != nil {
-                if text.isEmpty { return }
+                if !outgoing.chips.isEmpty {
+                    draft = ""
+                    outgoing.send(text, onMac: files, temporary: true)
+                    if !files.isEmpty { transfers.sent() }
+                    return
+                }
+                if text.isEmpty && files.isEmpty { return }
                 draft = ""
                 // his message shows at once as the chat shows his outbox, until the Mac's chat holds it (APP-1126)
                 temporarySends += 1
                 temporarySending = OutboxItem(id: "temporary-\(temporarySends)", text: text,
                                               createdAt: ISO8601DateFormatter().string(from: now()), state: "sending",
-                                              waitingFor: nil, reason: nil, tried: false, attachments: [])
+                                              waitingFor: nil, reason: nil, tried: false, attachments: files)
                 if let t = lastTemporary { showTemporary(t) }
-                await callTemporary { await self.api.sendTemporary(text) } failed: { e in
+                var sent = false
+                await callTemporary {
+                    let r = files.isEmpty ? await self.api.sendTemporary(text) : await self.api.sendTemporary(text, attachments: files)
+                    if case .ok = r { sent = true }
+                    return r
+                } failed: { e in
                     self.draft = text
                     self.failed(e)
                 }
+                if sent && !files.isEmpty { transfers.sent() }
                 return
             }
-            let files = transfers.ready
             // files in the box: the message shows at once and goes when its files are on the Mac (kb PHN-690, PHN-691)
             if !outgoing.chips.isEmpty {
                 draft = ""
@@ -2393,13 +2410,33 @@ public final class AppModel {
         }
         if temporaryReadAfter {
             temporaryReadAfter = false
-            readTemporary()
+            showLastTemporary()
         }
     }
 
-    /// Reads the temporary chat from the Mac (the app opened, unlocked or back in front, the link up, and the library's
-    /// `Change.temporary`: it went on or off on any device, or its rev in `chat.status` moved): shown while it is on,
-    /// dropped once it is off. A read that fails changes nothing.
+    /// Each `Change.temporary` (it went on or off on any device, or its watch brought a change or a live frame: streamed
+    /// words, the plan line, a step, the answer): the temporary chat as the library holds it, from memory, as the chat's
+    /// transcript is read on its changes (the owner, 2026-11-24, ORCH-715). A toggle or a send under way shows its own
+    /// answer first; only the newest read is shown.
+    @discardableResult
+    func showLastTemporary() -> Task<Void, Never>? {
+        if temporaryCalling {
+            temporaryReadAfter = true
+            return nil
+        }
+        temporaryReads += 1
+        let mine = temporaryReads
+        return Task { [weak self] in
+            guard let self else { return }
+            let r = await self.api.lastTemporaryChat()
+            guard mine == self.temporaryReads, case .ok(let t) = r else { return }
+            if let t { self.showTemporary(t) } else if self.lastTemporary != nil { self.temporaryEnded() }
+        }
+    }
+
+    /// Reads the temporary chat from the Mac (the app opened, unlocked or back in front, the link up): whether one is on,
+    /// and all of it; after that its watch keeps it. Shown while it is on, dropped once it is off. A read that fails
+    /// changes nothing.
     @discardableResult
     func readTemporary() -> Task<Void, Never>? {
         if temporaryCalling {
@@ -2425,9 +2462,20 @@ public final class AppModel {
     /// The temporary chat as the Mac said it: its rows (FERB's words laid out by the library) while on, nothing off;
     /// his message on its way at its end until the send is answered.
     private func showTemporary(_ t: TemporaryChat) {
+        // ended (on any device): its messages with files still on their way go too
+        if lastTemporary != nil && !t.on { outgoing.dropTemporary() }
         lastTemporary = t.on ? t : nil
         let shown = t.on ? TemporaryShown(t, sending: temporarySending) : nil
         if temporary != shown { temporary = shown }
+        runTemporary()
+    }
+
+    /// The temporary chat ended (the library holds none now): the normal chat shows, and its messages with files still
+    /// on their way go.
+    private func temporaryEnded() {
+        outgoing.dropTemporary()
+        lastTemporary = nil
+        if temporary != nil { temporary = nil }
         runTemporary()
     }
 

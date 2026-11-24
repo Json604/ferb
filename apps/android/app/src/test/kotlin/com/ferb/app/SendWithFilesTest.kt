@@ -248,4 +248,50 @@ class SendWithFilesTest {
         assertEquals(listOf("upload:IMG_1.jpg:-"), uploads)
         assertTrue("never in the message box", vm.outgoing.chips.value.isEmpty())
     }
+
+    // The owner (2026-11-24, ORCH-715): the temporary chat is the chat except that nothing is saved. Its + picks files
+    // into the same box; Send uploads them as the chat does, then the message goes with their ids, `fresh` (the Mac moves
+    // them into the temporary chat's own folder and deletes them when it ends), never the outbox; the phone's copies go,
+    // and the message is never written on the phone. Before, a file picked there waited as a chip and was never sent.
+    // decision: ORCH-715, PHN-838
+    @Test
+    fun in_the_temporary_chat_plus_sends_files_as_the_chat_does() {
+        phone.temporaryOn = true
+        val vm = vm()
+        until("the temporary chat shows") { vm.ui.value.temporary != null }
+        pickTwo(vm)
+        vm.typed("What are these")
+        vm.send()
+        assertTrue("the box is empty at once", vm.outgoing.chips.value.isEmpty())
+        until("sent") { phone.temporarySent.isNotEmpty() }
+        assertEquals(listOf("upload:IMG_1.jpg:-", "upload:IMG_2.jpg:-"), uploads)
+        assertEquals(listOf("What are these"), phone.temporarySent)
+        assertEquals(listOf(listOf("up-IMG_1.jpg", "up-IMG_2.jpg")), phone.temporaryFiles)
+        assertTrue("never the chat's send", phone.sentWith.isEmpty() && phone.outbox.isEmpty())
+        until("the message left the phone's list") { vm.outgoing.messages.value.isEmpty() }
+        until("the copies are gone") { local.outgoing.walk().none { it.isFile } }
+        val kept = File(local.root, "messages.json")
+        assertFalse("never written on the phone", kept.isFile && kept.readText().contains("What are these"))
+    }
+
+    // Its message on its way shows only in the temporary chat; the chat ending (on any device) takes it away with its
+    // copies, so nothing of it waits to go later.
+    // decision: PHN-838
+    @Test
+    fun a_temporary_message_with_files_shows_only_there_and_goes_when_the_chat_ends() {
+        phone.temporaryOn = true
+        phone.link.value = FakePhone.status(LinkPhase.WAITING)
+        val vm = vm()
+        until("the temporary chat shows") { vm.ui.value.temporary != null }
+        pickTwo(vm)
+        vm.send()
+        until("waiting") { vm.outgoing.messages.value.singleOrNull()?.phase == SendPhase.WAITING_LINK }
+        assertTrue(vm.outgoing.messages.value.single().temporary)
+        val copies = vm.outgoing.messages.value.single().chips.map { File(it.path) }
+        phone.temporaryOn = false
+        phone.changes.tryEmit(com.ferb.mobile.Change.Temporary)
+        until("gone with the chat") { vm.outgoing.messages.value.isEmpty() }
+        until("its copies too") { copies.none { it.exists() } }
+        assertTrue(phone.temporarySent.isEmpty() && phone.sentWith.isEmpty())
+    }
 }

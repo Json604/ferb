@@ -1708,6 +1708,11 @@ pub struct World {
 }
 
 impl World {
+    /// The folder a temporary chat's files are moved into (in this world's own temporary folder).
+    pub fn temporary_files(&self) -> std::path::PathBuf {
+        self.dir.path().join(ferb_core::temporary::FILES_FOLDER)
+    }
+
     fn fixed(&self, text: &str) -> String {
         self.fixes
             .iter()
@@ -1722,6 +1727,7 @@ impl World {
             &self.daemon,
             &self.workspace,
             &self.home,
+            self.dir.path(),
         )
     }
 }
@@ -1733,6 +1739,7 @@ fn new_supervisor(
     daemon: &Arc<TestDaemon>,
     workspace: &str,
     home: &str,
+    files: &std::path::Path,
 ) -> Supervisor {
     let sup = {
         Supervisor::new(Deps {
@@ -1751,6 +1758,7 @@ fn new_supervisor(
             new_chat: Arc::new(|| "c00000000001".into()),
             stall_s: 180.0,
             heartbeat_poll_s: 5.0,
+            temporary_files: files.join(ferb_core::temporary::FILES_FOLDER),
         })
     };
     *daemon.sup.lock().unwrap() = Some(sup.clone());
@@ -1989,7 +1997,7 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
     );
     let workspace = format!("{root}/{nn}/home/workspace");
     let home = format!("{root}/{nn}/user");
-    let sup = new_supervisor(&db, &clock, &ids, &daemon, &workspace, &home);
+    let sup = new_supervisor(&db, &clock, &ids, &daemon, &workspace, &home, dir.path());
     *daemon.journal_to.lock().unwrap() = Some(Arc::downgrade(sup.inner()));
     World {
         db,

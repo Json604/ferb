@@ -4179,7 +4179,8 @@ evidence = "Android SessionsTest (new session as a terminal; a terminal row; the
 title = "The temporary chat on both phones: the dashed bubble in the chat tab's top bar, held only in memory"
 by = "agent"
 date = 2026-11-23
-status = "active"
+status = "superseded"
+superseded_by = "PHN-837"
 rule = "For ORCH-699 and ORCH-700. ferb-mobile adds temporary_chat, set_temporary_chat(on), send_temporary (chat.send fresh, straight to the Mac, never the outbox), last_temporary_chat, PhoneStatus.temporary and Change::Temporary, in memory only; a locked status without temporary never reads as off. Android and iPhone show the same dashed bubble left of the profile button on the chat tab, the banner, only the temporary rows and questions or tasks marked temporary; it is read again on start, unlock, coming to the front and each status rev."
 why = "The owner's words: one tap on the phones as on the Mac, held in memory, ended only by the same icon. Its place in the top bar is the owner's (PHN-819)."
 paths = ["engine/crates/ferb-mobile/src/temporary.rs", "apps/android/design/src/main/kotlin/com/ferb/design/components/Temporary.kt", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/Temporary.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Temporary.swift"]
@@ -4316,7 +4317,8 @@ live = ["LIVE-1204"]
 title = "On both phones the temporary chat is the chat with another data source"
 by = "agent"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "PHN-837"
 rule = "For APP-1126 on the phones. The chat tab draws the temporary chat with the chat's own screen (list, fade-in, following the end, New message pill, rows, toast, status line, box) and its fold's live view over a working turn (the typing dots; no frames stream to it). Only the data differs: its rows, questions and work row, its banner, a quiet line while empty; no days or import card. His message shows at once as the chat's outbox row (Sending…) until the Mac's chat holds it; a failed send takes it away and puts the words back. It still goes straight to the Mac (PHN-818)."
 why = "Android drew the temporary chat with a second composable that lacked the fade-in, the pill and the way back, and both phones showed his message only after the Mac answered; one path can't drift (APP-1126)."
 evidence = "Android BothChatsTest (each case on both chats); ferb-mobile tests/temporary.rs a_working_turn_shows_the_chat_s_live_view_and_an_answered_one_none; iPhone TemporaryChatTests testHisMessageShowsAtOnceAsHisOutboxRowAsInTheChat."
@@ -4343,3 +4345,26 @@ words = "yes use it"
 words_source = "Owner 2026-11-24, to T-1242 (which Apple developer team signs the iPhone app: the Mac's 8N7RNGH974?)."
 rule = "The iPhone app (com.ferb.phone, PHN-601) is signed by the Apple developer team that signs FERB.app, 8N7RNGH974 (REL-419), with a provisioning profile of that team for a device build."
 untestable = "A signing choice; the device build's signing isn't set up yet (T-1243 and T-1247 come after it)."
+
+[PHN-837]
+title = "On both phones the temporary chat is the chat's own screen and watch, held only in memory"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For ORCH-715, ORCH-699, ORCH-700, PHN-819. While the bubble is on, the chat tab shows the banner and only the temporary chat, with the chat's own screen (list, arrivals, follow, pill, rows, toast, box) and its rows, questions and work row; no days. ferb-mobile's one watch follows the chat shown: temporary:<id> while on (cursor in memory), else the current one; on, off or another chat syncs and moves it; lock, link loss and restart are the chat's. Its turns stay in memory; each change or live frame is Change::Temporary, read with last_temporary_chat."
+why = "The owner (ORCH-715): \"isnt everything same but only its a non saving chat???\". The phones read the whole chat again on each status rev: about 1.5 s late and never a streamed word."
+supersedes = ["PHN-818", "PHN-831"]
+evidence = "ferb-mobile tests/temporary.rs the_one_watch_follows_the_temporary_chat_and_streams_it_like_the_chat; Android TemporaryChatTest its_streamed_frames_reach_it_through_the_one_watch_as_the_chat_s; iPhone TemporaryChatTests."
+paths = ["engine/crates/ferb-mobile/src/temporary.rs", "engine/crates/ferb-mobile/src/api.rs", "engine/crates/ferb-mobile-ffi/src/mobile.rs", "apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt", "apps/android/app/src/main/kotlin/com/ferb/app/ui/Main.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppModel.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Temporary.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Tabs.swift"]
+live = ["LIVE-1194", "LIVE-1212"]
+
+[PHN-838]
+title = "On both phones the temporary chat's box is the chat's: + and files, sent fresh"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For ORCH-715 and ORCH-717. In the temporary chat + picks files into the same box; they upload as the chat's, then the message goes with their ids (send_temporary_with, fresh), never the outbox. Such a message shows only in the temporary chat, is never written on the phone and goes when the chat ends. His words show at once as the chat's outbox row (Sending...) until the Mac's chat holds them; a failed send takes the row away and puts them back."
+why = "Android showed + there but a picked file waited as a chip and was never sent; the iPhone hid it."
+evidence = "ferb-mobile temporary.rs a_temporary_message_carries_its_files_as_the_chat_s; Android SendWithFilesTest and iPhone SendWithFilesTests, the temporary chat's two cases."
+paths = ["engine/crates/ferb-mobile/src/temporary.rs", "apps/android/app/src/main/kotlin/com/ferb/app/model/Outgoing.kt", "apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Outgoing.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppModel.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Tabs.swift"]
+live = ["LIVE-1212"]

@@ -12345,3 +12345,129 @@ catalog_mcp among them). `cargo clippy -p ferb-daemon -p ferbd --all-targets --l
 this build (LIVE-1211). The whole workspace gate (`gate.sh lint`/`test`/`portable`) was not run; the phone crates and
 apps were not touched or tested. IDs MEM-478, T-1325 and LIVE-1211 were the next free ones in this worktree; a parallel
 agent may have taken them.
+
+## 2026-11-24 · 215 · The temporary chat is the normal chat on every client: streamed to the phones, files in it, nothing kept
+
+**The owner (ORCH-715).** Told that (1) a temporary chat's answers reach the phone about 1.5 s late with no live reply,
+because the phones learn of its changes only from the status, and (2) Android shows + in it but a picked file isn't
+sent, while the iPhone hides +, he said: "why??? isnt everything same but only its a non saving chat??? why this??".
+Recorded as ORCH-715 (owner): on FERB.app and both phones it behaves as the normal chat in everything; only nothing of
+it is saved (turns, files, all else go when its icon ends it or the daemon restarts) and its banner shows. What made it
+differ is superseded: PHN-818 and PHN-831 by PHN-837 (and PHN-838 for files).
+
+**What differed (read from the code at cd2a1581).**
+- Engine: `chat.entries.watch` of a temporary conversation went through `entries_rpc::conversation` (entries_rpc.rs:102),
+  which opens a stored stream (`store::open_stream`, :110) and found nothing. `temporary_feed` (temporary.rs:261)
+  applied the projector and dropped `made.live` and its changes: only `chat.temporary` with a new rev was published.
+- ferb-mobile: the one watch always followed the current conversation (`sync` → `start_watch(…, &conversation)`,
+  api.rs:1608). The temporary chat was re-read whole (`chat.temporary.get`) on each status rev the bridge pushes
+  (every 1.5 s at most).
+- Android: `Change.Temporary -> readTemporary()` (FerbViewModel.kt:502) called the Mac; a send in the temporary chat
+  was `sendTemporary(draft.value.trim())` (:1446), so the box's chips were left behind.
+- iPhone: the composer's `onAttach: temporary ? nil` (Tabs.swift:204), and the send took words only.
+- FERB.app: the paperclip is the shared composer's (ChatBody.swift:181, no temporary branch): attach was already there.
+  Its received copies (a pasted picture) sent in the temporary chat stayed in `FERB attachments` for 7 days.
+
+**Engine (ORCH-716, ORCH-717).**
+- One watch for both chats. `chat.entries.watch {conversation: temporary:<id>}` is served by `Inner::temporary_watch`
+  (temporary.rs) from memory: with a cursor whose `epoch` is the chat's id, every entry changed after it as catch-up
+  changes, then `caught_up` (head = its last seq); then the feed. `temporary_feed` hands every change and live frame
+  to the watchers through ChatLog's own `hand_over` (now `pub(crate)`), under the chat's lock, so a watch that starts
+  between two inputs misses nothing. The icon's end tells each watcher `{type: "ended", conversation}`
+  (`ChatLog::end_watchers`, `Watched::Ended`) and its stream ends. A conversation that isn't the chat on now: one
+  `ended` frame; another epoch: `reset_required`.
+- `chat.entries.get` reads a temporary entry from memory when the store has none (a frame cut its words).
+  `page`, `changes`, `days` and `mark` refuse a temporary conversation, so nothing of it is ever opened in the store.
+- Files: `Deps::temporary_files` (ferb-core `FILES_FOLDER`, "FERB temporary chat", in the account's temporary folder;
+  ferbd `Options::temporary_files`; a stand-in daemon's under its own home). A phone's `chat.send` with `fresh` and
+  `attachments`: the gate checks them as for any message (`files::attachments`), then `attachments_for_temporary`
+  moves each upload or folder out of the upload folder into a new folder there (name kept; across volumes copied then
+  removed), forgets its upload, audits the move, and gives those paths as `input_paths`. The supervisor removes that
+  folder (`temporary_files_clear`: only a folder of that name) when the icon ends the chat and at every start
+  (`recover_after_restart`).
+
+**ferb-mobile (PHN-837, PHN-838).** The single watch slot now follows the conversation the chat tab shows
+(`Shared::watch_target`): `temporary:<id>` while one is held, else the current one. No second watch.
+- The temporary conversation is a `Conv` in memory like any other (`State::conv` never reads the store for it), with
+  its cursor and cut entries in `Conv::memory`. `apply`, `advance` and `fetch_cut` take the memory path for it: the
+  same fold and the same `LiveState`, nothing in the store or the outbox.
+- Its changes and live frames are told as `Change::Temporary` (`Shared::told`); the app reads `last_temporary_chat`,
+  now built from that conversation and its live view (memory, no call).
+- Switching: a read (`get`/`set`/`send`), the status (`status_moved`: on, off or another id) or the watch's `ended`
+  holds the new state and spawns a sync, which catches the normal chat up and starts the watch on the target. A new
+  rev of the chat already held changes nothing (the watch brings it), unless no watch follows it (then a sync).
+- Lock, link loss and restart are the chat's own handling of the one slot. After a daemon restart the watch's
+  `ended` (the chat is gone) drops it and the phone watches the chat again.
+- `send_temporary_with(text, attachments)` (and the FFI's) carries upload ids with `fresh`.
+
+**Android.** `Change.Temporary` → `showLastTemporary()` (`lastTemporaryChat`, memory); the Mac is read only at start,
+unlock and the link coming online. Send in the temporary chat goes as the chat's: box files → `Outgoing.send(…,
+temporary = true)` (uploaded by `Transfers`, then `sendTemporaryWith`), files already on the Mac → `sendTemporaryWith`.
+`Sending.temporary` rows show only in the temporary chat (Main.kt), are never written to messages.json, and go when
+the chat ends (`Outgoing.dropTemporary`).
+
+**iPhone.** The same: `.temporary` → `showLastTemporary()`; + is offered in the temporary chat (Tabs.swift); the box's
+files go through `Outgoing.send(…, temporary: true)` and `sendTemporary(_:attachments:)`; its rows show only in the
+temporary chat; never saved; dropped when it ends. A read asked during a toggle or a send runs after it from memory.
+
+**FERB.app (ORCH-717).** `ReceivedFiles.sentToTemporary` moves FERB's own received copies (a pasted picture, a dropped
+promise) sent in the temporary chat under `FERB attachments/Temporary chat/`; `endTemporaryChat` removes it (also when
+a relaunched app first hears that none is on). The owner's own files are sent by path and never touched.
+
+**Evidence.**
+- ferb-supervisor `tests/temporary_chat.rs` (12 tests, all pass):
+  - `a_temporary_chat_is_watched_like_the_chat_from_memory_with_nothing_stored`: a watch opened from the chat's start,
+    then the one_step_task scenario run fresh: `caught_up` (epoch = the chat's id, head 0), his message and FERB's
+    entries as changes in seq order up to the chat's last seq, live frames of its `temporary-` request, and `ended`
+    when the icon ends it. A second watch from 0 catches up each entry once, then `caught_up` at the head.
+    `chat.entries.get` reads an entry from memory; `page` and `days` refuse the conversation; another epoch is
+    `reset_required`, another conversation `ended`. No `chat_entries` row and no `chat_streams` row of it.
+  - `the_files_a_temporary_chat_was_sent_go_when_it_ends_and_at_every_start` (the world's own temp folder).
+- ferb-daemon `tests/phone_files.rs` `a_temporary_chat_s_files_leave_the_upload_folder_for_its_own_folder`: a file and a
+  folder uploaded, then `chat.send {fresh, attachments}`: `input_paths` under the temporary folder, bytes and names as
+  landed, nothing left in the upload folder, the upload refused for a second message (`not_found`); a normal message
+  still takes its file where it landed. All 29 tests of the file pass.
+- ferb-mobile `tests/temporary.rs` (9 tests; the whole crate 109 passed, clippy `-D warnings` and fmt clean):
+  - `the_one_watch_follows_the_temporary_chat_and_streams_it_like_the_chat`: after `set(on)` the one watch moves to
+    `temporary:T1` (epoch T1, after 0); his working turn shows the typing dots, a live `progress` frame the plan line,
+    the answer its turn; all told as `Temporary`, none as `Transcript`/`Live` of it; no `chat.temporary.get` per
+    change; the chat's entry made meanwhile arrives once the chat ends (`ended`) and the watch is back on C1.
+  - `lock_link_loss_and_restart_are_handled_as_the_chat_s`: lock closes it and the unlock's sync resumes it from seq 2;
+    a link loss resumes from its cursor; a Mac restart (the chat gone) answers `ended` and the phone is on the chat.
+  - `a_temporary_message_carries_its_files_as_the_chat_s`; the status test now tells a start and an end, not a rev.
+- ferb-core, ferb-daemon, ferb-supervisor: every test passes (580 with ferbd's first files). ferbd with stand-ins:
+  176 passed with `--no-fail-fast`; `chat_replay::the_more_scenarios_through_the_program` failed once
+  (`capture_timeout`) in the run that filled the disk and passed alone (234 s). Clippy `-D warnings` on ferb-core,
+  ferb-supervisor, ferb-daemon, ferbd (stand-ins) and ferb-mobile-ffi; `cargo fmt --all`.
+- ferb-mobile-ffi: 13 tests pass; `tests/link.rs`' 2 fail here before anything runs: the stand-in's Unix socket path
+  (session temp folder) is longer than SUN_LEN. Not this change's; not verified in this checkout.
+- Android `:app:testDebugUnitTest` 362 and `:design:test` 112, 0 failures, including:
+  - `TemporaryChatTest.its_streamed_frames_reach_it_through_the_one_watch_as_the_chat_s` through the real library on
+    the host: after the bubble the watch follows `temporary:T1`; a working turn and a live `progress` frame show his row
+    and the plan line in the temporary chat's rows, with no `chat.temporary.get` after the switch;
+  - `SendWithFilesTest.in_the_temporary_chat_plus_sends_files_as_the_chat_does` (two picks uploaded, then
+    `sendTemporaryWith` with their ids, never `sendWith` or the outbox, nothing in messages.json) and
+    `a_temporary_message_with_files_shows_only_there_and_goes_when_the_chat_ends`.
+- iPhone `apps/ios/tools/build.sh test` (own simulator, deleted after): FerbAppTests 224, FerbDesignTests 75,
+  FerbCoreTests 15 (1 skipped), FerbMobileTests 4, FERBUITests 8, 0 failures; new
+  `TemporaryChatTests.testItsChangesAreReadFromTheLibrarysMemoryNeverTheMac` and SendWithFilesTests' two temporary
+  cases. No golden changed: the iPhone's + is always drawn (only its action was off), and Android's box already had it.
+- FERB.app `TemporaryChatTests.testItsFilesGoAsTheChatsAndFERBsOwnCopiesGoWhenItEnds` (a pasted picture moved under
+  `Temporary chat/` and sent from there, the owner's own file by its own path, the picture gone when the chat ends, his
+  file kept). Full `swift test`: 964 tests, 7 skipped, 1 failure (`WindowSpaceTests.testSettingsIsKeyOnTheOwnersSpaceBeforeFERBActivates`, which reads this Mac's Spaces; its suite passed alone, 10 of 10).
+- `kb check` ok.
+
+**Open / unverified.**
+- No live check (LIVE-1212 new, LIVE-1194 updated) and no installed build.
+- Not run: the engine watch test against the code at cd2a1581. Inferred from the code: there `chat.entries.watch`
+  opened a `chat_streams` row for `temporary:…` and gave no frame, so the test fails on both.
+- An upload picked in the temporary chat whose message is never sent (removed, or the chat ended while it uploaded)
+  stays where uploads land, as in the normal chat: only a sent message's files are moved and deleted.
+- A temporary message with files is never written on the phone: closing FERB while its files upload loses it, and its
+  copies on the phone go only with FERB's day-old sweep (PHN-16).
+- The phone's watch follows only the shown chat: while a temporary chat is on, the normal chat's new entries reach the
+  phone when it ends (caught up from the cursor), as notifications still come from the status.
+- `send_temporary` still reads the whole chat once after the Mac's ack (one call per send, not per change), so the
+  answer the app gets already holds his message.
+- The Android and iPhone runs used the phone library before its last change (a switch doesn't sync while the app is
+  locked; the unlock's sync starts the watch). ferb-mobile's own tests ran after it.

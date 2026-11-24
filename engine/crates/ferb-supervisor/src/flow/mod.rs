@@ -747,6 +747,9 @@ pub struct Deps {
     pub new_chat: Arc<dyn Fn() -> String + Send + Sync>,
     pub stall_s: f64,
     pub heartbeat_poll_s: f64,
+    /// The folder a temporary chat's files from a phone are moved into at send (ferb-core `temporary::FILES_FOLDER`
+    /// in the account's own temporary folder; a test's own): removed whole when the chat ends and at every start.
+    pub temporary_files: std::path::PathBuf,
 }
 
 /// One planning turn (supervisor.py:511 `_Turn`), shared while it runs (`_turns`).

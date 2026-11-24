@@ -38,6 +38,10 @@ pub struct MacState {
     pub accepted: HashMap<String, (String, String, i64)>,
     pub script: VecDeque<SendOutcome>,
     pub sink: Option<Arc<dyn WatchSink>>,
+    /// The conversation the running watch follows (the chat's, or the temporary chat's `temporary:<id>`).
+    pub watched: String,
+    /// Frames for the watch made under the lock, handed to it once the lock is let go.
+    pub outgoing: Vec<String>,
     pub watches: usize,
     pub next_request: u64,
     pub next_pos: i64,
@@ -132,7 +136,23 @@ impl MacState {
             "body": {"text": text, "attachments": [], "hidden": []}, "deleted": false});
         t.entries.push(e.clone());
         self.temp_rev += 1;
+        if self.watched == format!("temporary:{}", t.id) && self.sink.is_some() {
+            self.outgoing
+                .push(json!({"type": "change", "entry": e}).to_string());
+        }
         e
+    }
+
+    /// The temporary chat ends (its icon, on any client): its watch is told `ended`.
+    pub fn end_temporary(&mut self) {
+        if let Some(t) = self.temporary.take() {
+            self.temp_rev += 1;
+            let c = format!("temporary:{}", t.id);
+            if self.watched == c && self.sink.is_some() {
+                self.outgoing
+                    .push(json!({"type": "ended", "conversation": c}).to_string());
+            }
+        }
     }
 }
 
@@ -158,6 +178,8 @@ impl FakeMac {
             accepted: HashMap::new(),
             script: VecDeque::new(),
             sink: None,
+            watched: String::new(),
+            outgoing: Vec::new(),
             watches: 0,
             next_request: 1,
             next_pos: 1 << 33,
@@ -200,6 +222,61 @@ impl FakeMac {
         self.0.lock().unwrap()
     }
 
+    /// Hands the watch what was made for it under the lock (never with the lock held: the phone's sink takes its own).
+    pub fn deliver(&self) {
+        let (sink, frames, ended) = {
+            let mut st = self.lock();
+            let frames = std::mem::take(&mut st.outgoing);
+            let ended = frames.iter().any(|f| f.contains("\"type\":\"ended\""));
+            let sink = if ended {
+                st.sink.take()
+            } else {
+                st.sink.clone()
+            };
+            (sink, frames, ended)
+        };
+        if let Some(s) = sink {
+            for f in frames {
+                s.frame(f);
+            }
+            if ended {
+                s.ended(None);
+            }
+        }
+    }
+
+    /// One turn of the temporary chat made on the Mac (by another client, or FERB's answer): its watch gets it.
+    pub fn temporary_said(&self, kind: &str, text: &str) -> Value {
+        let e = self.lock().temporary_entry(kind, text, &Value::Null);
+        self.deliver();
+        e
+    }
+
+    /// His message in the temporary chat, still working (FERB hasn't answered): its watch gets it.
+    pub fn temporary_working(&self, text: &str) -> Value {
+        let e = {
+            let mut st = self.lock();
+            let mut e = st.temporary_entry("message", text, &Value::Null);
+            e["state"] = json!("working");
+            e["open"] = json!(true);
+            if let Some(t) = st.temporary.as_mut() {
+                *t.entries.last_mut().unwrap() = e.clone();
+            }
+            if let Some(last) = st.outgoing.last_mut() {
+                *last = json!({"type": "change", "entry": e}).to_string();
+            }
+            e
+        };
+        self.deliver();
+        e
+    }
+
+    /// Another client ends the temporary chat.
+    pub fn temporary_ended(&self) {
+        self.lock().end_temporary();
+        self.deliver();
+    }
+
     /// One committed change: the entry at a new seq, sent to the watch when one runs.
     pub fn commit(&self, mut e: ChatEntry) {
         let sink = {
@@ -209,10 +286,21 @@ impl FakeMac {
             e.conversation_id = st.conversation.clone();
             let frame = json!({"type": "change", "entry": st.wire(&e)});
             st.entries.insert(e.id.clone(), e);
-            st.sink.clone().map(|s| (s, frame))
+            let watching = st.watched == st.conversation;
+            st.sink.clone().filter(|_| watching).map(|s| (s, frame))
         };
         if let Some((s, frame)) = sink {
             s.frame(frame.to_string());
+        }
+    }
+
+    /// The conversation the watch follows now (empty: none).
+    pub fn watched(&self) -> String {
+        let st = self.lock();
+        if st.sink.is_some() {
+            st.watched.clone()
+        } else {
+            String::new()
         }
     }
 
@@ -544,11 +632,7 @@ impl Transport for FakeMac {
                 // `on` is required and a bool: never a default
                 match p["on"].as_bool() {
                     Some(true) => st.start_temporary(),
-                    Some(false) => {
-                        if st.temporary.take().is_some() {
-                            st.temp_rev += 1;
-                        }
-                    }
+                    Some(false) => st.end_temporary(),
                     None => {
                         return Err(LinkFailure::new(
                             "ferb_error",
@@ -662,6 +746,8 @@ impl Transport for FakeMac {
                 ));
             }
         };
+        drop(st);
+        self.deliver();
         Ok(r.to_string())
     }
 
@@ -695,11 +781,12 @@ impl Transport for FakeMac {
                     .as_ref()
                     .map(|t| t.id.clone())
                     .unwrap_or_default();
-                return Ok(
-                    json!({"type": "ack", "request_id": format!("{id}-r1"), "fresh": true,
+                let ack = json!({"type": "ack", "request_id": format!("{id}-r1"), "fresh": true,
                                  "conversation": format!("temporary:{id}")})
-                    .to_string(),
-                );
+                .to_string();
+                drop(st);
+                self.deliver();
+                return Ok(ack);
             }
             let sub = p["submission_id"].as_str().unwrap_or_default().to_string();
             if let Some((request, entry, seq)) = st.accepted.get(&sub) {
@@ -880,6 +967,36 @@ impl Transport for FakeMac {
             }
             st.watches += 1;
             let mut frames = Vec::new();
+            // the temporary chat's watch (ORCH-716): from its memory, its id the epoch; `ended` when it isn't on
+            if let Some(id) = p["conversation"]
+                .as_str()
+                .and_then(|c| c.strip_prefix("temporary:"))
+            {
+                let c = format!("temporary:{id}");
+                let Some(t) = st.temporary.clone().filter(|t| t.id == id) else {
+                    drop(st);
+                    sink.frame(json!({"type": "ended", "conversation": c}).to_string());
+                    sink.ended(None);
+                    return Ok(Box::new(FakeWatch(self.clone())));
+                };
+                let after = p["after_seq"].as_i64().unwrap_or(0);
+                for e in t
+                    .entries
+                    .iter()
+                    .filter(|e| e["seq"].as_i64().unwrap_or(0) > after)
+                {
+                    frames.push(json!({"type": "change", "catchup": true, "entry": e}));
+                }
+                frames.push(json!({"type": "caught_up", "conversation": c, "epoch": id,
+                                   "head": t.entries.len()}));
+                st.sink = Some(sink.clone());
+                st.watched = c;
+                drop(st);
+                for f in frames {
+                    sink.frame(f.to_string());
+                }
+                return Ok(Box::new(FakeWatch(self.clone())));
+            }
             let mut sent = st.head;
             if let (Some(epoch), Some(after)) = (p["epoch"].as_str(), p["after_seq"].as_i64()) {
                 if let Some(mut r) = st.cursor_reply(epoch, after) {
@@ -903,6 +1020,7 @@ impl Transport for FakeMac {
                                "head": sent}),
             );
             st.sink = Some(sink.clone());
+            st.watched = st.conversation.clone();
             frames
         };
         for f in frames {

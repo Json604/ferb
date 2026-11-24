@@ -187,6 +187,8 @@ impl Inner {
             }
         }
         self.temporary_forget();
+        // decision: ORCH-717 — a restart ended the temporary chat: the files it was sent go too
+        self.temporary_files_clear();
         resuming
     }
 

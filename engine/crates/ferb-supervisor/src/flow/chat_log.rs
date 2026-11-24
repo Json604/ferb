@@ -82,7 +82,8 @@ enum Queued {
     Post(Value),
 }
 
-/// What a watcher is handed: a committed change, or a live frame of a conversation (never stored).
+/// What a watcher is handed: a committed change, or a live frame of a conversation (never stored); or the end of the
+/// conversation it watches (the temporary chat's, ended by its icon: nothing more will come).
 #[derive(Debug, Clone)]
 pub enum Watched {
     Change(Box<Entry>),
@@ -90,6 +91,7 @@ pub enum Watched {
         request_id: Option<String>,
         frame: Value,
     },
+    Ended,
 }
 
 struct Watcher {
@@ -155,7 +157,7 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// What a drain made: per conversation, the changes and live frames to hand the watchers, in order.
-type Made = Vec<(String, Watched)>;
+pub(crate) type Made = Vec<(String, Watched)>;
 
 /// What the ack's transaction gives back.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -552,7 +554,16 @@ impl ChatLog {
         lock(&self.watchers).len()
     }
 
-    fn hand_over(&self, made: Made) {
+    /// The watchers of a conversation that ended (the temporary chat's, ORCH-702): each is told [`Watched::Ended`] and
+    /// let go, so its stream ends after what it was already handed.
+    pub(crate) fn end_watchers(&self, conversation: &str) {
+        self.hand_over(vec![(conversation.to_string(), Watched::Ended)]);
+        lock(&self.watchers).retain(|w| w.conversation != conversation);
+    }
+
+    /// Hands each made change or live frame to the watchers of its conversation, in order; a watcher whose queue is
+    /// full is told it is behind and let go. The temporary chat's memory hands its own here too (temporary.rs).
+    pub(crate) fn hand_over(&self, made: Made) {
         if made.is_empty() {
             return;
         }

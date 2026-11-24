@@ -112,8 +112,8 @@ pub enum Change {
     LocationWanted {
         request_id: String,
     },
-    /// The temporary chat moved: turned on or off (on any client), or its turns changed (the status's `temporary`
-    /// rev): read `temporary_chat` again; off, show the normal chat.
+    /// The temporary chat moved: turned on or off (on any client), or its turns or what is live of them changed (its
+    /// watch, as the chat's `Transcript`/`Live`): read `last_temporary_chat` (memory); off, show the normal chat.
     Temporary,
     /// "Forget this Mac" ran or the core closed: every call now answers `closed`.
     Closed,
@@ -408,8 +408,18 @@ impl Drop for Answer {
 
 pub(crate) struct Conv {
     pub(crate) set: EntrySet,
-    live: LiveState,
+    pub(crate) live: LiveState,
     older: OlderState,
+    /// The temporary chat's conversation only (held in memory, never the store): how far its watch has read (the
+    /// chat's id as the epoch, and the seq), and the entries whose words a frame cut, to read whole.
+    pub(crate) memory: Option<Memory>,
+}
+
+/// A conversation held only in memory (the temporary chat's): its cursor and its cut entries.
+#[derive(Default)]
+pub(crate) struct Memory {
+    pub(crate) cursor: Option<Cursor>,
+    pub(crate) cut: Vec<String>,
 }
 
 pub(crate) struct State {
@@ -433,8 +443,9 @@ pub(crate) struct Shared {
     /// What FERB has waiting, as last pushed or read (memory only: question words are never stored). Its own small
     /// lock, held only to copy it: `last_status` never waits for the store or for anything else (kb PHN-681).
     pub(crate) status: Mutex<Option<PhoneStatus>>,
-    /// The temporary chat as last read while it is on (memory only, never the store: `temporary`).
-    pub(crate) temporary: Mutex<Option<crate::temporary::TemporaryChat>>,
+    /// The temporary chat while it is on (memory only, never the store: `temporary`): which one, since when, its rev.
+    /// Its turns are the conversation `temporary:<id>` in the state, fed by the watch like any conversation.
+    pub(crate) temporary: Mutex<Option<crate::temporary::Held>>,
     /// The core was closed (or forgot its Mac): what reads without the state says `closed` too.
     pub(crate) closed: std::sync::atomic::AtomicBool,
     /// One sync at a time (reads, the watch's start).
@@ -693,6 +704,7 @@ impl Mobile {
             h.close();
         }
         self.shared.notify(Change::Link);
+        self.shared.live_reset_told();
     }
 
     /// One event of the link's own (its `state`, `bulk` and `relay_state` events, as JSON). Coming online starts a
@@ -861,8 +873,12 @@ impl Mobile {
         }
     }
 
-    /// Tells the Mac how far the owner has read (`chat.entries.mark read_pos`), when it moved.
+    /// Tells the Mac how far the owner has read (`chat.entries.mark read_pos`), when it moved. The temporary chat keeps
+    /// no marks (nothing of it is kept): nothing is said.
     pub fn mark_read(&self, conversation: &str, pos: i64) -> MobileResult<()> {
+        if crate::temporary::is_memory(conversation) {
+            return Ok(());
+        }
         let t = self.shared.transport_online()?;
         {
             let st = self.shared.open_state()?;
@@ -997,12 +1013,34 @@ impl State {
         self.watch.take().map(|(_, _, h)| h)
     }
 
+    /// The watch follows this conversation now.
+    pub(crate) fn watching(&self, conversation: &str) -> bool {
+        self.watch.as_ref().is_some_and(|w| w.1 == conversation)
+    }
+
+    /// A conversation held in memory goes (the temporary chat that ended): its turns and live state.
+    pub(crate) fn drop_conv(&mut self, conversation: &str) {
+        self.convs.remove(conversation);
+    }
+
     pub(crate) fn store(&mut self) -> MobileResult<&mut Store> {
         self.store.as_mut().ok_or_else(MobileError::closed)
     }
 
     /// The conversation's state, loaded from the store on first use.
     pub(crate) fn conv(&mut self, id: &str) -> MobileResult<&mut Conv> {
+        if !self.convs.contains_key(id) && crate::temporary::is_memory(id) {
+            // the temporary chat: in memory only, never read from or written to the store
+            self.convs.insert(
+                id.to_string(),
+                Conv {
+                    set: EntrySet::new(),
+                    live: LiveState::new(),
+                    older: OlderState::Complete,
+                    memory: Some(Memory::default()),
+                },
+            );
+        }
         if !self.convs.contains_key(id) {
             let store = self.store.as_ref().ok_or_else(MobileError::closed)?;
             let set = EntrySet::from_entries(store.entries(id)?);
@@ -1017,6 +1055,7 @@ impl State {
                     set,
                     live: LiveState::new(),
                     older,
+                    memory: None,
                 },
             );
         }
@@ -1078,22 +1117,30 @@ impl WatchSink for Sink {
                     }
                 };
                 if changed {
-                    shared.notify(Change::Live { conversation: c });
+                    shared.told(&c, true);
                 }
             }
             "behind" => *lock(&self.behind) = true,
             "reset_required" | "cursor_ahead" => {
-                // another store, or a cursor it never gave: read again from the newest page
+                // another store, or a cursor it never gave: read again from the newest page (the temporary chat: from
+                // its start, in memory)
                 let s = shared.clone();
                 shared.env.spawner.spawn(Box::new(move || {
                     if let Ok(mut st) = s.open_state() {
-                        if let Ok(store) = st.store() {
-                            let _ = store.drop_conversation(&c);
+                        if !crate::temporary::is_memory(&c) {
+                            if let Ok(store) = st.store() {
+                                let _ = store.drop_conversation(&c);
+                            }
                         }
                         st.convs.remove(&c);
                     }
                     let _ = Shared::sync(&s);
                 }));
+            }
+            "ended" => {
+                // decision: PHN-837 — the temporary chat watched ended (its icon, on any client, or a restart): the
+                // phone shows the normal chat and watches it again
+                crate::temporary::ended(&shared, &c);
             }
             _ => {}
         }
@@ -1115,9 +1162,7 @@ impl WatchSink for Sink {
             }
             ended
         };
-        shared.notify(Change::Live {
-            conversation: self.conversation.clone(),
-        });
+        shared.told(&self.conversation, true);
         shared.notify(Change::Link);
         // too slow to keep up: read the changes from the cursor and watch again (once per `behind`, never a loop on
         // a failure: a watch that failed waits for the link to come online again or the app's sync)
@@ -1140,15 +1185,44 @@ impl Shared {
             let moved = crate::temporary::carry(last.as_ref(), &mut status);
             let changed = last.as_ref() != Some(&status);
             *last = Some(status.clone());
-            (changed, moved.then_some(status.temporary.is_some()))
+            (changed, moved.then(|| status.temporary.clone()))
         };
         if changed {
             this.notify(Change::Status);
         }
-        if let Some(on) = temporary {
-            crate::temporary::status_moved(this, on);
+        if let Some(now) = temporary {
+            crate::temporary::status_moved(this, now);
         }
         status
+    }
+
+    /// A conversation's turns (`live`: only what is live) changed: `Transcript`/`Live` for a stored conversation, and
+    /// `Temporary` for the temporary chat's (the app reads `last_temporary_chat`, from memory, as it reads a transcript).
+    pub(crate) fn told(&self, conversation: &str, live: bool) {
+        let conversation = conversation.to_string();
+        self.notify(if crate::temporary::is_memory(&conversation) {
+            Change::Temporary
+        } else if live {
+            Change::Live { conversation }
+        } else {
+            Change::Transcript { conversation }
+        });
+    }
+
+    /// Everything live was let go (the link went, it was unplugged): the temporary chat's view too, when one is on.
+    pub(crate) fn live_reset_told(&self) {
+        if lock(&self.temporary).is_some() {
+            self.notify(Change::Temporary);
+        }
+    }
+
+    /// The conversation the watch follows: the temporary chat while one is on (the chat tab shows only it), else the
+    /// one FERB writes in now.
+    pub(crate) fn watch_target(&self, current: &str) -> String {
+        lock(&self.temporary)
+            .as_ref()
+            .map(|h| format!("{}{}", crate::temporary::SESSION_PREFIX, h.id))
+            .unwrap_or_else(|| current.to_string())
     }
 
     pub(crate) fn notify(&self, change: Change) {
@@ -1270,10 +1344,14 @@ impl Shared {
                 _ => return,
             }
         }
+        let reset = watch_to_close.is_some();
         if let Some((_, _, h)) = watch_to_close {
             h.close();
         }
         this.notify(Change::Link);
+        if reset {
+            this.live_reset_told();
+        }
         if start_sync {
             let s = this.clone();
             this.env.spawner.spawn(Box::new(move || {
@@ -1290,8 +1368,40 @@ impl Shared {
 
     /// Applies entries the Mac sent (page, changes or a watch frame) to the store and the conversation; an entry
     /// whose words were cut is recorded to read whole instead. Returns whether any was cut.
-    fn apply(this: &Arc<Shared>, conversation: &str, values: &[Value]) -> MobileResult<bool> {
+    pub(crate) fn apply(
+        this: &Arc<Shared>,
+        conversation: &str,
+        values: &[Value],
+    ) -> MobileResult<bool> {
         let entries: Vec<ChatEntry> = values.iter().filter_map(ChatEntry::read).collect();
+        if crate::temporary::is_memory(conversation) {
+            // decision: PHN-837 — the temporary chat's entries: the same fold and live state as any conversation's,
+            // held only in memory (no store, no outbox); a cut one is read whole like the chat's
+            let (changed, cut) = {
+                let mut st = this.open_state()?;
+                let conv = st.conv(conversation)?;
+                let mut changed = false;
+                let mut cut = false;
+                for e in entries {
+                    if e.cut {
+                        if let Some(m) = conv.memory.as_mut() {
+                            if !m.cut.contains(&e.id) {
+                                m.cut.push(e.id.clone());
+                            }
+                        }
+                        cut = true;
+                        continue;
+                    }
+                    conv.live.entry(&e);
+                    changed |= conv.set.apply(e) == Applied::Kept;
+                }
+                (changed, cut)
+            };
+            if changed {
+                this.told(conversation, false);
+            }
+            return Ok(cut);
+        }
         let at = this.env.clock.now_iso();
         let (changed, cut, outbox_changed) = {
             let mut st = this.open_state()?;
@@ -1334,6 +1444,24 @@ impl Shared {
 
     /// Moves the cursor forward (a new epoch replaces it).
     fn advance(&self, conversation: &str, epoch: Option<&str>, seq: i64) {
+        if crate::temporary::is_memory(conversation) {
+            if let Ok(mut st) = self.open_state() {
+                if let Ok(conv) = st.conv(conversation) {
+                    if let Some(m) = conv.memory.as_mut() {
+                        let epoch = epoch
+                            .map(str::to_string)
+                            .or_else(|| m.cursor.as_ref().map(|c| c.epoch.clone()));
+                        if let Some(epoch) = epoch {
+                            m.cursor = Some(Cursor {
+                                epoch,
+                                after_seq: seq,
+                            });
+                        }
+                    }
+                }
+            }
+            return;
+        }
         if let Ok(st) = self.open_state() {
             if let Some(store) = st.store.as_ref() {
                 let epoch = match epoch {
@@ -1464,14 +1592,22 @@ impl Shared {
     }
 
     /// Reads whole the entries whose words a reply cut (`chat.entries.get`, piece by piece).
-    fn fetch_cut(this: &Arc<Shared>, conversation: &str) -> MobileResult<()> {
+    pub(crate) fn fetch_cut(this: &Arc<Shared>, conversation: &str) -> MobileResult<()> {
         let t = this.transport()?;
-        let ids = this
-            .open_state()?
-            .store
-            .as_ref()
-            .ok_or_else(MobileError::closed)?
-            .pending_gets(conversation)?;
+        let ids = if crate::temporary::is_memory(conversation) {
+            let mut st = this.open_state()?;
+            let conv = st.conv(conversation)?;
+            conv.memory
+                .as_mut()
+                .map(|m| std::mem::take(&mut m.cut))
+                .unwrap_or_default()
+        } else {
+            this.open_state()?
+                .store
+                .as_ref()
+                .ok_or_else(MobileError::closed)?
+                .pending_gets(conversation)?
+        };
         for id in ids {
             let mut offset = 0usize;
             let mut text = String::new();
@@ -1513,11 +1649,26 @@ impl Shared {
                 return Ok(());
             }
             st.generation += 1;
-            let cursor = st
-                .store
-                .as_ref()
-                .ok_or_else(MobileError::closed)?
-                .cursor(conversation)?;
+            let cursor = match crate::temporary::id_of(conversation) {
+                // the temporary chat's cursor is in memory; from its start (its id is the epoch) when none is held, so
+                // the watch brings every turn of it (PHN-837)
+                Some(id) => Some(
+                    st.conv(conversation)?
+                        .memory
+                        .as_ref()
+                        .and_then(|m| m.cursor.clone())
+                        .filter(|c| c.epoch == id)
+                        .unwrap_or(Cursor {
+                            epoch: id.to_string(),
+                            after_seq: 0,
+                        }),
+                ),
+                None => st
+                    .store
+                    .as_ref()
+                    .ok_or_else(MobileError::closed)?
+                    .cursor(conversation)?,
+            };
             let mut params =
                 json!({"conversation": conversation, "max_bytes": this.config.max_bytes});
             if let Some(c) = cursor {
@@ -1550,6 +1701,11 @@ impl Shared {
             handle.close();
         }
         Ok(())
+    }
+
+    /// [`Shared::sync`], for the temporary chat's switches (temporary.rs).
+    pub(crate) fn sync_now(this: &Arc<Shared>) -> MobileResult<()> {
+        Self::sync(this)
     }
 
     fn sync(this: &Arc<Shared>) -> MobileResult<()> {
@@ -1605,7 +1761,9 @@ impl Shared {
             _ => Self::first_page(this, &t, &conversation)?,
         }
         Self::fetch_cut(this, &conversation)?;
-        Self::start_watch(this, &t, &conversation)?;
+        // decision: PHN-837 — one watch, on the conversation the chat tab shows: the temporary chat while one is on
+        let target = this.watch_target(&conversation);
+        Self::start_watch(this, &t, &target)?;
         // the delivered mark: what this phone has stored (best effort). The cursor is read and the state let go
         // BEFORE the call: an `if let` on the read itself keeps its guard through the whole body, and the sync then
         // waited for the Mac with the state locked (the owner's freeze of 2026-11-18, kb PHN-680).

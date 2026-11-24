@@ -36,7 +36,7 @@ final class TemporaryChatTests: XCTestCase {
     }
 
     // decision: PHN-416
-    // decision: PHN-818
+    // decision: PHN-837
     func testTheBubbleShowsOnlyTheTemporaryChatAndTheSameBubbleEndsIt() async {
         let vm = await opened()
         XCTAssertNil(vm.temporary)
@@ -75,7 +75,7 @@ final class TemporaryChatTests: XCTestCase {
 
     /// Its questions are its own: shown in it, never loose in the normal chat.
     // decision: PHN-770
-    // decision: PHN-818
+    // decision: PHN-837
     func testATemporaryChatsQuestionShowsOnlyInIt() async {
         let vm = await opened()
         await vm.toggleTemporary().value
@@ -96,7 +96,7 @@ final class TemporaryChatTests: XCTestCase {
     /// The Mac's status marks a temporary chat's questions and running tasks (`temporary`): they show only in it, and
     /// the chat's work row never counts them; its own work row has only them.
     // decision: PHN-770, PHN-725
-    // decision: PHN-818
+    // decision: PHN-837
     func testTheStatusRowsOfATemporaryChatShowOnlyInIt() async {
         let vm = await opened()
         await vm.toggleTemporary().value
@@ -121,7 +121,7 @@ final class TemporaryChatTests: XCTestCase {
     /// stayed after he answered them. Its questions are at its end, after everything said, as FERB.app draws them; once
     /// the Mac's temporary chat says one is answered (its rev moved: the library's Change.temporary), it is gone.
     // decision: PHN-824
-    // decision: PHN-818
+    // decision: PHN-837
     func testItsQuestionsAreAtItsEndAndGoOnceAnswered() async throws {
         func chat(_ answered: Set<String>, rev: Int64) throws -> TemporaryChat {
             var t = try FixtureMac.transcript(FixtureMac(try .looseQuestions(answered: answered)))
@@ -151,7 +151,7 @@ final class TemporaryChatTests: XCTestCase {
     /// Closing the app or locking the phone never ends it: a new launch reads it from the Mac and shows it; when it
     /// ends elsewhere (the library's Change.temporary), the normal chat comes back.
     // decision: PHN-416
-    // decision: PHN-818
+    // decision: PHN-837
     func testARelaunchWithTheTemporaryChatOnShowsIt() async {
         phone.temporaryNow = TemporaryChat(on: true, id: "tmp9", startedAt: "2026-11-23T10:00:00+05:30", rev: 4,
                                            transcript: TranscriptView(conversation: "temporary:tmp9", items: [FakePhone.ownerTurn("t-e0", "Still here?")],
@@ -180,7 +180,7 @@ final class TemporaryChatTests: XCTestCase {
     /// Nothing of it is kept on the phone: not the draft in scene storage, not the preferences, not a file, not the
     /// outbox. A failed toggle says so and changes nothing.
     // decision: PHN-416
-    // decision: PHN-818
+    // decision: PHN-837
     func testNothingTemporaryIsStoredOnThePhone() async {
         let vm = await opened()
         await vm.toggleTemporary().value
@@ -223,7 +223,7 @@ final class TemporaryChatTests: XCTestCase {
     /// one chat, another data source), so the list goes to it as for any message of his (the list's `mine`). Once the
     /// send is answered, the Mac's row is there in its place; a send that fails takes it away and puts the words back.
     // decision: APP-1126
-    // decision: PHN-818
+    // decision: PHN-837
     func testHisMessageShowsAtOnceAsHisOutboxRowAsInTheChat() async {
         let vm = await opened()
         await vm.toggleTemporary().value
@@ -255,7 +255,7 @@ final class TemporaryChatTests: XCTestCase {
         XCTAssertEqual(vm.draft, "again")
     }
 
-    // decision: PHN-818
+    // decision: PHN-837
     func testTheStringsAreTheContracts() {
         XCTAssertEqual(L.s("temporary_chat"), "Temporary chat")
         XCTAssertEqual(L.s("temporary_chat_end"), "End temporary chat")
@@ -269,7 +269,7 @@ final class TemporaryChatTests: XCTestCase {
     /// line, the box; and the bar with the bubble off and on (night). Drawn with the lab's still box: the app's own text
     /// field can't draw offscreen.
     // decision: PHN-416
-    // decision: PHN-818
+    // decision: PHN-837
     func testGoldenTheTemporaryChat() {
         let on = TemporaryToggle(on: true, label: L.s("temporary_chat_end")) {}
         let off = TemporaryToggle(on: false, label: L.s("temporary_chat")) {}
@@ -297,6 +297,32 @@ final class TemporaryChatTests: XCTestCase {
         .frame(width: PhoneInsets.labSize.width, height: PhoneInsets.labSize.height)
         .stillMotion()
         AppSnapshot.assert(bars, size: PhoneInsets.labSize, path: "app/temporary-bubble-night.png")
+    }
+
+    /// The owner (2026-11-24, ORCH-715): "isnt everything same but only its a non saving chat???". Once read at opening,
+    /// the temporary chat is kept by the library's one watch as the chat is: each `Change.temporary` (a streamed word, the
+    /// plan line, a step, the answer) is read from the library's memory, never with a call to the Mac. Before, each one
+    /// read the whole chat from the Mac again.
+    // decision: ORCH-715
+    // decision: PHN-837
+    func testItsChangesAreReadFromTheLibrarysMemoryNeverTheMac() async {
+        let vm = await opened()
+        await vm.toggleTemporary().value
+        let reads = phone.calls.filter { $0 == "temporary" }.count
+        var v = phone.temporaryNow.transcript
+        v.items.append(FakePhone.ownerTurn("t-e0", "look this up", task: "tmp-task-0"))
+        phone.temporaryNow = TemporaryChat(on: true, id: phone.temporaryNow.id, startedAt: phone.temporaryNow.startedAt,
+                                           rev: phone.temporaryNow.rev + 1, transcript: v)
+        phone.emit(.temporary)
+        await eventually("its new turn shows") {
+            vm.temporary?.rows.contains { if case .owner(_, let t, _, _) = $0 { t == "look this up" } else { false } } == true
+        }
+        XCTAssertTrue(phone.calls.contains("temporary-last"))
+        XCTAssertEqual(phone.calls.filter { $0 == "temporary" }.count, reads, "never read from the Mac per change")
+        // ended elsewhere: the library holds none, the normal chat shows
+        phone.temporaryNow = FakePhone.temporaryOff
+        phone.emit(.temporary)
+        await eventually("the normal chat") { vm.temporary == nil }
     }
 }
 #endif

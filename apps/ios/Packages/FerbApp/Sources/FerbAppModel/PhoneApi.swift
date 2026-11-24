@@ -115,9 +115,14 @@ public protocol PhoneApi: AnyObject {
     /// no prior context; on and off only by the chat's dashed bubble. Read it (private: the Mac's unlock), turn it on
     /// or off (plain), and send to it; each answers the chat as it stands after the call. Nothing of it is kept on the
     /// phone: the library holds it in memory.
+    /// After the read at opening, the library's one watch keeps it as it keeps the chat (the owner, 2026-11-24,
+    /// ORCH-715): each `Change.temporary` is read from memory with `lastTemporaryChat`, never from the Mac. A message
+    /// carries files as the chat's does (this phone's finished uploads, by id).
     func temporaryChat() async -> Outcome<TemporaryChat>
     func setTemporaryChat(on: Bool) async -> Outcome<TemporaryChat>
     func sendTemporary(_ text: String) async -> Outcome<TemporaryChat>
+    func sendTemporary(_ text: String, attachments: [Attachment]) async -> Outcome<TemporaryChat>
+    func lastTemporaryChat() async -> Outcome<TemporaryChat?>
 
     /// Keys made after pairing the Mac doesn't hold (Face ID or Touch ID enrolled later), and registering them
     /// (PHN-133).
@@ -268,6 +273,17 @@ public final class LibraryPhone: PhoneApi {
     }
     public func sendTemporary(_ text: String) async -> Outcome<TemporaryChat> {
         await Self.laidOut(await phone.call { try $0.sendTemporary(text: text) })
+    }
+    public func sendTemporary(_ text: String, attachments: [Attachment]) async -> Outcome<TemporaryChat> {
+        await Self.laidOut(await phone.call { try $0.sendTemporaryWith(text: text, attachments: attachments) })
+    }
+    public func lastTemporaryChat() async -> Outcome<TemporaryChat?> {
+        let read = await phone.call { try $0.lastTemporaryChat() }
+        if case .ok(let t?) = read, t.on {
+            let v = t.transcript
+            await Task.detached(priority: .userInitiated) { ChatModel.prepare(v) }.value
+        }
+        return read
     }
     /// FERB's words in the temporary chat laid out off the main actor, as `transcript` does for the chat (kb PHN-682).
     private static func laidOut(_ read: Outcome<TemporaryChat>) async -> Outcome<TemporaryChat> {

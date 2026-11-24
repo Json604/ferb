@@ -379,7 +379,7 @@ pub struct PhoneStatus {
 }
 
 /// The temporary chat as `chat.status` names it while one is on: its id, its `rev` (one more on every change: its
-/// start, each entry's change, its end) and when it started. Its turns are read with `Mobile::temporary_chat`.
+/// start, each entry's change, its end) and when it started. Its turns come through the watch (`last_temporary_chat`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TemporaryState {
     pub id: String,

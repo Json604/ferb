@@ -151,6 +151,9 @@ pub struct FileSeams {
     pub made_files: Option<Arc<MadeFiles>>,
     /// A test's look between the steps (`"before_open"`, `"piece"`) with the path: never set in the daemon.
     pub hook: Option<Arc<Hook>>,
+    /// Where a temporary chat's attachments are moved at send (ferb-core `temporary::FILES_FOLDER` in the account's
+    /// own temporary folder; ORCH-717): the supervisor deletes it when the chat ends and at every start.
+    pub temporary_files: PathBuf,
 }
 
 impl FileSeams {
@@ -2128,6 +2131,105 @@ pub(crate) fn attachments(
             }
         })
         .collect()
+}
+
+/// decision: ORCH-717 — a temporary chat's message (`chat.send` with `fresh`): its attachments, checked as
+/// [`attachments`] checks them, are moved out of the upload folder into the temporary chat's own folder
+/// ([`FileSeams::temporary_files`], one new folder each, the name kept), and their uploads are forgotten here. The
+/// daemon deletes that folder when the chat ends and at every start, so nothing of them is kept (the owner, 2026-11-24:
+/// the temporary chat is the normal chat except that nothing is saved). The paths `chat.send` takes; a file that can't
+/// be moved is refused, the message not sent.
+pub(crate) fn attachments_for_temporary(
+    inner: &Inner,
+    device: &str,
+    ids: &Value,
+) -> Result<Vec<String>, Refusal> {
+    let found = attachments(inner, device, ids)?;
+    let a = area(inner)?;
+    let root = a.seams.temporary_files.clone();
+    let failed = |why: String| {
+        refused(
+            wire::FAILED,
+            format!("A file of this message could not be moved for the temporary chat ({why})."),
+        )
+    };
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&root)
+        .map_err(|e| failed(e.to_string()))?;
+    let ids: Vec<String> = ids
+        .as_array()
+        .map(|l| {
+            l.iter()
+                .map(|v| v.as_str().unwrap_or("").to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut moved = Vec::new();
+    for (id, from) in ids.iter().zip(found) {
+        let name = Path::new(&from)
+            .file_name()
+            .map(|n| n.to_os_string())
+            .ok_or_else(|| failed("it has no name".into()))?;
+        let holder = (1..10_000u32)
+            .map(|n| root.join(n.to_string()))
+            .find(|p| std::fs::DirBuilder::new().mode(0o700).create(p).is_ok())
+            .ok_or_else(|| failed("no room in its folder".into()))?;
+        let to = holder.join(name);
+        move_item(Path::new(&from), &to).map_err(|e| failed(e.to_string()))?;
+        let to = to.to_string_lossy().into_owned();
+        {
+            let mut st = lock(&a.state);
+            st.uploads.remove(id);
+            st.groups.remove(id);
+            // a folder's own files went with it
+            st.uploads
+                .retain(|_, u| !u.saved.as_deref().is_some_and(|p| under(p, &from)));
+        }
+        inner.audit(
+            device,
+            "chat.send",
+            "plain",
+            "ok",
+            json!({"path": from, "moved_to": to}),
+        );
+        moved.push(to);
+    }
+    Ok(moved)
+}
+
+/// Moves a file or a folder: renamed in place, else (another volume) copied and the original removed.
+fn move_item(from: &Path, to: &Path) -> io::Result<()> {
+    match std::fs::rename(from, to) {
+        Ok(()) => Ok(()),
+        Err(e) if e.raw_os_error() == Some(libc::EXDEV) => {
+            copy_item(from, to)?;
+            if std::fs::symlink_metadata(from)?.is_dir() {
+                std::fs::remove_dir_all(from)
+            } else {
+                std::fs::remove_file(from)
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Copies a file, or a folder with its ordinary files and folders (nothing else is followed or copied).
+fn copy_item(from: &Path, to: &Path) -> io::Result<()> {
+    let m = std::fs::symlink_metadata(from)?;
+    if m.is_dir() {
+        std::fs::DirBuilder::new().mode(0o700).create(to)?;
+        for entry in std::fs::read_dir(from)? {
+            let entry = entry?;
+            copy_item(&entry.path(), &to.join(entry.file_name()))?;
+        }
+        Ok(())
+    } else if m.is_file() {
+        std::fs::copy(from, to).map(|_| ())
+    } else {
+        Ok(())
+    }
 }
 
 /// The phone's link connection ended: its uploads under way pause (kept for the same phone to go on with).

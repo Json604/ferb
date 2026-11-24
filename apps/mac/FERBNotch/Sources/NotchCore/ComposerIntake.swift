@@ -97,6 +97,41 @@ public final class ReceivedFiles {
         for url in urls { unsent.remove(url.standardizedFileURL) }
     }
 
+    /// Where a temporary chat's received files are kept while it is on (owner 2026-11-24, ORCH-715: the temporary chat
+    /// is the chat except that nothing is saved; ORCH-717): removed whole when it ends.
+    public var temporaryRoot: URL { root.appendingPathComponent("Temporary chat", isDirectory: true) }
+
+    /// Files sent in the temporary chat: each of FERB's own received files moves, with its folder, under
+    /// `temporaryRoot`, so the chat's end takes it; the owner's own files are never moved. The files as they are now,
+    /// in order.
+    public func sentToTemporary(_ urls: [URL]) -> [URL] {
+        urls.map { given in
+            let url = given.standardizedFileURL
+            let folder = url.deletingLastPathComponent()
+            guard owns(url), folder.deletingLastPathComponent().path == root.path else {
+                sent([url])
+                return given
+            }
+            do {
+                try files.createDirectory(at: temporaryRoot, withIntermediateDirectories: true,
+                                          attributes: [.posixPermissions: 0o700])
+                let to = temporaryRoot.appendingPathComponent(folder.lastPathComponent, isDirectory: true)
+                try files.moveItem(at: folder, to: to)
+                unsent.remove(url)
+                return to.appendingPathComponent(url.lastPathComponent).standardizedFileURL
+            } catch {
+                sent([url])
+                return given
+            }
+        }
+    }
+
+    /// The temporary chat ended (its icon on any device, or the daemon restarted): every file it was sent goes.
+    public func clearTemporary() {
+        guard files.fileExists(atPath: temporaryRoot.path) else { return }
+        try? files.removeItem(at: temporaryRoot)
+    }
+
     /// The owner took a file out of the composer: an unsent received file is deleted, and its folder once empty.
     public func discard(_ url: URL) {
         let url = url.standardizedFileURL

@@ -116,7 +116,7 @@ class TemporaryChatTest {
         compose.waitForIdle()
     }
 
-    // decision: PHN-818
+    // decision: PHN-837
     @Test
     fun the_bubble_turns_it_on_with_the_banner_and_only_its_own_turns() {
         phone.temporaryItems = listOf(said("t1", "An answer from the temporary chat."))
@@ -134,7 +134,7 @@ class TemporaryChatTest {
         compose.onNodeWithContentDescription("End temporary chat").assertIsDisplayed()
     }
 
-    // decision: PHN-818
+    // decision: PHN-837
     @Test
     fun the_same_bubble_turns_it_off_and_the_normal_chat_returns() {
         phone.temporaryOn = true
@@ -152,7 +152,7 @@ class TemporaryChatTest {
         compose.onNodeWithContentDescription("Temporary chat").assertIsDisplayed()
     }
 
-    // decision: PHN-818
+    // decision: PHN-837
     @Test
     fun a_relaunch_with_it_on_shows_it_and_an_empty_one_says_it_starts_fresh() {
         phone.temporaryOn = true
@@ -170,7 +170,7 @@ class TemporaryChatTest {
         compose.onNodeWithText("Still here after the lock.").assertIsDisplayed()
     }
 
-    // decision: PHN-818
+    // decision: PHN-837
     @Test
     fun a_message_goes_fresh_never_to_the_outbox_and_nothing_is_stored() {
         phone.temporaryOn = true
@@ -192,7 +192,7 @@ class TemporaryChatTest {
         assertTrue(phone.outbox.isEmpty())
     }
 
-    // decision: PHN-818
+    // decision: PHN-837
     @Test
     fun a_failed_toggle_says_so_and_an_end_on_another_client_returns_to_the_normal_chat() {
         val vm = vm()
@@ -217,7 +217,7 @@ class TemporaryChatTest {
     // The owner's live case (2026-11-23): in the temporary chat FERB's questions sat above his newest message and stayed
     // after he answered them. Its questions are at its end, after everything said, as FERB.app draws them; once the Mac's
     // temporary chat says one is answered (its rev moved: `Change.Temporary`), it is gone.
-    // decision: PHN-824, PHN-818
+    // decision: PHN-824, PHN-837
     @Test
     fun its_questions_are_at_its_end_and_go_once_answered() {
         val c = Fixtures.conversations().first { it.scenario == "question_left_open" }
@@ -244,7 +244,7 @@ class TemporaryChatTest {
         assertEquals(listOf("ap-2"), after.questions.map { it.approvalId })
     }
 
-    // decision: PHN-818
+    // decision: PHN-837
     @Test
     fun a_temporary_chat_s_question_shows_only_in_its_own_view() {
         val q = { id: String, temp: Boolean ->
@@ -257,5 +257,90 @@ class TemporaryChatTest {
         session.unlocked()
         assertEquals(listOf("q-normal"), vm.ui.value.questions.map { it.approvalId })
         assertEquals(listOf("q-temp"), vm.ui.value.temporary?.questions?.map { it.approvalId })
+    }
+
+    /**
+     * A Mac holding a temporary chat (T1) in memory, with the chat (c1) empty: the one watch follows whichever
+     * conversation the phone asks for, and the test hands frames to it as the daemon's `chat.entries.watch` would.
+     */
+    private class TemporaryMac : com.ferb.mobile.Transport {
+        val calls = java.util.concurrent.CopyOnWriteArrayList<String>()
+        @Volatile var watched: String = ""
+        @Volatile var sink: com.ferb.mobile.WatchSink? = null
+        private val chat = """{"on":true,"id":"T1","conversation":"temporary:T1","started_at":"2026-01-02T10:05:00+00:00","rev":1,"entries":[]}"""
+        override fun call(method: String, paramsJson: String, proofJson: String?): String {
+            calls.add(method)
+            return when (method) {
+                "chat.entries.page" -> """{"conversation":"c1","epoch":"E1","head":0,"entries":[],"more":false,"before_pos":null}"""
+                "chat.entries.changes" -> """{"conversation":"c1","epoch":"E1","head":0,"entries":[],"more":false,"next_seq":0}"""
+                "chat.entries.mark" -> """{"marks":{}}"""
+                "chat.temporary.get", "chat.temporary.set" -> chat
+                else -> throw com.ferb.mobile.TransportException.Failed("method_not_allowed", "$method is not allowed", null, null)
+            }
+        }
+        override fun send(paramsJson: String): String = throw com.ferb.mobile.TransportException.Failed("method_not_allowed", "no sends here", null, null)
+        override fun watch(paramsJson: String, sink: com.ferb.mobile.WatchSink): ULong {
+            @Suppress("UNCHECKED_CAST")
+            val p = com.ferb.app.model.Json.parse(paramsJson) as Map<String, Any?>
+            val c = p["conversation"] as String
+            this.sink = sink
+            watched = c
+            val epoch = if (c == "temporary:T1") "T1" else "E1"
+            sink.frame("""{"type":"caught_up","conversation":"$c","epoch":"$epoch","head":0}""")
+            return 1u
+        }
+        override fun closeWatch(watchId: ULong) {}
+        override fun get(id: String, paramsJson: String, saveTo: String?, append: Boolean, progress: com.ferb.mobile.TransferProgress): String =
+            throw com.ferb.mobile.TransportException.Failed("not_found", "none", null, null)
+        override fun put(id: String, path: String, optsJson: String, progress: com.ferb.mobile.TransferProgress): String =
+            throw com.ferb.mobile.TransportException.Failed("not_found", "none", null, null)
+        override fun cancel(id: String) {}
+    }
+
+    // The owner (2026-11-24, ORCH-715): "isnt everything same but only its a non saving chat???". Through the real library
+    // on the host: once the temporary chat is on, the one watch follows it, and each frame the Mac streams (his working
+    // turn, the plan line as it is said) reaches the temporary chat on screen as it reaches the chat, read from the
+    // library's memory on `Change.Temporary`, with no read of the whole chat from the Mac per change. Before, the phone
+    // only read it again (`chat.temporary.get`) on each status rev, about 1.5 s late, and never saw a streamed frame.
+    // decision: ORCH-715, PHN-837
+    @Test
+    fun its_streamed_frames_reach_it_through_the_one_watch_as_the_chat_s() {
+        val mac = TemporaryMac()
+        val dir = java.nio.file.Files.createTempDirectory("ferb-temporary-watch").toFile()
+        val n = java.util.concurrent.atomic.AtomicInteger()
+        val m = com.ferb.mobile.Mobile.open(File(dir, "phone.db").path, ByteArray(32) { 7 }, com.ferb.mobile.MobileConfig("client-test", 0, null, null, null),
+            object : com.ferb.mobile.Clock { override fun nowIso() = "2026-01-02T10:00:00+00:00" },
+            object : com.ferb.mobile.Ids { override fun newId() = "id-${n.incrementAndGet()}" },
+            object : com.ferb.mobile.Listener { override fun changed(change: Change) { phone.changes.tryEmit(change) } })
+        try {
+            m.connectTransport(mac)
+            m.linkEvent("""{"type":"state","phase":"online","tier":"direct"}""")
+            m.sync()
+            assertEquals("c1", mac.watched)
+            phone.realTemporary = m
+            phone.temporaryOn = true
+            val vm = vm()
+            session.unlocked()
+            m.setTemporaryChat(true)
+            val end = System.currentTimeMillis() + 5_000
+            while (mac.watched != "temporary:T1" && System.currentTimeMillis() < end) Thread.sleep(10)
+            assertEquals("the one watch follows the temporary chat", "temporary:T1", mac.watched)
+            val reads = mac.calls.count { it == "chat.temporary.get" }
+            val sink = mac.sink!!
+            sink.frame("""{"type":"change","entry":{"id":"T1-e1","conversation_id":"temporary:T1","pos":1,"seq":1,"rev":1,"kind":"message",
+                "state":"working","open":true,"request_id":"temporary-r1","created_at":"2026-01-02T10:06:00+00:00",
+                "updated_at":"2026-01-02T10:06:00+00:00","day":"2026-01-02","body":{"text":"look this up","attachments":[],"hidden":[]},
+                "deleted":false}}""")
+            sink.frame("""{"type":"live","request_id":"temporary-r1","frame":{"type":"progress","planning":true,"text":"Reading the page"}}""")
+            val rows = vm.ui.value.temporary!!.rows
+            assertTrue("his turn: $rows", rows.any { it is ChatRow.Owner && it.text == "look this up" })
+            assertTrue("the plan line streamed in: $rows", rows.any { it is ChatRow.Line && it.text == "Reading the page" })
+            assertEquals("never read again per change", reads, mac.calls.count { it == "chat.temporary.get" })
+            assertTrue(phone.calls.contains("last-temporary"))
+        } finally {
+            phone.realTemporary = null
+            m.close()
+            dir.deleteRecursively()
+        }
     }
 }

@@ -489,6 +489,12 @@ pub fn from_env(opts: &mut Options) -> Option<StandIns> {
     if !flag("import_paused", false) {
         ferb_daemon::areas_a::memory_import::unpause_for_tests();
     }
+    // ORCH-717: a test daemon's temporary chat files stay in its own home (never the account's temporary folder, where
+    // the owner's running FERB keeps its own)
+    opts.temporary_files = opts
+        .user_home
+        .join(".ferb-test-tmp")
+        .join(ferb_core::temporary::FILES_FOLDER);
     opts.keychain = Keychain::Refused;
     // stage 3 S4: the phone link's helper only where a test names one (`link_helper`, `link_args`), its keys in memory,
     // never under a sandbox of its own (the test guard's already holds it)

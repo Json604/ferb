@@ -399,6 +399,18 @@ final class FakePhone: PhoneApi {
         }
         return .ok(temporaryNow)
     }
+    /// The files each temporary message carried, by upload id.
+    @ObservationIgnored var temporaryFiles: [[String]] = []
+    /// What the library's watch holds of the temporary chat (memory): read on each `Change.temporary`, no call made.
+    func lastTemporaryChat() async -> Outcome<TemporaryChat?> {
+        calls.append("temporary-last")
+        return .ok(temporaryNow.on ? temporaryNow : nil)
+    }
+    func sendTemporary(_ text: String, attachments: [Attachment]) async -> Outcome<TemporaryChat> {
+        let r = await sendTemporary(text)
+        if case .ok = r { temporaryFiles.append(attachments.map(\.uploadId)) }
+        return r
+    }
     func sendTemporary(_ text: String) async -> Outcome<TemporaryChat> {
         calls.append("temporary-send:\(text)")
         if let g = temporaryGate { await g.wait() }

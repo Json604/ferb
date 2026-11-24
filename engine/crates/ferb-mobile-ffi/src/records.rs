@@ -802,7 +802,7 @@ mirror! {
         #[uniffi(default = None)]
         memory_import: Option<ImportCard>,
         /// The temporary chat while one is on (its id, rev and start); none while none is on or from an older Mac.
-        /// When it appears, goes or its rev moves, `Change.Temporary` says so: read `temporary_chat` again.
+        /// When it appears or goes, `Change.Temporary` says so: read `last_temporary_chat`.
         #[uniffi(default = None)]
         temporary: Option<TemporaryState>,
     }
@@ -1379,8 +1379,8 @@ pub enum Change {
     LocationWanted {
         request_id: String,
     },
-    /// The temporary chat moved: on or off (from any client), or its turns changed: read `temporary_chat` again; off,
-    /// show the normal chat.
+    /// The temporary chat moved: on or off (from any client), or its turns or what is live of them changed (its watch,
+    /// as the chat's): read `last_temporary_chat` (memory, no call to the Mac); off, show the normal chat.
     Temporary,
     /// "Forget this Mac" ran or the core closed: every call now answers `closed`.
     Closed,

@@ -389,13 +389,25 @@ class FakePhone : PhoneApi {
         if (!on) temporaryItems = emptyList()
         return Outcome.Ok(temporaryNow())
     }
-    override suspend fun sendTemporary(text: String): Outcome<com.ferb.mobile.TemporaryChat> {
+    override suspend fun sendTemporary(text: String): Outcome<com.ferb.mobile.TemporaryChat> = sendTemporaryWith(text, emptyList())
+    /** The files each temporary message carried, by upload id. */
+    val temporaryFiles = ArrayList<List<String>>()
+    override suspend fun sendTemporaryWith(text: String, attachments: List<Attachment>): Outcome<com.ferb.mobile.TemporaryChat> {
         calls += "send-temporary:$text"
         temporaryGate?.await()
         temporaryRefusal?.let { return it }
         temporarySent += text
+        temporaryFiles += attachments.map { it.uploadId }
         temporaryOn = true
         return Outcome.Ok(temporaryNow())
+    }
+    /** The real library on the host, when a test drives the temporary chat's watch through it. */
+    var realTemporary: com.ferb.mobile.Mobile? = null
+    /** What the library's watch holds of the temporary chat (memory): read on each `Change.Temporary`, no call made. */
+    override suspend fun lastTemporaryChat(): Outcome<com.ferb.mobile.TemporaryChat?> {
+        calls += "last-temporary"
+        realTemporary?.let { return Outcome.Ok(it.lastTemporaryChat()) }
+        return Outcome.Ok(temporaryNow().takeIf { it.on })
     }
 
     companion object {

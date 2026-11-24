@@ -179,10 +179,10 @@ class BothChatsTest {
         assertTrue("$source: the row already there never faded", there.same(picture("Already here.")))
     }
 
-    // decision: APP-1126, PHN-831, PHN-624
+    // decision: APP-1126, PHN-837, PHN-624
     @Test fun a_row_that_arrives_fades_in_in_the_chat() = aRowThatArrivesFadesIn(Source.SAVED)
 
-    // decision: APP-1126, PHN-831, PHN-624
+    // decision: APP-1126, PHN-837, PHN-624
     @Test fun a_row_that_arrives_fades_in_in_the_temporary_chat() = aRowThatArrivesFadesIn(Source.TEMPORARY)
 
     // ---- scrolled up, what arrives brings the pill and the way back to the latest (kb PHN-628, PHN-662) ----
@@ -202,10 +202,10 @@ class BothChatsTest {
         compose.onNodeWithTag("chat-jump").assertIsDisplayed()
     }
 
-    // decision: APP-1126, PHN-831, PHN-628, PHN-662
+    // decision: APP-1126, PHN-837, PHN-628, PHN-662
     @Test fun scrolled_up_a_new_row_brings_the_pill_in_the_chat() = scrolledUpANewRowBringsThePill(Source.SAVED)
 
-    // decision: APP-1126, PHN-831, PHN-628, PHN-662
+    // decision: APP-1126, PHN-837, PHN-628, PHN-662
     @Test fun scrolled_up_a_new_row_brings_the_pill_in_the_temporary_chat() = scrolledUpANewRowBringsThePill(Source.TEMPORARY)
 
     // ---- his message: at once, his outbox row at the end, the list going to it (kb PHN-401, PHN-628) ----
@@ -239,10 +239,10 @@ class BothChatsTest {
         return vm
     }
 
-    // decision: APP-1126, PHN-831, PHN-401, PHN-628
+    // decision: APP-1126, PHN-837, PHN-401, PHN-628
     @Test fun his_message_is_his_outbox_row_at_the_end_in_the_chat() { hisMessageIsHisOutboxRowAtTheEnd(Source.SAVED) }
 
-    // decision: APP-1126, PHN-831, PHN-818, PHN-628
+    // decision: APP-1126, PHN-837, PHN-628
     @Test fun his_message_is_his_outbox_row_at_the_end_in_the_temporary_chat() {
         val vm = hisMessageIsHisOutboxRowAtTheEnd(Source.TEMPORARY)
         compose.onNodeWithText("Sending…").assertIsDisplayed()
@@ -260,7 +260,7 @@ class BothChatsTest {
         compose.onNodeWithText("what is 2+2").assertIsDisplayed()
     }
 
-    // decision: APP-1126, PHN-831, PHN-818
+    // decision: APP-1126, PHN-837
     @Test
     fun a_temporary_send_that_fails_takes_its_row_away_and_keeps_the_words() {
         phone.temporaryOn = true

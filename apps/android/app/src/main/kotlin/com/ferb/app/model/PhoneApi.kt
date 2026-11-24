@@ -194,13 +194,19 @@ interface PhoneApi {
     suspend fun answerMemoryReview(part: String, itemIds: List<String>, answer: String): Outcome<MemoryReview>
 
     /**
-     * The temporary chat (the owner, 2026-11-23): read from the Mac (`chat.temporary.get`), turned on and off by the one
-     * dashed bubble (`chat.temporary.set`), and a message sent now with `fresh: true`, never through the outbox (a
-     * dropped link is a failure; the words stay with the app). Memory only: nothing of it is stored on the phone.
+     * The temporary chat (the owner, 2026-11-23): read from the Mac when the app opens (`chat.temporary.get`), turned on
+     * and off by the one dashed bubble (`chat.temporary.set`), and a message sent now with `fresh: true` (with files as
+     * the chat sends them), never through the outbox (a dropped link is a failure; the words stay with the app). After
+     * that the library's one watch keeps it as it keeps the chat (the owner, 2026-11-24, ORCH-715): each
+     * `Change.Temporary` is read from memory with [lastTemporaryChat], never from the Mac. Memory only: nothing of it is
+     * stored on the phone.
      */
     suspend fun temporaryChat(): Outcome<TemporaryChat> = Outcome.Failed(com.ferb.mobile.FerbException.Offline("No link.", null))
     suspend fun setTemporaryChat(on: Boolean): Outcome<TemporaryChat> = Outcome.Failed(com.ferb.mobile.FerbException.Offline("No link.", null))
     suspend fun sendTemporary(text: String): Outcome<TemporaryChat> = Outcome.Failed(com.ferb.mobile.FerbException.Offline("No link.", null))
+    suspend fun sendTemporaryWith(text: String, attachments: List<Attachment>): Outcome<TemporaryChat> =
+        Outcome.Failed(com.ferb.mobile.FerbException.Offline("No link.", null))
+    suspend fun lastTemporaryChat(): Outcome<TemporaryChat?> = Outcome.Ok(null)
 }
 
 /** A live preview under way. */
@@ -298,4 +304,7 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun temporaryChat() = phone.call { it.temporaryChat().also { t -> ChatModel.prepare(t.transcript) } }
     override suspend fun setTemporaryChat(on: Boolean) = phone.call { it.setTemporaryChat(on).also { t -> ChatModel.prepare(t.transcript) } }
     override suspend fun sendTemporary(text: String) = phone.call { it.sendTemporary(text).also { t -> ChatModel.prepare(t.transcript) } }
+    override suspend fun sendTemporaryWith(text: String, attachments: List<Attachment>) =
+        phone.call { it.sendTemporaryWith(text, attachments).also { t -> ChatModel.prepare(t.transcript) } }
+    override suspend fun lastTemporaryChat() = phone.call { it.lastTemporaryChat()?.also { t -> ChatModel.prepare(t.transcript) } }
 }

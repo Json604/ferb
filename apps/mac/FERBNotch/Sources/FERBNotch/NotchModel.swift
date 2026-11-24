@@ -1022,8 +1022,11 @@ final class NotchModel: ObservableObject {
         }
     }
 
-    private func begin(request: String, outgoing: String, sources: [URL], keepComposer: Bool,
+    private func begin(request: String, outgoing: String, sources given: [URL], keepComposer: Bool,
                        in source: ChatSource) -> UUID? {
+        // decision: ORCH-717 — FERB's own received files (a pasted picture, a dropped promise) sent in the temporary chat
+        // are kept in its own folder, which its end removes; the owner's own files are sent by path, as in the chat
+        let sources = source == .temporary ? receivedFiles.sentToTemporary(given) : given
         localSettingReply = nil
         let held = (draft: session.draft, sources: session.attachments)
         if let active = session.activeTaskID { workSessions[active] = session }

@@ -2509,3 +2509,36 @@ rule = "For ORCH-699 and ORCH-325. The temporary chat's block (FRESH_FACT and th
 why = "T-1042, live 2026-11-23/24 (11 temporary-chat planner turns): cacheable_parts 0 on every turn, as the uncached block came first; Claude read 21,324 cached tokens whatever the conversation, writing 5.6k-6.8k each turn that no turn read."
 evidence = "ferb-supervisor tests/temporary_chat.rs a_temporary_chat_caches_its_fact_and_conversation_like_a_kept_one."
 paths = ["engine/crates/ferb-supervisor/src/flow/temporary.rs::fresh_block"]
+
+[ORCH-715]
+title = "The temporary chat is the normal chat everywhere: only nothing is saved and its banner shows"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "why??? isnt everything same but only its a non saving chat??? why this??"
+words_source = "Owner 2026-11-24 (relayed), told that phones got its answers ~1.5 s late with no streaming (status polling) and that a file picked there wasn't sent (Android) or + was hidden (iPhone)."
+rule = "Refines ORCH-699 and APP-1126 for every client. On FERB.app and both phones the temporary chat behaves as the normal chat in everything: the same streaming (reply words, plan line, steps, answer), the same composer with + and files, the same arrivals, questions, cards and work row. Only two things differ: nothing of it is saved anywhere (its turns, files and all else go when its icon ends it or the daemon restarts) and its banner shows. What made it differ beyond that is superseded (PHN-837, PHN-838)."
+paths = ["engine/crates/ferb-supervisor/src/flow/temporary.rs", "engine/crates/ferb-mobile/src/temporary.rs", "apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppModel.swift", "apps/mac/FERBNotch/Sources/FERBNotch/TemporaryChatModel.swift"]
+live = ["LIVE-1212"]
+
+[ORCH-716]
+title = "A temporary chat is watched by chat.entries.watch, served from the daemon's memory"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For ORCH-715 and ORCH-702. chat.entries.watch of temporary:<id> is served from memory: with a cursor (its epoch is the chat's id) the entries changed after it, then caught_up; then each change and live frame temporary_feed makes (handed to ChatLog's watchers under the chat's lock), and {type: ended} when it ends. Another conversation: ended; another epoch: reset_required. chat.entries.get reads its entries from memory; page, changes, days and mark refuse it, so nothing of it is opened in the store."
+why = "One watch and one stream for both chats: no read of the whole chat per change, and its streamed frames reach every client as the chat's do."
+evidence = "ferb-supervisor tests/temporary_chat.rs a_temporary_chat_is_watched_like_the_chat_from_memory_with_nothing_stored."
+paths = ["engine/crates/ferb-supervisor/src/flow/temporary.rs", "engine/crates/ferb-supervisor/src/flow/entries_rpc.rs", "engine/crates/ferb-supervisor/src/flow/chat_log.rs"]
+live = ["LIVE-1212"]
+
+[ORCH-717]
+title = "A temporary chat's files sit in its own folder, removed when it ends and at every start"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For ORCH-715. A phone's attachments on a fresh chat.send are moved from the upload folder into Deps.temporary_files (ferb-core FILES_FOLDER in the account's temporary folder; a new folder each, name kept, audited) and their uploads forgotten; the supervisor removes that folder (only one of that name) when the chat ends and at every start. FERB.app moves its own received files sent there under ReceivedFiles.temporaryRoot and removes it when it learns none is on. The owner's own files are sent by path, never touched."
+why = "Nothing of the chat is kept once it is over, a restart included: the folder needs no record to be found again."
+evidence = "ferb-supervisor temporary_chat.rs the_files_a_temporary_chat_was_sent_go_when_it_ends_and_at_every_start; ferb-daemon phone_files.rs a_temporary_chat_s_files_leave_the_upload_folder_for_its_own_folder; FERB.app TemporaryChatTests."
+paths = ["engine/crates/ferb-daemon/src/phone/files.rs", "engine/crates/ferb-daemon/src/phone/gate.rs", "engine/crates/ferb-supervisor/src/flow/temporary.rs", "engine/crates/ferb-core/src/temporary.rs", "engine/crates/ferbd/src/compose/mod.rs", "apps/mac/FERBNotch/Sources/NotchCore/ComposerIntake.swift"]
+live = ["LIVE-1212"]

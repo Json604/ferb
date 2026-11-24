@@ -163,6 +163,14 @@ final class TemporaryChatTests: XCTestCase {
         }
     }
 
+    /// A folder of the test's own in the account's temporary folder, removed after it.
+    private func scratchFolder() throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ferb-temporary-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        return root
+    }
+
     /// The chat as drawn, top to bottom, as words: each turn's message and answer.
     private func shown(_ model: NotchModel) -> [String] {
         model.visibleEntries.flatMap { entry -> [String] in
@@ -269,6 +277,43 @@ final class TemporaryChatTests: XCTestCase {
         XCTAssertFalse(historyText(rpc).contains("haiku"))
         XCTAssertFalse(historyText(rpc).contains("Fresh answer"))
         XCTAssertNil(model.preferences.data(forKey: "FERBConversationArchive"), "no archive written")
+    }
+
+    // The owner (2026-11-24, ORCH-715): the temporary chat is the chat except that nothing is saved. Its composer is the
+    // chat's, attach button included (ChatBody's paperclip has no temporary branch), and its files go as the chat's do,
+    // by path. FERB's own received copy of a file (a pasted picture) sent in it is kept in the temporary chat's own
+    // folder and removed when it ends; the owner's own files are never moved or removed.
+    // decision: ORCH-715
+    // decision: ORCH-717
+    func testItsFilesGoAsTheChatsAndFERBsOwnCopiesGoWhenItEnds() async throws {
+        let rpc = TemporaryRPC()
+        let model = try connected(rpc, "TempFiles")
+        model.receivedFiles = ReceivedFiles(root: try scratchFolder().appendingPathComponent("FERB attachments"))
+        await until { rpc.params(of: "logs.subscribe").count == 1 }
+        model.toggleTemporaryChat()
+        await until { model.inTemporaryChat }
+        let pasted = try model.receivedFiles.save(Data("png".utf8), named: "Pasted image.png")
+        let own = try scratchFolder().appendingPathComponent("notes.txt")
+        try Data("notes".utf8).write(to: own)
+        model.attach([pasted, own])
+        model.session.draft = "What are these?"
+        model.startWork()
+        await until { !rpc.params(of: "chat.send").isEmpty }
+        let send = try XCTUnwrap(rpc.params(of: "chat.send").last)
+        XCTAssertEqual(send["fresh"] as? Bool, true)
+        let paths = try XCTUnwrap(send["input_paths"] as? [String])
+        XCTAssertEqual(paths.count, 2)
+        XCTAssertTrue(paths[0].hasPrefix(model.receivedFiles.temporaryRoot.path + "/"), paths[0])
+        XCTAssertEqual(URL(fileURLWithPath: paths[0]).lastPathComponent, "Pasted image.png")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths[0]), "kept while the chat is on")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pasted.path), "moved, not copied")
+        XCTAssertEqual(URL(fileURLWithPath: paths[1]).standardizedFileURL.path, own.standardizedFileURL.path)
+
+        model.toggleTemporaryChat()
+        await until { !model.inTemporaryChat }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths[0]), "the chat ended: its received file went")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: model.receivedFiles.temporaryRoot.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: own.path), "the owner's own file stays")
     }
 
     // MARK: relaunch and the daemon's word

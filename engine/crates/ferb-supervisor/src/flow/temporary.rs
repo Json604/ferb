@@ -216,6 +216,8 @@ impl Inner {
     pub fn temporary_end(&self) -> Value {
         let ended = self.temporary.lock().take();
         if let Some(chat) = ended {
+            // its watchers are told it ended (their streams end), as every client hears `chat.temporary` off
+            self.chat_log.end_watchers(&temporary::session_of(&chat.id));
             let rev = self.temporary.bump();
             self.deps
                 .daemon
@@ -231,8 +233,103 @@ impl Inner {
                 self.stop_tree(&tree);
             }
             self.temporary_forget();
+            // decision: ORCH-717 — its files go with it
+            self.temporary_files_clear();
         }
         json!({"on": false})
+    }
+
+    /// decision: ORCH-717 — the files the temporary chat was sent from a phone (moved into
+    /// [`super::Deps::temporary_files`] at send) are deleted: when it ends and at every start, so nothing of it is kept.
+    /// Only a folder named [`temporary::FILES_FOLDER`] is ever removed; a failure is journaled, never raised.
+    pub fn temporary_files_clear(&self) {
+        let dir = &self.deps.temporary_files;
+        if dir.file_name().and_then(|n| n.to_str()) != Some(temporary::FILES_FOLDER) {
+            return;
+        }
+        match std::fs::remove_dir_all(dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                self.journal(
+                    "temporary.files_failed",
+                    json!({"error": e.to_string()}),
+                    None,
+                );
+            }
+        }
+    }
+
+    /// `chat.entries.watch` of a temporary conversation (ORCH-716: the same watch as the kept chat's, fed from memory).
+    /// With a cursor of this chat (its `epoch` is the chat's id): every entry changed after it, as catch-up changes;
+    /// then `caught_up` with the chat's head. Then each change and live frame as they happen, and `ended` when the chat
+    /// ends. A conversation that is not the chat on now: one `ended` frame. A cursor of another epoch:
+    /// `reset_required`. Nothing of it is read from or written to the store.
+    pub(crate) fn temporary_watch(
+        &self,
+        conversation: &str,
+        cursor: Option<(&str, u64)>,
+        cap: Option<usize>,
+    ) -> (
+        std::collections::VecDeque<Value>,
+        Option<super::chat_log::Watch>,
+        u64,
+    ) {
+        let mut first = std::collections::VecDeque::new();
+        let guard = self.temporary.lock();
+        let Some(c) = guard
+            .as_ref()
+            .filter(|c| temporary::session_of(&c.id) == conversation)
+        else {
+            first.push_back(json!({"type": "ended", "conversation": conversation}));
+            return (first, None, 0);
+        };
+        let head = c.seq;
+        if let Some((epoch, after)) = cursor {
+            if epoch != c.id {
+                first.push_back(
+                    json!({"type": "reset_required", "conversation": conversation,
+                                       "epoch": c.id, "head": head}),
+                );
+                return (first, None, 0);
+            }
+            if after > head {
+                first.push_back(json!({"type": "cursor_ahead", "conversation": conversation,
+                                       "epoch": c.id, "head": head}));
+                return (first, None, 0);
+            }
+            let mut changed: Vec<_> = c
+                .projector
+                .entries()
+                .into_iter()
+                .filter(|e| e.seq > after)
+                .collect();
+            changed.sort_by_key(|e| e.seq);
+            for e in &changed {
+                let mut v = json!({"type": "change", "catchup": true});
+                v["entry"] = super::entries_rpc::entry_json(
+                    e,
+                    cap.map(|m| m.saturating_sub(super::entries_rpc::ROOM)),
+                );
+                first.push_back(v);
+            }
+        }
+        first.push_back(
+            json!({"type": "caught_up", "conversation": conversation, "epoch": c.id, "head": head}),
+        );
+        // the watcher is on before the chat's lock is let go: every later change reaches it (`temporary_feed` hands
+        // over under this lock)
+        let watch = self.chat_log.watch(conversation);
+        drop(guard);
+        (first, Some(watch), head)
+    }
+
+    /// One entry of the temporary chat on now, by id (`chat.entries.get` of a cut entry: there is no stored copy).
+    pub(crate) fn temporary_entry(&self, id: &str) -> Option<ferb_core::chat_entry::Entry> {
+        self.temporary
+            .lock()
+            .as_ref()
+            .and_then(|c| c.projector.entries().into_iter().find(|e| e.id == id))
     }
 
     /// A message for the temporary chat (`chat.send` with `fresh`): the chat (started if off, `extra_context` set
@@ -259,6 +356,34 @@ impl Inner {
                 seq: &mut c.seq,
             };
             let made = c.projector.apply(input, &mut seams);
+            // decision: ORCH-716 — its watchers get every change and live frame as the kept chat's do (chat_log.rs
+            // `hand_over`), from memory: nothing of it is written. Handed under the chat's lock, so a watch that starts
+            // between two inputs reads its catch-up and then its feed with nothing missed (`temporary_watch`).
+            let conversation = temporary::session_of(&c.id);
+            let mut handed: super::chat_log::Made = made
+                .changes
+                .iter()
+                .map(|ch| {
+                    (
+                        conversation.clone(),
+                        super::chat_log::Watched::Change(Box::new(ch.entry.clone())),
+                    )
+                })
+                .collect();
+            if let Some(live) = made.live {
+                let request_id = match input {
+                    Input::Frame { request_id, .. } => Some(request_id.to_string()),
+                    _ => None,
+                };
+                handed.push((
+                    conversation,
+                    super::chat_log::Watched::Live {
+                        request_id,
+                        frame: live,
+                    },
+                ));
+            }
+            self.chat_log.hand_over(handed);
             if made.changes.is_empty() {
                 return;
             }

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use common::mac::{FakeMac, SendOutcome};
 use common::phone::{online, Phone};
+use ferb_mobile::entry::ChatEntry;
 use ferb_mobile::fold::Item;
 use ferb_mobile::{Change, ErrorCode, Mobile};
 use serde_json::json;
@@ -41,7 +42,7 @@ fn texts(items: &[Item]) -> Vec<String> {
 
 /// The icon's two calls: `set {on: true}` starts one (the same one while on), `get` reads it, `set {on: false}` ends
 /// it and drops the copy held; each answer's shape is read as the contract gives it.
-// decision: PHN-818
+// decision: PHN-837
 #[test]
 fn set_and_get_have_the_contract_s_shapes_and_off_drops_the_copy() {
     let mac = FakeMac::new("C1");
@@ -89,7 +90,7 @@ fn set_and_get_have_the_contract_s_shapes_and_off_drops_the_copy() {
 /// A message goes straight to the Mac with `fresh: true` (never the outbox, no submission id), the Mac starts the chat
 /// when none is on, and the answer is the chat read again, folded by the same fold as the normal chat. Nothing of it
 /// is in the phone's store: not the conversations, not the outbox, not the normal chat, not after the app reopens.
-// decision: PHN-818
+// decision: PHN-837
 #[test]
 fn a_fresh_message_goes_now_and_nothing_of_it_reaches_the_phone_s_store() {
     let mac = FakeMac::new("C1");
@@ -145,7 +146,7 @@ fn a_fresh_message_goes_now_and_nothing_of_it_reaches_the_phone_s_store() {
 }
 
 /// No link, or one that drops: an error, and nothing waits in the outbox to go later (the words stay with the app).
-// decision: PHN-818
+// decision: PHN-837
 #[test]
 fn a_dropped_link_is_an_error_and_nothing_is_queued() {
     let mac = FakeMac::new("C1");
@@ -170,18 +171,20 @@ fn a_dropped_link_is_an_error_and_nothing_is_queued() {
     assert!(m.outbox().unwrap().is_empty());
 }
 
-/// `chat.status`'s `temporary` is read into the status; a start, a moved rev and an end each tell `Temporary`; the
-/// same rev tells nothing; an end (a status with words and no `temporary`) drops the copy held. A locked status that
-/// holds its words back says nothing of it: locking the phone never reads as the chat ending.
-// decision: PHN-818
+/// `chat.status`'s `temporary` is read into the status. A start (on another client) and an end each tell `Temporary`
+/// and move the one watch; a new rev of the chat already held tells nothing (its watch brings the change, ORCH-716);
+/// an end (a status with words and no `temporary`) drops what was held. A locked status that holds its words back
+/// says nothing of it: locking the phone never reads as the chat ending.
+// decision: PHN-837
 #[test]
-fn the_status_s_temporary_tells_each_move_and_its_end_drops_the_copy() {
+fn the_status_s_temporary_tells_each_start_and_end_and_its_end_drops_the_copy() {
     let mac = FakeMac::new("C1");
     let phone = Phone::new();
     let m = connected(&phone, &mac);
     assert_eq!(m.status().unwrap().temporary, None);
 
-    m.set_temporary_chat(true).unwrap();
+    // started on another client: the status says so
+    mac.lock().start_temporary();
     phone.heard.0.lock().unwrap().clear();
     let s = m.status().unwrap();
     let t = s.temporary.clone().expect("read from chat.status");
@@ -191,6 +194,7 @@ fn the_status_s_temporary_tells_each_move_and_its_end_drops_the_copy() {
     );
     assert_eq!(heard(&phone, &Change::Temporary), 1);
     assert_eq!(m.last_status().unwrap().unwrap().temporary, Some(t));
+    assert!(m.last_temporary_chat().unwrap().unwrap().on);
 
     let push = |rev: i64, temporary: bool, locked: bool| {
         let mut status = json!({"approvals": [], "running": [], "results": [], "stopped": false,
@@ -207,12 +211,17 @@ fn the_status_s_temporary_tells_each_move_and_its_end_drops_the_copy() {
         1,
         "the same rev: nothing"
     );
+    phone.jobs.run();
     push(2, true, false);
-    assert_eq!(heard(&phone, &Change::Temporary), 2, "its turns changed");
+    assert_eq!(
+        heard(&phone, &Change::Temporary),
+        1,
+        "a new rev of the chat held: its watch brings the change"
+    );
     push(2, false, true);
     assert_eq!(
         heard(&phone, &Change::Temporary),
-        2,
+        1,
         "locked, words held: nothing"
     );
     assert_eq!(
@@ -224,7 +233,7 @@ fn the_status_s_temporary_tells_each_move_and_its_end_drops_the_copy() {
     push(3, false, false);
     assert_eq!(
         heard(&phone, &Change::Temporary),
-        3,
+        2,
         "ended on another client"
     );
     assert_eq!(m.last_status().unwrap().unwrap().temporary, None);
@@ -233,7 +242,7 @@ fn the_status_s_temporary_tells_each_move_and_its_end_drops_the_copy() {
 
 /// A temporary chat's question and task carry `"temporary": true` in `chat.status` (absent otherwise): read so, held in
 /// memory with the status (never stored), so the app shows them only in the temporary chat.
-// decision: PHN-818
+// decision: PHN-837
 #[test]
 fn a_temporary_chat_s_question_and_task_are_marked_in_the_status() {
     let mac = FakeMac::new("C1");
@@ -261,7 +270,7 @@ fn a_temporary_chat_s_question_and_task_are_marked_in_the_status() {
 /// The temporary chat is drawn as the chat (APP-1126): a turn still working shows the chat's live view over it, the
 /// typing dots right after his message, as the normal chat shows them before any frame comes; once answered, nothing
 /// live. Before, its transcript carried no live view at all, so nothing showed until FERB's answer was stored.
-// decision: APP-1126, PHN-831
+// decision: APP-1126, PHN-837
 #[test]
 fn a_working_turn_shows_the_chat_s_live_view_and_an_answered_one_none() {
     let entry = |id: &str, pos: i64, kind: &str, state: &str, body: serde_json::Value| {
@@ -304,4 +313,164 @@ fn a_working_turn_shows_the_chat_s_live_view_and_an_answered_one_none() {
         answered.transcript.live.is_empty(),
         "answered: nothing live"
     );
+}
+
+fn temp_texts(m: &Mobile) -> Vec<String> {
+    texts(&m.last_temporary_chat().unwrap().unwrap().transcript.items)
+}
+
+/// The owner (2026-11-24, ORCH-715): "isnt everything same but only its a non saving chat???". The one watch follows
+/// the conversation the chat tab shows: the temporary chat while it is on, read from its start (its id the epoch), so
+/// its turns and live frames (the streamed plan line, steps, words) arrive as the chat's do, told as `Temporary` and
+/// read from memory (`last_temporary_chat`), never with a `chat.temporary.get` per change. The chat's own changes wait
+/// for its watch to come back, which catches them up from its cursor when the temporary chat ends. Nothing of the
+/// temporary chat reaches the store. Before, the phone only read the whole chat again on each status rev.
+// decision: ORCH-715
+// decision: PHN-837
+#[test]
+fn the_one_watch_follows_the_temporary_chat_and_streams_it_like_the_chat() {
+    let mac = FakeMac::new("C1");
+    let phone = Phone::new();
+    let m = connected(&phone, &mac);
+    assert_eq!(mac.watched(), "C1");
+
+    m.set_temporary_chat(true).unwrap();
+    phone.jobs.run();
+    assert_eq!(
+        mac.watched(),
+        "temporary:T1",
+        "the watch follows the chat tab"
+    );
+    let watch = mac.calls_of("chat.entries.watch").last().unwrap().clone();
+    assert_eq!(
+        (
+            watch["conversation"].clone(),
+            watch["epoch"].clone(),
+            watch["after_seq"].clone()
+        ),
+        (json!("temporary:T1"), json!("T1"), json!(0)),
+        "from its start"
+    );
+
+    phone.heard.0.lock().unwrap().clear();
+    mac.temporary_working("look this up");
+    assert!(temp_texts(&m).iter().any(|t| t.contains("look this up")));
+    let live = m.last_temporary_chat().unwrap().unwrap().transcript.live;
+    assert!(live[0].typing, "his turn working: the typing dots");
+    mac.live(
+        "T1-r1",
+        json!({"type": "progress", "planning": true, "text": "Reading the page"}),
+    );
+    let live = m.last_temporary_chat().unwrap().unwrap().transcript.live;
+    assert_eq!(
+        live[0].line.as_ref().map(|l| l.text.clone()),
+        Some("Reading the page".into()),
+        "the plan line streams in, as in the chat"
+    );
+    mac.temporary_said("answer", "Here it is");
+    assert!(temp_texts(&m).iter().any(|t| t.contains("Here it is")));
+    let heard_now = phone.heard.0.lock().unwrap().clone();
+    assert!(
+        heard_now
+            .iter()
+            .filter(|c| **c == Change::Temporary)
+            .count()
+            >= 3
+    );
+    assert!(
+        !heard_now
+            .iter()
+            .any(|c| matches!(c, Change::Transcript { conversation } | Change::Live { conversation } if conversation.starts_with("temporary:"))),
+        "told as Temporary only: {heard_now:?}"
+    );
+    assert!(
+        mac.calls_of("chat.temporary.get").is_empty(),
+        "never read again per change"
+    );
+
+    // the normal chat said something meanwhile: it waits for its own watch
+    mac.commit(
+        ChatEntry::list(&json!([{"id": "n1", "conversation_id": "C1", "pos": 1, "seq": 0, "rev": 1,
+            "kind": "notice", "state": "done", "open": false, "created_at": "2026-01-02T10:07:00+00:00",
+            "updated_at": "2026-01-02T10:07:00+00:00", "day": "2026-01-02", "body": {"text": "A reminder"},
+            "deleted": false}]))
+        .remove(0),
+    );
+    assert!(m.transcript("C1").unwrap().items.is_empty());
+
+    // ended on another client: its watch says so; the phone drops it and watches the chat again, caught up
+    mac.temporary_ended();
+    assert_eq!(m.last_temporary_chat().unwrap(), None);
+    phone.jobs.run();
+    assert_eq!(mac.watched(), "C1");
+    assert!(texts(&m.transcript("C1").unwrap().items)
+        .iter()
+        .any(|t| t.contains("A reminder")));
+    assert!(m
+        .conversations()
+        .unwrap()
+        .iter()
+        .all(|c| !c.id.starts_with("temporary:")));
+}
+
+/// The same watch, the same handling: a lock closes it and the unlock's sync starts it again where it was; a link
+/// that drops lets go of what is live and comes back to it from its cursor; a daemon restart ends the temporary chat
+/// (its watch answers `ended`) and the phone is back on the chat.
+// decision: PHN-837
+#[test]
+fn lock_link_loss_and_restart_are_handled_as_the_chat_s() {
+    let mac = FakeMac::new("C1");
+    let phone = Phone::new();
+    let m = connected(&phone, &mac);
+    m.set_temporary_chat(true).unwrap();
+    phone.jobs.run();
+    mac.temporary_said("message", "first");
+    mac.temporary_said("answer", "one");
+
+    m.lock().unwrap();
+    assert_eq!(mac.watched(), "", "locked: no watch");
+    mac.temporary_said("message", "second");
+    m.unlocked();
+    m.sync().unwrap();
+    phone.jobs.run();
+    assert_eq!(mac.watched(), "temporary:T1");
+    let watch = mac.calls_of("chat.entries.watch").last().unwrap().clone();
+    assert_eq!(watch["after_seq"], json!(2), "from where it was");
+    assert!(temp_texts(&m).iter().any(|t| t.contains("second")));
+
+    m.link_event(common::phone::OFFLINE);
+    assert_eq!(mac.watched(), "");
+    mac.temporary_said("answer", "two");
+    m.link_event(&online("direct"));
+    phone.jobs.run();
+    assert_eq!(mac.watched(), "temporary:T1");
+    assert!(temp_texts(&m).iter().any(|t| t.contains("two")));
+
+    // the Mac restarted: the temporary chat is gone, nothing said it on this watch
+    m.link_event(common::phone::OFFLINE);
+    mac.lock().temporary = None;
+    m.link_event(&online("direct"));
+    phone.jobs.run();
+    assert_eq!(m.last_temporary_chat().unwrap(), None);
+    assert_eq!(mac.watched(), "C1", "back on the chat");
+}
+
+/// Files in a temporary chat go as the chat's do: this phone's finished uploads by id with the message (`fresh`), the
+/// Mac turning them into its files.
+// decision: PHN-838
+#[test]
+fn a_temporary_message_carries_its_files_as_the_chat_s() {
+    let mac = FakeMac::new("C1");
+    let phone = Phone::new();
+    let m = connected(&phone, &mac);
+    let files = [ferb_mobile::store::Attachment {
+        upload_id: "U-1".into(),
+        name: "photo.jpg".into(),
+    }];
+    m.send_temporary_with("what is this", &files).unwrap();
+    assert_eq!(
+        mac.lock().sends.last().unwrap().clone(),
+        json!({"text": "what is this", "fresh": true, "client_id": "phone-1", "attachments": ["U-1"]})
+    );
+    assert!(m.outbox().unwrap().is_empty());
 }

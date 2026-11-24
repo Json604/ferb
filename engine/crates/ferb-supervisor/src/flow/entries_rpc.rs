@@ -39,7 +39,7 @@ pub const MAX_BYTES_MIN: usize = 2048;
 pub const PIECE: usize = 16_000;
 pub const PIECE_MAX: usize = 200_000;
 /// Room kept in a capped reply for its own fields around the entries.
-const ROOM: usize = 512;
+pub(crate) const ROOM: usize = 512;
 
 fn refusal(message: impl Into<String>) -> HandlerError {
     HandlerError::refusal("FerbError", message)
@@ -106,6 +106,13 @@ fn conversation(inner: &Inner, params: &Params) -> Result<(String, store::Stream
             .continuity(|c| c.current())
             .map_err(|e| HandlerError::fault("OperationalError", e.to_string()))?,
     };
+    // decision: ORCH-716 — a temporary conversation has no stored stream: it is read only by its watch (from memory),
+    // never opened in the store here
+    if ferb_core::temporary::is_session(&c) {
+        return Err(refusal(
+            "The temporary chat is kept only in memory: read it with chat.entries.watch.",
+        ));
+    }
     let db = inner.db();
     let stream = store::open_stream(db.conn(), &c, &store::new_epoch()).map_err(fault)?;
     Ok((c, stream))
@@ -285,7 +292,8 @@ pub fn get(inner: &Inner, params: &Params) -> HandlerResult {
         let db = inner.db();
         store::get(db.conn(), &id).map_err(fault)?
     };
-    let Some(entry) = entry else {
+    // a temporary chat's entry has no stored copy: its words whole from memory (a watch frame cut them)
+    let Some(entry) = entry.or_else(|| inner.temporary_entry(&id)) else {
         return Err(refusal("There's no chat entry with that id."));
     };
     let mut v = entry_json(&entry, None);
@@ -347,16 +355,33 @@ pub fn mark(inner: &Inner, params: &Params) -> HandlerResult {
 /// without one, `caught_up` at once. Then each committed change (`{"type": "change", "entry"}`) and each live frame of
 /// the conversation (`{"type": "live", "request_id", "frame"}`, never stored) as they happen. A watcher too slow to
 /// keep up gets `{"type": "behind"}` and the stream ends (it reads `changes` from its cursor and watches again). A bad
-/// cursor: one `reset_required` or `cursor_ahead` frame, then the end.
+/// cursor: one `reset_required` or `cursor_ahead` frame, then the end. A temporary conversation (`temporary:<id>`) is
+/// watched the same way from the daemon's memory, its cursor's `epoch` the chat's id; its end, or a conversation that
+/// is not the chat on now, is one `{"type": "ended", "conversation"}` frame, then the end.
 pub fn watch(inner: &Arc<Inner>, params: &Params) -> Result<Box<dyn EventStream>, HandlerError> {
-    let (c, stream) = conversation(inner, params)?;
     let epoch = text(params, "epoch")?;
     let after = number(params, "after_seq")?;
     let cap = max_bytes(params)?;
-    let mut first: VecDeque<Value> = VecDeque::new();
     if after.is_some() && epoch.is_none() {
         return Err(refusal("after_seq goes with its epoch"));
     }
+    // decision: ORCH-716 — the temporary chat's watch is this same stream, fed from the daemon's memory (temporary.rs
+    // `temporary_watch`): its changes and live frames as the kept chat's, and `ended` when it ends; nothing stored
+    if let Some(c) = text(params, "conversation")?.filter(|c| ferb_core::temporary::is_session(c)) {
+        let cursor = epoch.as_deref().map(|e| (e, after.unwrap_or(0)));
+        let (first, watch, sent) = inner.temporary_watch(&c, cursor, cap);
+        return Ok(Box::new(Frames {
+            first,
+            watch,
+            inner: inner.clone(),
+            sent,
+            cap,
+            ended: false,
+            conversation: c,
+        }));
+    }
+    let (c, stream) = conversation(inner, params)?;
+    let mut first: VecDeque<Value> = VecDeque::new();
     // the watcher is on before the catch-up is read: nothing committed in between is missed (a change read both ways
     // is sent once, by its seq)
     let watch = inner.chat_log.watch(&c);
@@ -383,6 +408,7 @@ pub fn watch(inner: &Arc<Inner>, params: &Params) -> Result<Box<dyn EventStream>
                 sent: 0,
                 cap,
                 ended: false,
+                conversation: c,
             }));
         }
         let mut from = after;
@@ -410,6 +436,7 @@ pub fn watch(inner: &Arc<Inner>, params: &Params) -> Result<Box<dyn EventStream>
         sent,
         cap,
         ended: false,
+        conversation: c,
     }))
 }
 
@@ -422,6 +449,8 @@ struct Frames {
     sent: u64,
     cap: Option<usize>,
     ended: bool,
+    /// The conversation watched (said in its `ended` frame).
+    conversation: String,
 }
 
 impl EventStream for Frames {
@@ -454,6 +483,13 @@ impl EventStream for Frames {
                             continue; // a live frame too big for the link is left out: it is never stored anyway
                         }
                         return Some(Ok(obj(v)));
+                    }
+                    Some(Watched::Ended) => {
+                        // the temporary chat ended: nothing more comes (its watch reads the chat on now, or the kept chat)
+                        self.ended = true;
+                        return Some(Ok(obj(
+                            json!({"type": "ended", "conversation": self.conversation}),
+                        )));
                     }
                     None => {
                         self.ended = true;

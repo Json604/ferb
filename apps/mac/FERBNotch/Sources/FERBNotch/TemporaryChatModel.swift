@@ -148,6 +148,9 @@ extension NotchModel {
     /// The temporary chat ended (the icon here or on another device, or the daemon restarted): its copy here goes and
     /// the saved chat shows again, as it was.
     func endTemporaryChat() {
+        // decision: ORCH-717 — nothing of it is kept: the received files it was sent go (also after a relaunch, when the
+        // daemon first says none is on)
+        receivedFiles.clearTemporary()
         guard let chat = temporaryChat else { return }
         forgetTemporaryChat(chat)
         temporaryChat = nil

@@ -162,4 +162,48 @@ final class SendWithFilesTests: XCTestCase {
         XCTAssertEqual(uploads, ["upload:IMG_1.jpg:-"])
         XCTAssertTrue(vm.outgoing.chips.isEmpty, "never in the message box")
     }
+
+    /// The owner (2026-11-24, ORCH-715): the temporary chat is the chat except that nothing is saved. Its box has the
+    /// chat's +: picked files upload as the chat's do, then the message goes with their ids, `fresh` (the Mac moves them
+    /// into the temporary chat's own folder and deletes them when it ends), never the outbox; the message is never
+    /// written on the phone. Before, the iPhone hid + in the temporary chat.
+    // decision: ORCH-715
+    // decision: PHN-838
+    func testInTheTemporaryChatPlusSendsFilesAsTheChatDoes() async {
+        let vm = rig.model()
+        await vm.toggleTemporary().value
+        XCTAssertNotNil(vm.temporary)
+        await pickTwo(vm)
+        vm.typed("What are these")
+        await vm.send().value
+        XCTAssertTrue(vm.outgoing.chips.isEmpty, "the box is empty at once")
+        await eventually("sent") { phone.calls.contains("temporary-send:What are these") }
+        XCTAssertEqual(uploads, ["upload:IMG_1.jpg:-", "upload:IMG_2.jpg:-"])
+        XCTAssertEqual(phone.temporaryFiles, [["up-IMG_1.jpg", "up-IMG_2.jpg"]])
+        XCTAssertTrue(phone.sentWith.isEmpty && phone.outbox.isEmpty, "never the chat's send or the outbox")
+        await eventually("the message left the phone's list") { vm.outgoing.messages.isEmpty }
+        let kept = rig.root.appendingPathComponent("messages.json")
+        let text = (try? String(contentsOf: kept, encoding: .utf8)) ?? ""
+        XCTAssertFalse(text.contains("What are these"), "never written on the phone")
+    }
+
+    /// Its message on its way shows only in the temporary chat; the chat ending (on any device) takes it away with its
+    /// copies.
+    // decision: PHN-838
+    func testATemporaryMessageWithFilesShowsOnlyThereAndGoesWhenTheChatEnds() async {
+        phone.link = FakePhone.status(.waiting)
+        let vm = rig.model()
+        await vm.toggleTemporary().value
+        await pickTwo(vm)
+        await vm.send().value
+        await eventually("waiting") { vm.outgoing.messages.first?.phase == .waitingLink }
+        XCTAssertTrue(vm.outgoing.messages.first?.temporary == true)
+        XCTAssertFalse(vm.rows.contains { if case .withFiles = $0 { true } else { false } }, "not in the normal chat")
+        let copies = vm.outgoing.messages.first?.chips.map(\.path) ?? []
+        phone.temporaryNow = FakePhone.temporaryOff
+        phone.emit(.temporary)
+        await eventually("gone with the chat") { vm.outgoing.messages.isEmpty }
+        await eventually("its copies too") { copies.allSatisfy { !FileManager.default.fileExists(atPath: $0) } }
+        XCTAssertTrue(phone.sentWith.isEmpty && !phone.calls.contains { $0.hasPrefix("temporary-send") })
+    }
 }

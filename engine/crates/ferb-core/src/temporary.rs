@@ -10,6 +10,19 @@ pub const SESSION_PREFIX: &str = "temporary:";
 /// A temporary chat's message (its request id, and so its tasks' `request_id`) starts with this.
 pub const REQUEST_PREFIX: &str = "temporary-";
 
+/// The folder (in the account's own temporary folder) that holds the files a temporary chat was sent from a phone:
+/// each upload is moved here when its message is sent, and the whole folder goes when the chat ends and at every start
+/// of the daemon, so nothing of it is kept (owner 2026-11-24: the temporary chat is the normal chat except that nothing
+/// is saved).
+pub const FILES_FOLDER: &str = "FERB temporary chat";
+
+/// The temporary chat's id from its conversation (`temporary:<id>`), when it is one.
+pub fn id_of(session: &str) -> Option<&str> {
+    session
+        .strip_prefix(SESSION_PREFIX)
+        .filter(|id| !id.is_empty())
+}
+
 /// The conversation of the temporary chat `id`.
 pub fn session_of(id: &str) -> String {
     format!("{SESSION_PREFIX}{id}")
@@ -42,5 +55,8 @@ mod tests {
         assert!(!is_session("schedule:x"));
         assert!(!is_request("0f3a"));
         assert!(!is_request(""));
+        assert_eq!(id_of(&session_of("a1")), Some("a1"));
+        assert_eq!(id_of("temporary:"), None);
+        assert_eq!(id_of("owner"), None);
     }
 }

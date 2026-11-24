@@ -434,8 +434,23 @@ impl Mobile {
         guard(|| Ok(self.core()?.send_temporary(&text)?.conv()))
     }
 
-    /// The temporary chat as last read while it is on (memory only; none once the Mac says it is off). Safe on the
-    /// UI thread.
+    /// Writes in the temporary chat with files, as `send_with` sends them in the chat: this phone's finished uploads
+    /// (`upload`'s ids). The Mac moves them into the temporary chat's own folder and deletes them when it ends. Never
+    /// queued. Network: not on the UI thread.
+    pub fn send_temporary_with(
+        &self,
+        text: String,
+        attachments: Vec<Attachment>,
+    ) -> Result<TemporaryChat, FerbError> {
+        guard(|| {
+            let files: Vec<ferb_mobile::store::Attachment> =
+                attachments.into_iter().map(Into::into).collect();
+            Ok(self.core()?.send_temporary_with(&text, &files)?.conv())
+        })
+    }
+
+    /// The temporary chat while it is on, as its watch keeps it (memory only; none once the Mac says it is off): read
+    /// it on each `Change.Temporary`, as a transcript is read on `Change.Transcript`. Safe on the UI thread.
     pub fn last_temporary_chat(&self) -> Result<Option<TemporaryChat>, FerbError> {
         guard(|| Ok(self.core()?.last_temporary_chat()?.conv()))
     }

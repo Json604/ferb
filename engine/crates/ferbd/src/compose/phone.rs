@@ -40,6 +40,8 @@ pub struct Parts {
     pub config: Arc<ferb_core::config::Config>,
     /// PHN-828: the site's pinned keys and the Mac's own FERB account, for the pairing's account check.
     pub account: ferb_daemon::phone::account::AccountCheck,
+    /// Where a temporary chat's attachments are moved at send (ORCH-717; `Options::temporary_files`).
+    pub temporary_files: PathBuf,
 }
 
 /// PHN-581: where a phone's uploads land by default.
@@ -255,6 +257,7 @@ pub fn register(server: &Server, p: Parts) -> Phones {
             task_file: Some(task_file(p.db.clone())),
             made_files: Some(made_files(p.db.clone())),
             hook: None,
+            temporary_files: p.temporary_files.clone(),
         },
         FileLimits::default(),
     );

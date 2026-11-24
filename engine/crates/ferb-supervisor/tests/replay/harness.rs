@@ -2213,6 +2213,7 @@ pub fn run_scenario(
             new_chat: Arc::new(|| "c00000000001".into()),
             stall_s: 180.0,
             heartbeat_poll_s: 5.0,
+            temporary_files: dir.path().join(ferb_core::temporary::FILES_FOLDER),
         });
         // supervisor.py:1223 `gateway.attach(_Watch(self), ...)`
         gateway.attach(sup.watch());

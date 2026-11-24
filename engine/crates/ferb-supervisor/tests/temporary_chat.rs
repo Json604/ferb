@@ -793,3 +793,173 @@ fn an_answered_question_closes_in_the_temporary_chat_that_asked_it() {
     assert_eq!(inner.temporary_snapshot()["rev"].as_u64().unwrap(), after);
     assert_eq!(count(&w, "SELECT COUNT(*) FROM chat_entries"), 0);
 }
+
+/// Every frame a watch gives until it ends.
+fn frames(mut stream: Box<dyn ferb_rpc::server::EventStream>) -> Vec<Value> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let mut out = Vec::new();
+        while let Some(Ok(f)) = stream.next().await {
+            out.push(Value::Object(f));
+        }
+        out
+    })
+}
+
+fn watch(w: &World, params: Value) -> Box<dyn ferb_rpc::server::EventStream> {
+    let Value::Object(p) = params else {
+        panic!("params")
+    };
+    ferb_supervisor::flow::entries_rpc::watch(w.sup.inner(), &p)
+        .unwrap_or_else(|_| panic!("the watch starts"))
+}
+
+// The owner (2026-11-24): "isnt everything same but only its a non saving chat???". A phone saw a temporary chat's
+// answer only ~1.5 s late and never its streamed words, because only the kept chat could be watched. The temporary
+// chat's conversation is now watched by the same `chat.entries.watch`: its changes and live frames as they happen,
+// from the daemon's memory, and `ended` when its icon ends it; nothing of it is read from or written to the store.
+// decision: ORCH-715
+// decision: ORCH-716
+#[test]
+fn a_temporary_chat_is_watched_like_the_chat_from_memory_with_nothing_stored() {
+    let mut w = world();
+    let inner = w.sup.inner().clone();
+    let id = inner.temporary_start(None)["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let conversation = format!("temporary:{id}");
+    let streams = count(&w, "SELECT COUNT(*) FROM chat_streams");
+    // watched from its start (its epoch is the chat's id), as a phone watches the conversation on its screen
+    let live_watch = watch(
+        &w,
+        json!({"conversation": conversation, "epoch": id, "after_seq": 0}),
+    );
+    run(&mut w, json!({"fresh": true}));
+
+    // a second watch from nothing catches up from memory: each entry once at its latest state, then caught_up
+    let snap = inner.temporary_snapshot();
+    let entries = snap["entries"].as_array().unwrap().clone();
+    let head = entries
+        .iter()
+        .map(|e| e["seq"].as_u64().unwrap())
+        .max()
+        .unwrap();
+    let late = watch(
+        &w,
+        json!({"conversation": conversation, "epoch": id, "after_seq": 0}),
+    );
+    // a watch of a cut entry's words reads them whole from memory (chat.entries.get), never the store
+    let first_id = entries[0]["id"].as_str().unwrap().to_string();
+    let Value::Object(get) = json!({"id": first_id}) else {
+        unreachable!()
+    };
+    let got = ferb_supervisor::flow::entries_rpc::get(&inner, &get).unwrap();
+    assert_eq!(got["entry"]["id"], json!(first_id));
+    // its conversation is never opened in the store by the other reads: they are refused
+    for read in [
+        ferb_supervisor::flow::entries_rpc::page,
+        ferb_supervisor::flow::entries_rpc::days,
+    ] {
+        let Value::Object(p) = json!({"conversation": conversation}) else {
+            unreachable!()
+        };
+        assert!(read(&inner, &p).is_err());
+    }
+    // another epoch: read again from the start; another conversation: ended
+    let other_epoch = frames(watch(
+        &w,
+        json!({"conversation": conversation, "epoch": "elsewhere", "after_seq": 3}),
+    ));
+    assert_eq!(other_epoch.len(), 1);
+    assert_eq!(other_epoch[0]["type"], "reset_required");
+    assert_eq!(other_epoch[0]["epoch"], json!(id));
+    let gone = frames(watch(&w, json!({"conversation": "temporary:notthisone"})));
+    assert_eq!(
+        gone,
+        vec![json!({"type": "ended", "conversation": "temporary:notthisone"})]
+    );
+
+    // the icon ends it: every watch is told, and its stream ends
+    inner.temporary_end();
+    let seen = frames(live_watch);
+    assert_eq!(seen[0]["type"], "caught_up", "{seen:?}");
+    assert_eq!(seen[0]["epoch"], json!(id));
+    assert_eq!(seen[0]["head"], 0);
+    assert_eq!(
+        seen.last().unwrap(),
+        &json!({"type": "ended", "conversation": conversation})
+    );
+    let changes: Vec<&Value> = seen.iter().filter(|f| f["type"] == "change").collect();
+    assert!(
+        changes
+            .iter()
+            .any(|f| f["entry"]["kind"] == "message" && f["entry"]["body"]["text"] == "say hello"),
+        "his message as it was made: {seen:?}"
+    );
+    assert!(
+        changes.iter().any(|f| f["entry"]["kind"] != "message"
+            && f["entry"]["conversation_id"] == json!(conversation)),
+        "what FERB said: {seen:?}"
+    );
+    let seqs: Vec<u64> = changes
+        .iter()
+        .map(|f| f["entry"]["seq"].as_u64().unwrap())
+        .collect();
+    assert!(seqs.windows(2).all(|p| p[0] < p[1]), "in order: {seqs:?}");
+    assert_eq!(*seqs.last().unwrap(), head, "every change reached it");
+    let live: Vec<&Value> = seen.iter().filter(|f| f["type"] == "live").collect();
+    assert!(
+        !live.is_empty(),
+        "its streamed frames, as the chat's: {seen:?}"
+    );
+    assert!(live.iter().all(|f| f["request_id"]
+        .as_str()
+        .is_some_and(|r| r.starts_with("temporary-"))));
+
+    let late = frames(late);
+    let caught: Vec<&Value> = late.iter().filter(|f| f["catchup"] == true).collect();
+    assert_eq!(caught.len(), entries.len(), "{late:?}");
+    assert!(late
+        .iter()
+        .any(|f| f["type"] == "caught_up" && f["head"] == json!(head)));
+    assert_eq!(late.last().unwrap()["type"], "ended");
+
+    // nothing of it was written: no entries, no stream of its conversation
+    assert_eq!(count(&w, "SELECT COUNT(*) FROM chat_entries"), 0);
+    assert_eq!(count(&w, "SELECT COUNT(*) FROM chat_streams"), streams);
+    assert_eq!(
+        count(
+            &w,
+            "SELECT COUNT(*) FROM chat_streams WHERE conversation_id LIKE 'temporary:%'"
+        ),
+        0
+    );
+}
+
+// The owner (2026-11-24) on files picked in a temporary chat: the same + as the chat, and nothing kept. A phone's
+// uploads for it are moved into the temporary chat's own folder at send (ferb-daemon's phone gate); that folder goes
+// when the icon ends the chat and at every start (a restart ended it); a folder of any other name is never removed.
+// decision: ORCH-717
+#[test]
+fn the_files_a_temporary_chat_was_sent_go_when_it_ends_and_at_every_start() {
+    let w = world();
+    let inner = w.sup.inner().clone();
+    let folder = w.temporary_files();
+    let put = |name: &str| {
+        let dir = folder.join("up1");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(name), b"INVENTED-UPLOAD").unwrap();
+    };
+    put("photo.jpg");
+    inner.temporary_start(None);
+    assert!(folder.exists(), "kept while the chat is on");
+    inner.temporary_end();
+    assert!(!folder.exists(), "the icon ended it: its files went");
+    put("notes.txt");
+    w.sup.recover_after_restart();
+    assert!(!folder.exists(), "a restart ended it: its files went");
+}

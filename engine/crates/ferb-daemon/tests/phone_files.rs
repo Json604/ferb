@@ -59,6 +59,8 @@ struct Fx {
     w: World,
     home: PathBuf,
     inbox: PathBuf,
+    /// Where a temporary chat's attachments are moved (the test's own folder).
+    temporary: PathBuf,
     free: Arc<AtomicU64>,
     hook: Arc<Mutex<Option<HookFn>>>,
     keys: Keys,
@@ -151,6 +153,10 @@ async fn fx_made(
     )
     .unwrap();
     let inbox = home.join(inbox.unwrap_or("Downloads/FERB from phone"));
+    let temporary = std::fs::canonicalize(w.dir.path())
+        .unwrap()
+        .join("tmp")
+        .join(ferb_core::temporary::FILES_FOLDER);
     let free = Arc::new(AtomicU64::new(u64::MAX / 4));
     let hook: Arc<Mutex<Option<HookFn>>> = Arc::new(Mutex::new(None));
     let (f, h) = (free.clone(), hook.clone());
@@ -168,6 +174,7 @@ async fn fx_made(
                     hook(stage, path);
                 }
             })),
+            temporary_files: temporary.clone(),
         },
         limits,
     );
@@ -177,6 +184,7 @@ async fn fx_made(
         w,
         home,
         inbox,
+        temporary,
         free,
         hook,
         keys,
@@ -1364,6 +1372,92 @@ async fn a_folder_arrives_whole_nothing_climbs_out_and_it_rides_with_a_message()
         )
         .await
         .is_err());
+}
+
+/// The owner (2026-11-24): the temporary chat is the normal chat except that nothing is saved. A file or folder he
+/// sends from the phone into a temporary chat (`chat.send` with `fresh`) is uploaded the same way, then moved out of the
+/// upload folder into the temporary chat's own folder (which the daemon deletes when the chat ends and at every
+/// start), whole and under its own name; its upload is forgotten here, so it can't be attached again from where it
+/// was. A message of the normal chat still takes the file where it landed.
+// decision: ORCH-717
+#[tokio::test]
+async fn a_temporary_chat_s_files_leave_the_upload_folder_for_its_own_folder() {
+    let f = plain_fx().await;
+    let mut c = f.open("s1").await;
+    let photo = upload(&mut c, json!({"name": "photo.jpg"}), b"INVENTED-PHOTO")
+        .await
+        .unwrap();
+    let pid = photo["upload_id"].as_str().unwrap().to_owned();
+    let landed = PathBuf::from(photo["saved"].as_str().unwrap());
+    let group = c.ok("phone.put_group", json!({"name": "Trip"})).await;
+    let gid = group["group"].as_str().unwrap().to_owned();
+    upload(
+        &mut c,
+        json!({"name": "x", "group": gid, "rel": "sub/a.txt"}),
+        b"A",
+    )
+    .await
+    .unwrap();
+    c.call(
+        "chat.send",
+        json!({"text": "look", "fresh": true, "attachments": [pid, gid]}),
+        None,
+    )
+    .await
+    .unwrap();
+    let sent = &c.events[0]["params"];
+    let paths: Vec<PathBuf> = sent["input_paths"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| PathBuf::from(p.as_str().unwrap()))
+        .collect();
+    assert_eq!(paths.len(), 2, "{sent}");
+    assert!(paths.iter().all(|p| p.starts_with(&f.temporary)), "{sent}");
+    assert_eq!(
+        paths[0].file_name(),
+        landed.file_name(),
+        "its name as it landed"
+    );
+    assert_eq!(std::fs::read(&paths[0]).unwrap(), b"INVENTED-PHOTO");
+    assert_eq!(
+        paths[1].file_name().unwrap(),
+        PathBuf::from(group["saved"].as_str().unwrap())
+            .file_name()
+            .unwrap()
+    );
+    assert_eq!(std::fs::read(paths[1].join("sub/a.txt")).unwrap(), b"A");
+    assert!(!landed.exists(), "nothing of it stays in the upload folder");
+    assert!(f.inbox_names().is_empty(), "{:?}", f.inbox_names());
+    assert!(sent.get("attachments").is_none());
+    assert_eq!(sent["fresh"], json!(true));
+    // its upload is forgotten: it can't ride with another message from where it was
+    assert_eq!(
+        c.call(
+            "chat.send",
+            json!({"text": "again", "attachments": [pid]}),
+            None
+        )
+        .await
+        .unwrap_err()
+        .0,
+        code::NOT_FOUND
+    );
+    // a normal chat's message takes a file where it landed, as before
+    let doc = upload(&mut c, json!({"name": "doc.txt"}), b"D")
+        .await
+        .unwrap();
+    let did = doc["upload_id"].as_str().unwrap().to_owned();
+    c.call(
+        "chat.send",
+        json!({"text": "keep", "attachments": [did]}),
+        None,
+    )
+    .await
+    .unwrap();
+    let kept = &c.events.last().unwrap()["params"];
+    assert_eq!(kept["input_paths"], json!([doc["saved"]]));
+    assert!(PathBuf::from(doc["saved"].as_str().unwrap()).exists());
 }
 
 /// Part 3 (Mac to phone, a folder): its files listed in one call, key files left out and counted.

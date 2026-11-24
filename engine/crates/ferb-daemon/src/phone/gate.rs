@@ -887,7 +887,13 @@ impl Gate {
         // a message's attachments are this phone's own finished uploads, by id, as the paths chat.send takes (PHN-127)
         if method == "chat.send" {
             if let Some(ids) = params.remove("attachments") {
-                let paths = super::files::attachments(inner, &phone.device, &ids)?;
+                // decision: ORCH-717 — a temporary chat's files are moved into its own folder (deleted when it ends)
+                let fresh = params.get("fresh") == Some(&Value::Bool(true));
+                let paths = if fresh {
+                    super::files::attachments_for_temporary(inner, &phone.device, &ids)?
+                } else {
+                    super::files::attachments(inner, &phone.device, &ids)?
+                };
                 params.insert("input_paths".into(), json!(paths));
             }
         }

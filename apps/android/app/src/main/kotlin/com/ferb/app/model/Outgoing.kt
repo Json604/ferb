@@ -73,6 +73,11 @@ data class Sending(
     val note: Note? = null,
     val done: Long = 0,
     val total: Long = 0,
+    /**
+     * Sent in the temporary chat (the owner, 2026-11-24, ORCH-715: the same + and files as the chat): its files go the
+     * same way, then it goes with `fresh` (never the outbox); it shows only in the temporary chat and goes when it ends.
+     */
+    val temporary: Boolean = false,
 ) {
     val fraction: Float get() = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
 }
@@ -91,6 +96,8 @@ class Outgoing(
     private val transfers: Transfers,
     private val local: LocalFiles,
     private val io: CoroutineDispatcher,
+    /** A temporary chat's message went: the temporary chat as the Mac answered it. */
+    private val sentTemporary: (com.ferb.mobile.TemporaryChat) -> Unit = {},
     /** A message went: the chat reads again (and the Mac may want its unlock). */
     private val sent: (OutboxItem) -> Unit,
 ) {
@@ -131,14 +138,19 @@ class Outgoing(
      * Send with the box's files: false when the box has none (the message then goes as before). The box empties; the
      * message shows in the chat and goes as soon as its files are on the Mac.
      */
-    fun send(text: String, onMac: List<Attachment>): Boolean {
+    fun send(text: String, onMac: List<Attachment>, temporary: Boolean = false): Boolean {
         val chips = _chips.value
         if (chips.isEmpty()) return false
         val id = "m${System.currentTimeMillis()}-${n.incrementAndGet()}"
         _chips.value = emptyList()
-        _messages.update { it + Sending(id, text, chips, onMac, SendPhase.UPLOADING, total = chips.sumOf { c -> c.size }) }
+        _messages.update { it + Sending(id, text, chips, onMac, SendPhase.UPLOADING, total = chips.sumOf { c -> c.size }, temporary = temporary) }
         start(id)
         return true
+    }
+
+    /** The temporary chat ended (its icon, on any device): its messages still on their way go, with their copies. */
+    fun dropTemporary() {
+        for (m in _messages.value.filter { it.temporary }) remove(m.id)
     }
 
     // ---- a message on its way -----------------------------------------------------------------------------------------
@@ -202,6 +214,13 @@ class Outgoing(
         if (m.text.isBlank()) return
         set(id) { it.copy(phase = SendPhase.SENDING, note = null) }
         scope.launch {
+            if (m.temporary) {
+                when (val r = withContext(io) { api.sendTemporaryWith(m.text, m.onMac) }) {
+                    is Outcome.Ok -> { drop(id); sentTemporary(r.value) }
+                    is Outcome.Failed -> { set(id) { it.copy(phase = SendPhase.WAITING_PATH, note = FerbViewModel.errorNote(r.error)) }; save() }
+                }
+                return@launch
+            }
             when (val r = withContext(io) { if (m.onMac.isEmpty()) api.send(m.text) else api.sendWith(m.text, m.onMac) }) {
                 is Outcome.Ok -> { drop(id); sent(r.value) }
                 is Outcome.Failed -> { set(id) { it.copy(phase = SendPhase.WAITING_PATH, note = FerbViewModel.errorNote(r.error)) }; save() }
@@ -235,6 +254,19 @@ class Outgoing(
         save()
         val files = m.onMac + m.chips.map { Attachment(it.uploadId!!, it.name) }
         scope.launch {
+            if (m.temporary) {
+                // the temporary chat's message: with `fresh`, never the outbox (the Mac moves its files into the
+                // temporary chat's own folder and deletes them when it ends)
+                when (val r = withContext(io) { api.sendTemporaryWith(m.text, files) }) {
+                    is Outcome.Ok -> {
+                        transfers.forgetBatch(id)
+                        drop(id)
+                        sentTemporary(r.value)
+                    }
+                    is Outcome.Failed -> { set(id) { it.copy(phase = SendPhase.FAILED, note = FerbViewModel.errorNote(r.error)) }; save() }
+                }
+                return@launch
+            }
             when (val r = withContext(io) { api.sendWith(m.text, files) }) {
                 is Outcome.Ok -> {
                     transfers.forgetBatch(id)
@@ -322,7 +354,9 @@ class Outgoing(
     /** Writes the box and the messages off the main thread; a later save is never overwritten by an earlier one. */
     private fun save() {
         val box = _chips.value
-        val messages = _messages.value
+        // a temporary chat's message is never written on the phone (memory only, as all of that chat): closing FERB
+        // while its files go loses it
+        val messages = _messages.value.filterNot { it.temporary }
         val seq = saves.incrementAndGet()
         scope.launch(io) {
             val out = StringBuilder("{\"chips\":[")

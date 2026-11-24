@@ -5121,7 +5121,7 @@ area = "orchestration"
 surface = "FERB.app with this build and a paired phone (Android or iPhone) with its build"
 request = "Tap the dashed bubble in the chat's header. Ask \"what's my name?\" and then a small task (\"make a note that says hello\") with the notch closed. Quit and reopen FERB.app, lock and unlock the phone: the temporary chat is still there on both. On a narrow phone, or with the text size at its largest, the bubble and the profile fold into one three-line button whose menu has Temporary chat. Tap the dashed bubble again (on either device). Ask the normal chat \"what did I just ask you?\"; open Tasks."
 pass = "In the temporary chat FERB doesn't know your name or anything from earlier chats, still does the task with its usual questions; each answer and question opens the notch, glows and sounds as in the normal chat; the phone's moves as its normal chat; the banner shows on Mac and phone; after the relaunch and unlock it is still on; one tap on the same icon ends it everywhere and the normal chat comes back as it was; the normal chat knows nothing of the temporary one and Tasks doesn't list its task."
-decisions = ["ORCH-699", "ORCH-700", "ORCH-701", "ORCH-702", "APP-1122", "APP-1126", "PHN-818", "PHN-819", "PHN-820", "PHN-831"]
+decisions = ["ORCH-699", "ORCH-700", "ORCH-701", "ORCH-702", "APP-1122", "APP-1126", "PHN-819", "PHN-820", "PHN-837"]
 sitting = "one sitting, about 10 minutes"
 
 [LIVE-1195]
@@ -5204,3 +5204,12 @@ request = "After installing, open FERB's chat, Settings → Privacy, the Memory 
 pass = "No question about Claude Code, Codex, ChatGPT or Claude; Settings has no \"What other assistants know\" switches and the Memory page no import controls or progress card; \"Bring in what ChatGPT knows\" is cancelled on Schedules; no import run, mail check or model call for it; what FERB already learned and the review list are still there."
 decisions = ["MEM-478"]
 sitting = "after this build is installed"
+
+[LIVE-1212]
+title = "On the phone the temporary chat streams and takes files exactly as the normal chat"
+area = "phone"
+surface = "FERB.app with this build and a paired phone (Android or iPhone) with its build"
+request = "On the phone, tap the dashed bubble. Ask something with a longer answer and watch it come in. Then tap +, pick a photo and ask \"what's in this picture?\". Tap the bubble again. On the Mac, open Downloads › FERB from phone."
+pass = "The reply streams in word by word with its plan and step lines, as in the normal chat, not all at once a moment after; the photo uploads as in the normal chat and FERB answers about it; after the bubble ends the chat, the photo is in neither Downloads › FERB from phone nor anywhere FERB keeps."
+decisions = ["ORCH-715", "ORCH-716", "ORCH-717", "PHN-837", "PHN-838"]
+sitting = "one sitting, about 5 minutes"

@@ -54,8 +54,13 @@ public struct Sending: Equatable, Sendable, Identifiable {
     public var note: Note?
     public var done: Int64
     public var total: Int64
+    /// Sent in the temporary chat (the owner, 2026-11-24, ORCH-715: the same + and files as the chat): its files go the
+    /// same way, then it goes with `fresh` (never the outbox); it shows only in the temporary chat, is never written on
+    /// the phone, and goes when the chat ends.
+    public let temporary: Bool
 
-    public init(id: String, text: String, chips: [Chip], onMac: [Attachment], phase: SendPhase, note: Note? = nil, done: Int64 = 0, total: Int64 = 0) {
+    public init(id: String, text: String, chips: [Chip], onMac: [Attachment], phase: SendPhase, note: Note? = nil, done: Int64 = 0,
+                total: Int64 = 0, temporary: Bool = false) {
         self.id = id
         self.text = text
         self.chips = chips
@@ -64,6 +69,7 @@ public struct Sending: Equatable, Sendable, Identifiable {
         self.note = note
         self.done = done
         self.total = total
+        self.temporary = temporary
     }
 
     public var fraction: Double { total > 0 ? min(max(Double(done) / Double(total), 0), 1) : 0 }
@@ -86,6 +92,8 @@ public final class Outgoing {
     @ObservationIgnored private let local: LocalFiles
     /// A message went: the chat reads again (and the Mac may want its unlock).
     @ObservationIgnored public var onSent: ((OutboxItem) -> Void)?
+    /// A temporary chat's message went: the temporary chat as the Mac answered it.
+    @ObservationIgnored public var onSentTemporary: ((TemporaryChat) -> Void)?
     @ObservationIgnored private let store: Store
     @ObservationIgnored private var follow: Follow<[FileTransfer]>?
     @ObservationIgnored private var n = 0
@@ -126,14 +134,20 @@ public final class Outgoing {
     /// Send with the box's files: false when the box has none (the message then goes as before). The box empties; the
     /// message shows in the chat and goes as soon as its files are on the Mac.
     @discardableResult
-    public func send(_ text: String, onMac: [Attachment]) -> Bool {
+    public func send(_ text: String, onMac: [Attachment], temporary: Bool = false) -> Bool {
         guard !chips.isEmpty else { return false }
         let id = nextKey("m")
         let box = chips
         chips = []
-        messages.append(Sending(id: id, text: text, chips: box, onMac: onMac, phase: .uploading, total: box.reduce(0) { $0 + $1.size }))
+        messages.append(Sending(id: id, text: text, chips: box, onMac: onMac, phase: .uploading, total: box.reduce(0) { $0 + $1.size },
+                                temporary: temporary))
         start(id)
         return true
+    }
+
+    /// The temporary chat ended (its icon, on any device): its messages still on their way go, with their copies.
+    public func dropTemporary() {
+        for m in messages where m.temporary { remove(m.id) }
     }
 
     // ---- a message on its way -----------------------------------------------------------------------------------------
@@ -203,6 +217,20 @@ public final class Outgoing {
         messages[i].phase = .sending
         let api = self.api
         return Task {
+            if m.temporary {
+                switch await Task.detached(operation: { await api.sendTemporary(m.text, attachments: m.onMac) }).value {
+                case .ok(let t):
+                    drop(id)
+                    onSentTemporary?(t)
+                case .failed(let e):
+                    if let j = index(id) {
+                        messages[j].phase = .waitingPath
+                        messages[j].note = AppModel.errorNote(e)
+                    }
+                    save()
+                }
+                return
+            }
             let r = await Task.detached { m.onMac.isEmpty ? await api.send(m.text) : await api.sendWith(m.text, attachments: m.onMac) }.value
             switch r {
             case .ok(let item):
@@ -243,6 +271,23 @@ public final class Outgoing {
         let files = m.onMac + m.chips.compactMap { c in c.uploadId.map { Attachment(uploadId: $0, name: c.name) } }
         let api = self.api
         Task {
+            if m.temporary {
+                // the temporary chat's message: `fresh`, never the outbox (the Mac moves its files into the temporary
+                // chat's own folder and deletes them when it ends)
+                switch await Task.detached(operation: { await api.sendTemporary(m.text, attachments: files) }).value {
+                case .ok(let t):
+                    transfers.forgetBatch(id)
+                    drop(id)
+                    onSentTemporary?(t)
+                case .failed(let e):
+                    if let j = index(id) {
+                        messages[j].phase = .failed
+                        messages[j].note = AppModel.errorNote(e)
+                    }
+                    save()
+                }
+                return
+            }
             let r = await Task.detached { await api.sendWith(m.text, attachments: files) }.value
             switch r {
             case .ok(let item):
@@ -338,7 +383,8 @@ public final class Outgoing {
     }
 
     private func save() {
-        let kept = Kept(chips: chips, messages: messages.map {
+        // a temporary chat's message is never written on the phone (memory only, as all of that chat)
+        let kept = Kept(chips: chips, messages: messages.filter { !$0.temporary }.map {
             Kept.Message(id: $0.id, text: $0.text, phase: $0.phase, chips: $0.chips, onMac: $0.onMac.map { [$0.uploadId, $0.name] })
         })
         let store = self.store

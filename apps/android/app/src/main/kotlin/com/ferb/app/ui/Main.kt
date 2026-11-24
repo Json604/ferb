@@ -424,11 +424,14 @@ private fun ChatOf(vm: FerbViewModel, ui: UiState, temporary: com.ferb.app.Tempo
     val chatRows = temporary?.rows ?: ui.rows
     val questions = temporary?.questions ?: ui.questions
     val running = if (temporary != null) temporary.running else ui.running
-    // messages he sent with files go at the end, after the outbox, until their files are on the Mac (kb PHN-691)
-    val withFiles by vm.outgoing.messages.collectAsState()
+    // messages he sent with files go at the end, after the outbox, until their files are on the Mac (kb PHN-691): each
+    // in the chat it was sent in (the temporary chat sends files as the chat does, ORCH-715)
+    val allWithFiles by vm.outgoing.messages.collectAsState()
+    val withFiles = remember(allWithFiles, temporary != null) { allWithFiles.filter { it.temporary == (temporary != null) } }
     val places = remember(chatRows, ui.days, today, withFiles, temporary != null) {
-        if (temporary != null) ChatModel.Places(chatRows, emptyList())
-        else ChatModel.split(ChatModel.withDays(chatRows + withFiles.map { ChatRow.WithFiles("send:${it.id}", it) }, ui.days, today), today)
+        val sending = withFiles.map { ChatRow.WithFiles("send:${it.id}", it) }
+        if (temporary != null) ChatModel.Places(chatRows + sending, emptyList())
+        else ChatModel.split(ChatModel.withDays(chatRows + sending, ui.days, today), today)
     }
     // a question the chat doesn't hold yet (the Mac's status brought it first) is a box at the end of today's chat, as
     // FERB.app draws its open questions (ConversationTranscript.swift:205-208; kb PHN-770)

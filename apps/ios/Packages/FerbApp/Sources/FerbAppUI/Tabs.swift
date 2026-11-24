@@ -186,9 +186,9 @@ struct Composer: View {
     var body: some View {
         let t = model.transfers
         let chips = model.outgoing.chips
-        // a temporary chat takes words only: the box's files wait, unseen, for the chat
+        // the temporary chat's box is the chat's: + and its files too (the owner, 2026-11-24, ORCH-715)
         let temporary = model.temporary != nil
-        let hasFiles = !temporary && (!chips.isEmpty || !t.ready.isEmpty)
+        let hasFiles = !chips.isEmpty || !t.ready.isEmpty
         VStack(spacing: 8) {
             if toast { AlertToastView(model: model) }
             // the work row above the message box (kb PHN-725; FERB.app ChatBody.swift WorkRowView)
@@ -201,7 +201,7 @@ struct Composer: View {
             }
             // hold to speak (PHN-603): the words land in the box while held and stay there; never sent by themselves
             PhoneComposer(placeholder: hasFiles ? L.s("chat_placeholder_files") : placeholder, text: Binding(get: { model.draft }, set: { model.typed($0) }),
-                          onSend: { model.send() }, onAttach: temporary ? nil : { picking.ask(forChat: true) },
+                          onSend: { model.send() }, onAttach: { picking.ask(forChat: true) },
                           onMicDown: {
                               if model.voicePress() == .askMicrophone {
                                   Task { model.microphoneAnswered(await AppleSpeech.ask()) }
@@ -348,8 +348,11 @@ struct ChatView: View {
             // the way to earlier days at the top when there are some (rows of them, or older pages the Mac still has),
             // and the memory import's card last while one runs, never in the earlier days (kb MEM-456); a temporary
             // chat shows only itself
-            let rows = temporary?.shown(model.ui.questions)
-                ?? ChatModel.shown(places, earlier: earlier, loose: loose, importing: model.ui.status?.memoryImport)
+            // (its messages with files on their way at its end, as the chat's: ORCH-715)
+            let rows = temporary.map { t in
+                t.shown(model.ui.questions)
+                    + model.outgoing.messages.filter(\.temporary).map { ChatRow.withFiles(key: "send:\($0.id)", item: $0) }
+            } ?? ChatModel.shown(places, earlier: earlier, loose: loose, importing: model.ui.status?.memoryImport)
             let endDay = ChatModel.dayAt(rows, rows.count - 1)
             // the day he is looking at and the latest messages' day: the sticky label and the way back (PHN-662, 663)
             let shownDay = { (s: ListScroll) -> Int? in

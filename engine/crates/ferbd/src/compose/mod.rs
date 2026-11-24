@@ -116,6 +116,10 @@ pub struct Options {
     pub pause: Arc<dyn guard::Pause>,
     /// The phone link's helper (stage 3 S4, compose/link.rs).
     pub link: LinkOptions,
+    /// Where a temporary chat's files from a phone are moved at send (ORCH-717): ferb-core's `FILES_FOLDER` in the
+    /// account's own temporary folder; the supervisor removes it when the chat ends and at every start. A test daemon's
+    /// is in its own home.
+    pub temporary_files: PathBuf,
 }
 
 /// How this daemon runs the phone link's helper (compose/link.rs).
@@ -191,6 +195,7 @@ impl Options {
                 args: Vec::new(),
                 keys: None,
             },
+            temporary_files: std::env::temp_dir().join(ferb_core::temporary::FILES_FOLDER),
         }
     }
 }
@@ -766,6 +771,7 @@ impl Daemon {
                     Arc::new(move || t.shutting_down())
                 },
                 tokenizer: ferb_context::tokens::Tokenizer::default(),
+                temporary_files: opts.temporary_files.clone(),
             };
             if let Some(o) = &opts.overrides {
                 o.supervisor_build(&mut parts);
@@ -1076,6 +1082,7 @@ impl Daemon {
                 )),
                 user_home: opts.user_home.clone(),
                 config: config.clone(),
+                temporary_files: opts.temporary_files.clone(),
             },
         );
         let _ = phone_slot.set(phones.clone());

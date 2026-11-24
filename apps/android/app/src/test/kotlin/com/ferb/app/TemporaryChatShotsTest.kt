@@ -29,7 +29,7 @@ import org.robolectric.annotation.GraphicsMode
 import java.io.File
 
 /**
- * The temporary chat drawn by the chat's own screen (APP-1126, PHN-831), at the smallest common Android width (360 dp)
+ * The temporary chat drawn by the chat's own screen (APP-1126, PHN-837), at the smallest common Android width (360 dp)
  * and the lab's (412 dp): the banner, its turns, and his message on its way as the chat draws his outbox ("Sending…").
  */
 @RunWith(RobolectricTestRunner::class)
@@ -67,9 +67,9 @@ class TemporaryChatShotsTest {
         compose.onNodeWithTag("phone").captureRoboImage("src/test/screenshots/$name", roborazziOptions = ScreenShotsTest.options)
     }
 
-    // decision: APP-1126, PHN-831
+    // decision: APP-1126, PHN-837
     @Test @Config(qualifiers = "w360dp-h780dp-port-mdpi") fun his_message_on_its_way_at_360() = shoot("chat-temporary-sending-360.png")
 
-    // decision: APP-1126, PHN-831
+    // decision: APP-1126, PHN-837
     @Test @Config(qualifiers = "w412dp-h915dp-port-mdpi") fun his_message_on_its_way_at_412() = shoot("chat-temporary-sending-412.png")
 }

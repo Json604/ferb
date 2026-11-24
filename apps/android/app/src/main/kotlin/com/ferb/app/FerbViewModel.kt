@@ -48,6 +48,7 @@ import com.ferb.design.components.PhoneTab
 import com.ferb.design.sky.SkyMoment
 import com.ferb.design.sky.SkyPlace
 import com.ferb.mobile.AnswerInput
+import com.ferb.mobile.Attachment
 import com.ferb.mobile.Change
 import com.ferb.mobile.FerbException
 import com.ferb.mobile.FileEntry
@@ -375,7 +376,7 @@ class FerbViewModel(
     val transfers = Transfers(viewModelScope, api, local, unlocker)
 
     /** The message box's files and the messages that carry files (kb PHN-690, PHN-691); kept on the phone, off main. */
-    val outgoing = Outgoing(viewModelScope, api, transfers, local, io) { item ->
+    val outgoing = Outgoing(viewModelScope, api, transfers, local, io, sentTemporary = { t -> viewModelScope.launch { showTemporary(t) } }) { item ->
         if (item.waitingFor == "unlock") macLocked()
         refresh()
     }
@@ -499,7 +500,8 @@ class FerbViewModel(
                     is Change.Status -> statusChanged()
                     is Change.Mac -> readMac()
                     is Change.LocationWanted -> { pendingLocation = c.requestId; showPending() }
-                    is Change.Temporary -> readTemporary()
+                    // the temporary chat's watch moved it, as Transcript/Live move the chat: read from memory (ORCH-715)
+                    is Change.Temporary -> showLastTemporary()
                     else -> refresh()
                 }
             }
@@ -805,9 +807,28 @@ class FerbViewModel(
     private var temporaryJob: Job? = null
     private var temporaryAgain = false
 
+    private var lastTemporaryJob: Job? = null
+    private var lastTemporaryAgain = false
+
     /**
-     * Reads the temporary chat from the Mac (on start, unlock, the link coming online, and each `Change.Temporary`: it
-     * went on or off on any client, or its turns changed). A read that fails keeps what shows; one at a time.
+     * Each `Change.Temporary` (it went on or off on any client, or its watch brought a change or a live frame: streamed
+     * words, the plan line, a step, the answer): the temporary chat as the library holds it, from memory, as the chat's
+     * transcript is read on its changes (the owner, 2026-11-24, ORCH-715). One at a time; the last one in wins.
+     */
+    fun showLastTemporary() {
+        if (lastTemporaryJob?.isActive == true) { lastTemporaryAgain = true; return }
+        lastTemporaryJob = viewModelScope.launch {
+            do {
+                lastTemporaryAgain = false
+                if (session.locked.value) return@launch
+                (api.lastTemporaryChat() as? Outcome.Ok)?.let { showTemporary(it.value) }
+            } while (lastTemporaryAgain)
+        }
+    }
+
+    /**
+     * Reads the temporary chat from the Mac (on start, unlock and the link coming online: whether one is on, and all of
+     * it; after that its watch keeps it). A read that fails keeps what shows; one at a time.
      */
     fun readTemporary() {
         if (temporaryJob?.isActive == true) { temporaryAgain = true; return }
@@ -820,9 +841,11 @@ class FerbViewModel(
         }
     }
 
-    private suspend fun showTemporary(t: com.ferb.mobile.TemporaryChat) {
-        // off drops the copy at once: the normal chat shows again
-        lastTemporary = t.takeIf { it.on }
+    private suspend fun showTemporary(t: com.ferb.mobile.TemporaryChat?) {
+        // off drops the copy at once: the normal chat shows again, and its messages still on their way go
+        val was = lastTemporary
+        lastTemporary = t?.takeIf { it.on }
+        if (was != null && lastTemporary == null) outgoing.dropTemporary()
         apply(null, statusOnly = true)
     }
 
@@ -848,20 +871,20 @@ class FerbViewModel(
      * A message in the temporary chat: sent now with `fresh: true`, never the outbox; it shows at once as his message on
      * its way, as in the chat (APP-1126). A failure takes it away and puts the words back in the box.
      */
-    private suspend fun sendTemporary(text: String) {
-        if (text.isEmpty()) return
+    private suspend fun sendTemporary(text: String, files: List<Attachment> = emptyList()) {
+        if (text.isEmpty() && files.isEmpty()) return
         saved["draft"] = ""
         temporarySends += 1
         val at = java.time.Instant.ofEpochMilli(now()).toString()
         temporarySending = TemporarySending(
-            com.ferb.mobile.OutboxItem("temporary-$temporarySends", text, at, "sending", null, null, false, emptyList()),
+            com.ferb.mobile.OutboxItem("temporary-$temporarySends", text, at, "sending", null, null, false, files),
             ChatModel.said(lastTemporary?.transcript, text),
         )
         apply(null, statusOnly = true)
-        val r = api.sendTemporary(text)
+        val r = if (files.isEmpty()) api.sendTemporary(text) else api.sendTemporaryWith(text, files)
         temporarySending = null
         when (r) {
-            is Outcome.Ok -> showTemporary(r.value)
+            is Outcome.Ok -> { if (files.isNotEmpty()) transfers.sent(); showTemporary(r.value) }
             is Outcome.Failed -> { saved["draft"] = text; apply(null, statusOnly = true); failed(r.error) }
         }
     }
@@ -1443,9 +1466,20 @@ class FerbViewModel(
 
     /** Sends through the outbox (PHN-401): with the Mac off it waits there, visible and cancellable. Files go with it. */
     fun send() = busy("send") {
-        if (_ui.value.temporary != null) { sendTemporary(draft.value.trim()); return@busy }
         val text = draft.value.trim()
         val files = transfers.ready.value
+        if (_ui.value.temporary != null) {
+            // the temporary chat sends as the chat does (the owner, 2026-11-24, ORCH-715): the box's files go to the
+            // Mac first, then the message with them, `fresh`; files already on the Mac go with it now
+            if (outgoing.chips.value.isNotEmpty()) {
+                saved["draft"] = ""
+                outgoing.send(text, files, temporary = true)
+                if (files.isNotEmpty()) transfers.sent()
+                return@busy
+            }
+            sendTemporary(text, files)
+            return@busy
+        }
         // files in the box: the message shows at once and goes when its files are on the Mac (kb PHN-690, PHN-691)
         if (outgoing.chips.value.isNotEmpty()) {
             saved["draft"] = ""

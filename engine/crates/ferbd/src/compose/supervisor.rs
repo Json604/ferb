@@ -2049,6 +2049,8 @@ pub struct BuildParts {
     pub shutting_down: Arc<dyn Fn() -> bool + Send + Sync>,
     /// The token count (o200k; a test build: the recorder's byte ceiling).
     pub tokenizer: ferb_context::tokens::Tokenizer,
+    /// Where a temporary chat's files are moved (ORCH-717; `Options::temporary_files`).
+    pub temporary_files: std::path::PathBuf,
 }
 
 /// `Supervisor(...)` (compose.py:130) with `gateway.attach(_Watch(self))` and the chat RPCs.
@@ -2082,6 +2084,7 @@ pub fn build(daemon: Arc<SupDaemon>, p: BuildParts) -> Built {
         new_chat,
         stall_s: 180.0,
         heartbeat_poll_s: 5.0,
+        temporary_files: p.temporary_files,
     });
     if let Some(f) = p.notice_hex {
         let _ = daemon.notice_hex.set(f);
