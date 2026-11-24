@@ -25,7 +25,7 @@ export const PRIVATE_PARAMS = [
 ];
 
 // What an anonymous visit sends; every other event (clicks, heatmaps, vitals, errors, recordings) waits for OK.
-export const ANONYMOUS_EVENTS = ["$pageview", "$pageleave", "continue with google clicked"];
+export const ANONYMOUS_EVENTS = ["$pageview", "$pageleave", "download clicked"];
 
 export const STRINGS = {
   banner: "FERB counts visits anonymously. With your OK it also uses analytics and session recordings to improve the site.",
@@ -203,13 +203,13 @@ export function start(doc, win) {
   }
   showState(s);
 
-  // "Continue with Google" is the download's first step: a named event, sent as the page leaves for Google.
+  // The download button: a named event, sent as the page leaves for the file.
   doc.addEventListener("click", (event) => {
-    const link = event.target?.closest?.('a[href^="/api/auth/google"]');
+    const link = event.target?.closest?.('a[href^="/download/"]');
     const ph = s.win.posthog;
     if (!link || !ph?.__loaded) return;
-    const file = new URL(link.getAttribute("href"), "https://site.invalid").searchParams.get("file");
-    ph.capture("continue with google clicked", { file }, { transport: "sendBeacon" });
+    const file = new URL(link.getAttribute("href"), "https://site.invalid").pathname.split("/").pop();
+    ph.capture("download clicked", { file }, { transport: "sendBeacon" });
   });
 
   load(s);

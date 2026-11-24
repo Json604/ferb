@@ -1,6 +1,6 @@
-// decision: REL-433
+// decision: REL-442
 // decision: REL-432
-// The update feed and the files Sparkle downloads stay public: only the site's own download link needs a sign-in.
+// The update feed, the files Sparkle downloads and the site's own download are all public (sign-in moved into the app).
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -37,12 +37,15 @@ test("nothing on the site stands between an installed FERB and its updates", () 
   assert.equal(vercel.headers, undefined);
 });
 
-test("the site's own download goes through the signed link, never straight to the file", () => {
-  assert.deepEqual(route("/download/FERB-AppleSilicon.dmg"), { kind: "rewrite", to: "/api/download?file=:file" });
+test("the site's own download is a plain button that redirects to the latest release's file", () => {
+  assert.deepEqual(route("/download/FERB-AppleSilicon.dmg"), {
+    kind: "redirect",
+    to: "https://github.com/Json604/ferb-update/releases/latest/download/:file",
+  });
+  const index = readFileSync(new URL("index.html", site), "utf8");
+  assert.match(index, /href="\/download\/FERB-AppleSilicon\.dmg"/);
+  assert.doesNotMatch(index, /auth\/google/);
   for (const page of ["index.html", "privacy.html"]) {
-    const html = readFileSync(new URL(page, site), "utf8");
-    assert.doesNotMatch(html, /href="[^"?]*\.dmg"/, page);
-    assert.doesNotMatch(html, /href="https:\/\/github\.com\/[^"]*\/releases/, page);
+    assert.doesNotMatch(readFileSync(new URL(page, site), "utf8"), /href="https:\/\/github\.com\/[^"]*\/releases/, page);
   }
-  assert.match(readFileSync(new URL("index.html", site), "utf8"), /href="\/api\/auth\/google\?file=FERB-AppleSilicon\.dmg"/);
 });

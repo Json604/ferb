@@ -109,8 +109,8 @@ test("the server's pages (sign-in, download, unsubscribe, the owner's list) neve
 });
 
 // Every event PostHog could send, and the ones an anonymous visit may.
-const EVENTS = ["$pageview", "$pageleave", "continue with google clicked", "$autocapture", "$$heatmap", "$web_vitals", "$exception", "$dead_click", "$rageclick", "$snapshot", "$set", "$opt_in"];
-const ANONYMOUS = ["$pageview", "$pageleave", "continue with google clicked"];
+const EVENTS = ["$pageview", "$pageleave", "download clicked", "$autocapture", "$$heatmap", "$web_vitals", "$exception", "$dead_click", "$rageclick", "$snapshot", "$set", "$opt_in"];
+const ANONYMOUS = ["$pageview", "$pageleave", "download clicked"];
 
 function sent(ph) {
   return EVENTS.filter((name) => ph.send(name) !== null);
@@ -231,17 +231,17 @@ test("the privacy page's button asks again; No thanks after OK goes back to the 
   assert.equal(posthogScripts(doc).length, 1);
 });
 
-test("Continue with Google is a named event, counted with or without OK, and the link itself is left as it is", () => {
+test("The download button is a named event, counted with or without OK, and the link itself is left as it is", () => {
   for (const stored of ["yes", "no", null]) {
     const page = fakePage({ stored });
     const link = page.doc.body.appendChild(page.doc.createElement("a"));
-    link.setAttribute("href", "/api/auth/google?file=FERB-AppleSilicon.dmg");
+    link.setAttribute("href", "/download/FERB-AppleSilicon.dmg");
     const icon = link.appendChild(page.doc.createElement("svg"));
     start(page.doc, page.win);
     const { calls } = loadPostHog(page, { consent: stored === "yes" ? "granted" : "pending" });
     icon.click();
-    assert.deepEqual(calls.at(-1), ["capture", "continue with google clicked", { file: "FERB-AppleSilicon.dmg" }, { transport: "sendBeacon" }]);
-    assert.equal(link.getAttribute("href"), "/api/auth/google?file=FERB-AppleSilicon.dmg");
+    assert.deepEqual(calls.at(-1), ["capture", "download clicked", { file: "FERB-AppleSilicon.dmg" }, { transport: "sendBeacon" }]);
+    assert.equal(link.getAttribute("href"), "/download/FERB-AppleSilicon.dmg");
   }
 });
 
