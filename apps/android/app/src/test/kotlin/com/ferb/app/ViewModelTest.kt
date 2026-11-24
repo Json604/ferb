@@ -73,7 +73,7 @@ class ViewModelTest {
     private fun vm(): FerbViewModel {
         val prefs = Prefs(ApplicationProvider.getApplicationContext())
         return FerbViewModel(phone, session, prefs, { screenLock }, null, SavedStateHandle(), local, wait = {},
-            io = Dispatchers.Main, steady = { t }).also {
+            io = Dispatchers.Main, steady = { t }, account = testAccount()).also {
             it.prompts = object : Prompts {
                 override fun signer(kind: KeyKind, why: Why) = FakeSigner(kind, cancelPrompt).also { s -> signers.add(s); whys.add(why) }
                 override suspend fun local(): Boolean { localAsked++; return localPrompt }

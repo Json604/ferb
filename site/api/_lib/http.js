@@ -26,11 +26,12 @@ export function readCookie(request, name) {
   return null;
 }
 
-export function setCookie(name, value, { path, maxAge }) {
-  return `${name}=${value}; Path=${path}; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`;
+// SameSite=Lax unless a cross-site POST must carry the cookie (Apple's form_post answer to the apps' sign-in).
+export function setCookie(name, value, { path, maxAge, sameSite = "Lax" }) {
+  return `${name}=${value}; Path=${path}; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=${sameSite}`;
 }
 
-export const clearCookie = (name, path) => setCookie(name, "", { path, maxAge: 0 });
+export const clearCookie = (name, path, sameSite = "Lax") => setCookie(name, "", { path, maxAge: 0, sameSite });
 
 function headers(extra = {}, cookies = []) {
   const h = new Headers({ ...SECURITY, ...extra });
@@ -46,8 +47,16 @@ export function text(status, body, extra = {}) {
   return new Response(body, { status, headers: headers({ "content-type": "text/plain; charset=utf-8", ...extra }) });
 }
 
+// A JSON answer for the apps (never cached, like every answer here).
+export function json(status, body, extra = {}) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: headers({ "content-type": "application/json; charset=utf-8", ...extra }),
+  });
+}
+
 // One page in the site's look: the logo, a heading and `body` (already escaped HTML).
-export function page(status, { title, body, head = "", cookies = [], wide = false }) {
+export function page(status, { title, body, head = "", cookies = [], wide = false, extra = {} }) {
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -70,5 +79,5 @@ ${body}
 </body>
 </html>
 `;
-  return new Response(html, { status, headers: headers({ "content-type": "text/html; charset=utf-8" }, cookies) });
+  return new Response(html, { status, headers: headers({ "content-type": "text/html; charset=utf-8", ...extra }, cookies) });
 }

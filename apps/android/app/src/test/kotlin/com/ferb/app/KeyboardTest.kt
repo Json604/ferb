@@ -67,7 +67,7 @@ class KeyboardTest {
         ui = UiState(gate = Gate.MAIN, link = FakePhone.status(), keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.OK),
             conversation = "c1", rows = rows, days = days)
         val vm = FerbViewModel(phone, Session { 0L }, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-kbd").toFile()) { null })
+            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-kbd").toFile()) { null }, account = testAccount())
         compose.setContent {
             Box(Modifier.size(Phone.frameWidth, Phone.frameHeight)) {
                 PhoneScreen(labMoment(12.5), insets = PhoneInsets.Lab, glide = false) {

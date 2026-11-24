@@ -1020,10 +1020,27 @@ impl Daemon {
             },
         );
 
+        // APP-1128, PHN-828: FERB.app's sign-in to the owner's FERB account, kept in the Keychain through FERB's signed
+        // helper (the runtimes area's, as the API keys are); the phone area matches each pairing against it
+        let account = ferb_daemon::account::Account::new(ferb_daemon::account::Seams {
+            helper: b.runtimes.deps.helper.clone(),
+            redactor: redactor.clone(),
+            journal: {
+                let j = journal.clone();
+                Arc::new(move |kind: &str, data: Value| j.note(kind, data))
+            },
+        });
+        account.register(&server);
+
         // stage 3 S3 (T-1202): the phone area and the phone link helper's check
         let phones = phone::register(
             &server,
             phone::Parts {
+                // PHN-828: the site's keys this build pins (none until the owner makes the pair) and the Mac's account
+                account: ferb_daemon::phone::account::AccountCheck::pinned({
+                    let a = account.clone();
+                    Arc::new(move || a.mac_account())
+                }),
                 db: db.clone(),
                 clock: clock.clone(),
                 redactor: redactor.clone(),
@@ -1048,6 +1065,8 @@ impl Daemon {
             },
         );
         let _ = phone_slot.set(phones.clone());
+        // PHN-828: an account change removes the phones of another account
+        account.set_phones(phones.clone());
         phones.set_memory_import(Arc::new(move || {
             import_card
                 .lock()

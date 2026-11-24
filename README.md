@@ -7,8 +7,8 @@ does the task the way a person would: in your apps, your browser, your files and
 background while you keep working, without taking your cursor, keyboard focus or Space. It remembers what you tell it
 and gets better at work you ask for more than once.
 
-AI models read your request and decide what to do. FERB's own code carries out the actions, keeps the facts and
-enforces the limits: what may be touched, what is sent where, and what needs your Yes first.
+The model service you connect reads your request and decides what to do. FERB's own code carries out the actions,
+keeps the facts and enforces the limits: what may be touched, what is sent where, and what needs your Yes first.
 
 Status: prerelease (0.27.0.dev1). It runs on macOS 14.2 or later. The Apple silicon build is in daily use; the Intel
 build is made the same way but hasn't been tested on an Intel Mac yet.
@@ -20,14 +20,18 @@ build is made the same way but hasn't been tested on an Intel Mac yet.
    Applications, not from the disk image.
 2. FERB is signed with its own certificate, not an Apple Developer ID, so macOS blocks the first open. Open System
    Settings → Privacy & Security and click **Open Anyway** next to the message about FERB. macOS remembers the choice.
-3. The **Set Up FERB** window walks you through:
+3. The first launch introduces FERB in the notch and walks you through:
    - installing FERB's background service (macOS lists it under Login Items);
-   - **Choose your AI**: sign in with ChatGPT or Claude, or paste an API key (see [AI models](#ai-models));
+   - **Sign in to FERB** with Google or Apple (required; one FERB account for your Mac and your phone, see
+     [Your FERB account](#your-ferb-account));
+   - **The service FERB thinks with**: sign in with ChatGPT or Claude, or paste an API key (see
+     [Model services](#model-services));
    - **Permissions**: **Allow all** asks for each one in turn (see [Permissions](#permissions));
    - **Browsers**: add the FERB extension from the Chrome Web Store in each browser profile, then pair it;
    - **FERB's own account** (optional): an email account and browser profile that are FERB's, not yours, for sign-ups
      and one-time codes;
-   - **Done** opens the notch.
+   - a first task to try, and how to call FERB, stop a task or pause FERB;
+   - **Home**: FERB settles into the notch.
 
 FERB updates itself: about once a day it checks the GitHub releases, verifies the download with FERB's update key and
 certificate, and installs it when no task is running. You can turn this off in Settings → General.
@@ -47,7 +51,7 @@ Keychain items.
   files to the Trash instead of deleting them, and can take a disk snapshot before bulk work. Settings → Data →
   Restore undoes these.
 - **See what you see**: with each message, FERB looks at your front window (a redacted screenshot), so "what does this
-  mean?" works. "What FERB saw" under a message (and Settings → Data) shows those screenshots as FERB's AI got them.
+  mean?" works. FERB keeps those screenshots for 7 days.
 - **Hear an app** during a task (a video, a call recording): the sound is transcribed on your Mac and deleted once
   transcribed.
 - **Keep going over time**: reminders, schedules (with an end date if you give one), timers, watches ("tell me when
@@ -56,16 +60,17 @@ Keychain items.
   only what, who or which, never how.
 - **Remember**: facts you mention, even in passing, kept as a short profile and searched by meaning and keywords on your
   Mac. After a task it notes how the work was done, so the same kind of task goes faster next time. It can import what
-  ChatGPT, Claude, Gemini, Claude Code and Codex CLI know about you (the last 3 months).
+  ChatGPT, Claude, Gemini, Claude Code and Codex CLI know about you (your last month of conversations; off until you
+  turn it on).
 - **Dictation**: hold Right Command + Option to dictate a message. FERB always replies in text in the chat; it never speaks.
 - **Sign in for you**: passwords, one-time codes and card details go through a sealed path; the model never sees them.
   FERB tries simple "verify you are human" checks itself and hands the tab to you when it can't.
 - **Report a failure**: a failed task offers **Send to developer**: FERB prepares the task's record (secrets removed),
   you can view it, and **Send** delivers it to FERB's developer. No account or email needed.
 
-## AI models
+## Model services
 
-FERB runs its planner, workers and checker on the AI service you choose, per role, in Settings → AI:
+FERB runs its planner, workers and checker on the model service you choose, per role, in Settings → Thinking:
 
 | Runtime | How you connect it |
 |---|---|
@@ -97,10 +102,12 @@ FERB needs all of these; setup isn't done until each is on.
 ## Privacy and security
 
 **Your data stays on your Mac.** FERB keeps its records in `~/.ferb` (a local database and files). Saved passwords,
-security answers and card details are in your login Keychain, never in the database. There is no FERB server.
+security answers and card details are in your login Keychain, never in the database. There is no FERB server for your
+tasks, history or memory; FERB's website keeps only your FERB account (below).
 
-**What leaves the Mac.** To understand and do a task, FERB sends the task's context to the AI service you chose, under
-that service's terms: your messages, the relevant memory, page and app text, and redacted screenshots. Before anything
+**What leaves the Mac.** To understand and do a task, FERB sends the task's context to the model service you chose,
+under that service's terms: your messages, the relevant memory, page and app text, redacted screenshots, and the city
+your Mac is in (your exact position only for a task that needs it, after your Yes). Before anything
 leaves, code removes secrets, one-time codes and card details; models see only a placeholder. Redaction covers those
 classes of secret, not every private detail.
 
@@ -117,7 +124,8 @@ shows the current table.
 | Text read from apps on screen | 7 days |
 | What you typed and copied (redacted) | 7 days |
 | Screenshots, evidence and shell output | 7 days |
-| Copies of files before FERB changed them, snapshots | 7 days |
+| Copies of files before FERB changed them, Trash records, snapshots | 7 days |
+| FERB's own CPU and memory use | 30 days |
 
 Private (incognito) windows, sites and apps you exclude in Settings → Privacy, password fields and terminals are not
 recorded.
@@ -141,8 +149,19 @@ rules, sandbox or service, and its commands can't get around its network proxy, 
 Only your own words give instructions; what FERB reads (pages, mail, messages, files) is treated as data, never as
 instructions.
 
-**Paused.** Notices about what happens on your Mac and proactive offers need Jev, a paid filtering service, and are
-switched off until there is a design without it. FERB still records activity, but it doesn't post notices.
+**Your FERB account.** FERB.app and the phone apps need you signed in to a FERB account, with Google or Apple. FERB's
+website keeps an account number, the email and name Google or Apple shares (with Apple's Hide My Email, a private relay
+address), which of the two you used, when you signed in, and for each device its kind, FERB version and when it was
+last seen. Sign-in tokens are kept on your devices only in the Keychain (or, on Android, storage encrypted with a key
+the phone keeps), and on the website only as hashes. Signing in means FERB may email you about important updates, each
+with a one-click unsubscribe. Settings → Account → **Delete account** deletes all of it.
+
+**Your phone.** The iPhone and Android apps work with FERB on your Mac over an end-to-end encrypted connection, direct
+or through a relay that can't read it; no push service is used. A phone pairs only with a Mac signed in to the same
+FERB account, after your Yes on the Mac, and a phone that signs out is unpaired.
+
+**Notices are off.** Notices about what happens on your Mac and proactive offers are switched off. FERB still records
+activity, but it doesn't post notices.
 
 ## Current limitations
 

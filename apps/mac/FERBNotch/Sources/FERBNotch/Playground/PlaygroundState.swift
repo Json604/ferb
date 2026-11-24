@@ -121,19 +121,19 @@ final class PlaygroundState: ObservableObject {
     /// Every step before a beat done, for a jump: signed in, every permission on, browsers paired, the scan seen.
     func completeEarlierSteps(before beat: IntroBeat) {
         var next = saved
-        if beat.rawValue > IntroBeat.meet.rawValue {
+        if beat > .meet {
             next.serviceInstalled = true
             next.loginItemsAllowed = true
         }
-        if beat.rawValue > IntroBeat.signIn.rawValue {
+        if beat > .signIn {
             next.runtime = next.runtime ?? "codex"
             next.persona = next.scanSeesSomething ? "seen" : "finished"
         }
-        if beat.rawValue > IntroBeat.permissions.rawValue {
+        if beat > .permissions {
             for id in Self.permissions { next.grants[id] = GrantStatus.granted.rawValue }
             next.afterRestart = []
         }
-        if beat.rawValue > IntroBeat.browsers.rawValue { next.browsersPaired = true }
+        if beat > .browsers { next.browsersPaired = true }
         saved = next
     }
 

@@ -105,7 +105,7 @@ class ChatListTest {
     }
 
     private fun vm() = FerbViewModel(phone, session, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-        LocalFiles(root) { null }, now = { nowMs })
+        LocalFiles(root) { null }, now = { nowMs }, account = testAccount())
 
     /** A line of FERB's made on [day] at [hour], as the library hands it (its time counts from 2001-01-01). */
     private fun said(id: String, text: String, day: LocalDate, hour: Int = 9): Item {

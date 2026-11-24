@@ -191,15 +191,17 @@ class FerbPhone(
 
     /**
      * Pairs from a scanned or typed code. Keys Android destroyed are made anew first (and missing ones the phone can
-     * now hold, such as a lock key after a screen lock was set), and the link restarts to carry them.
+     * now hold, such as a lock key after a screen lock was set), and the link restarts to carry them (the same link
+     * identity: the kept state, so [endpointId] still names it). [account]: the server's signed statement of this
+     * phone's FERB account for [endpointId], which the Mac's daemon checks before it asks the owner (kb PHN-828).
      */
-    suspend fun pair(code: String): Outcome<Unit> = withContext(io) {
+    suspend fun pair(code: String, account: String): Outcome<Unit> = withContext(io) {
         serial.withLock {
             try {
                 val fresh = vault.keys.renew()
                 if (fresh != pubs) restartLink(fresh)
                 val u = uplink ?: throw FerbException.Closed("FERB is not open.", null)
-                u.pair(code)
+                u.pair(code, account)
                 // the keys this pairing's hello carries: what the Mac will hold (registerKeys adds any made later)
                 vault.saveRegisteredKeys(fresh)
                 wiped = null
@@ -209,6 +211,12 @@ class FerbPhone(
                 Outcome.Failed(e)
             }
         }
+    }
+
+    /** This phone's link id (the account statement names it, kb PHN-828), or null before the link started. */
+    suspend fun endpointId(): String? = withContext(io) {
+        MainGuard.offMain("the link's endpoint id")
+        uplink?.let { runCatching { it.endpointId() }.getOrNull() }?.takeIf { it.isNotEmpty() }
     }
 
     /**

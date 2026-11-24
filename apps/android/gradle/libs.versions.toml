@@ -20,6 +20,8 @@ androidxTestRunner = "1.6.2"
 camerax = "1.4.1"
 zxingCpp = "2.3.0"
 uiautomator = "2.3.0"
+# FERB's account (kb PHN-827): the sign-in in a Custom Tab
+browser = "1.8.0"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -54,6 +56,7 @@ lifecycle-viewmodel-savedstate = { group = "androidx.lifecycle", name = "lifecyc
 lifecycle-service = { group = "androidx.lifecycle", name = "lifecycle-service", version.ref = "lifecycle" }
 coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
+browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

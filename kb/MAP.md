@@ -6,7 +6,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 383 | 17 | 46 |
+| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 385 | 17 | 47 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 110 | 9 | 8 |
 | engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 23 | 4 | 0 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 131 | 9 | 62 |
@@ -14,10 +14,10 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | memory | Memory and memory import | `engine/runtime/memory` | 93 | 9 | 9 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 192 | 11 | 44 |
 | perception | Perception | `ferb/sense` | 27 | 4 | 2 |
-| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 384 | 13 | 20 |
+| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 388 | 14 | 22 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 14 | 8 | 0 |
 | prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 60 | 5 | 10 |
-| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 30 | 5 | 6 |
+| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 32 | 6 | 6 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 64 | 7 | 8 |
 | storage | Storage | `engine/runtime/store` | 36 | 5 | 4 |
 | tests | Tests | `tests` | 15 | 9 | 0 |
@@ -52,6 +52,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1280 (app): Which moments should FERB check in on (stuck on something, a deadline near, a repeated task, end of day), how often at most, and where (notch, phone, both)?
 - T-1296 (memory): When you answer Not sure about something FERB said it would check (a trip, a course), FERB asks again in a week. Is a week right?
 - T-1297 (orchestration): A check now makes at most 6 calls of its own (looking at a page or opening a recorded result); after that it decides from what it has, or says it couldn't confirm. Keep 6, or another number?
+- T-1305 (release): A FERB sign-in on a Mac or phone stays signed in as long as the app is used at least once every 90 days; after 90 days unused it asks to sign in again. "Send me the link" sends at most once every 10 minutes and five times a day. Keep these, or other numbers?
 
 ## Terms
 

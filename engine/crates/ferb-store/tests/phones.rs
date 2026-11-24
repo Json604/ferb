@@ -15,6 +15,7 @@ fn new(endpoint: &str) -> NewPhone {
         unlock_pub: Some("lock-key".into()),
         device_pub: None,
         strong_pub: None,
+        account_id: Some("acct-1".into()),
     }
 }
 
@@ -52,7 +53,9 @@ fn a_store_at_0064_upgrades_with_its_rows_kept_and_no_phones() {
             phones::SCHEMA_VERSION,
             ferb_store::chat_history::REPAIR_VERSION,
             // 0067 (MEM-436): the memory import's profile
-            ferb_store::chat_history::REPAIR_VERSION + 1
+            ferb_store::chat_history::REPAIR_VERSION + 1,
+            // 0068 (PHN-828): each pairing's FERB account
+            phones::ACCOUNT_VERSION
         ]
     );
     assert_eq!(journal(&db), before);
@@ -179,4 +182,37 @@ fn the_audit_keeps_rows_in_order_and_prunes_by_age() {
     let rows = phones::audit_tail(db.conn(), 10).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].method, "settings.set");
+}
+
+/// Migration 0068: a store at 0067 with a paired phone upgrades with the phone kept and no account named for it (FERB
+/// removes it when the Mac signs in); a pairing from now on keeps the account it was made under.
+// decision: PHN-828
+// decision: STORE-403
+#[test]
+fn a_phone_paired_before_accounts_keeps_its_row_with_no_account_and_a_new_pairing_names_its_own() {
+    let tmp = TempDir::new().unwrap();
+    let db = Db::open(tmp.path().join("ferb.db")).unwrap();
+    let upto: Vec<Migration> = Migration::embedded()
+        .into_iter()
+        .filter(|m| m.name.as_ref() < "0068")
+        .collect();
+    db.migrate_files(&upto).unwrap();
+    db.conn()
+        .execute(
+            "INSERT INTO phone_devices (endpoint, name, app, unlock_pub, paired_at, last_seen) \
+             VALUES ('old', 'Old phone', 'FERB for Android', 'lock-key', '2026-11-16T10:00:00+05:30', \
+             '2026-11-16T10:00:00+05:30')",
+            [],
+        )
+        .unwrap();
+    assert_eq!(db.migrate().unwrap(), vec![phones::ACCOUNT_VERSION]);
+    let old = phones::by_endpoint(db.conn(), "old").unwrap().unwrap();
+    assert_eq!(old.name, "Old phone");
+    assert_eq!(old.unlock_pub.as_deref(), Some("lock-key"));
+    assert_eq!(old.account_id, None);
+    let added = phones::add(&db, &new("e1"), "2026-11-24T10:00:00+05:30", 5)
+        .unwrap()
+        .unwrap();
+    assert_eq!(added.account_id.as_deref(), Some("acct-1"));
+    assert!(db.migrate().unwrap().is_empty());
 }

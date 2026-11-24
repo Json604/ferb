@@ -37,6 +37,20 @@ class Prefs(context: Context) {
         get() = p.getLong("paired_since", 0)
         set(v) = p.edit().putLong("paired_since", v).apply()
 
+    /**
+     * This install's id for FERB's sign-in server (kb PHN-827): random, made once, not secret (the spec keeps it in
+     * plain preferences); the server lists the account's devices by it.
+     */
+    val deviceId: String
+        @Synchronized get() = p.getString("device_id", null) ?: com.ferb.app.model.AccountModel.newDeviceId().also {
+            p.edit().putString("device_id", it).apply()
+        }
+
+    /** The FERB account id the paired Mac was paired under (kb PHN-828); null before, or for an older pairing. */
+    var pairedAccount: String?
+        get() = p.getString("paired_account", null)
+        set(v) = p.edit().putString("paired_account", v).apply()
+
     /** The first open after pairing has not happened yet (the corpus's justPaired). */
     var justPaired: Boolean
         get() = p.getBoolean("just_paired", false)
@@ -100,6 +114,6 @@ class Prefs(context: Context) {
 
     /** Forget this Mac: what belonged to that pairing goes; the phone's own switches stay. */
     fun forgetPairing() {
-        p.edit().remove("paired_since").remove("just_paired").remove("announced").remove("seen").remove("insomnia_said").apply()
+        p.edit().remove("paired_since").remove("paired_account").remove("just_paired").remove("announced").remove("seen").remove("insomnia_said").apply()
     }
 }

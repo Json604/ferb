@@ -87,7 +87,7 @@ class InsomniaTest {
 
     private fun status(i: Insomnia?) = PhoneStatus(false, true, false, emptyList(), emptyList(), emptyList(), null, i)
 
-    private fun vm() = FerbViewModel(phone, session, prefs, { true }, null, SavedStateHandle(), LocalFiles(root) { null }).also {
+    private fun vm() = FerbViewModel(phone, session, prefs, { true }, null, SavedStateHandle(), LocalFiles(root) { null }, account = testAccount()).also {
         it.prompts = object : Prompts {
             override fun signer(kind: KeyKind, why: Why) = FakeSigner(kind, cancelPrompt).also { s -> signers += s to why }
             override suspend fun local() = true

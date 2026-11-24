@@ -1015,6 +1015,16 @@ impl Mobile {
         guard(|| Ok(self.core()?.mac_info()?.conv()))
     }
 
+    /// PHN-828: binds this phone to its FERB account on the Mac (`phone.bind_account`) with the site's signed statement
+    /// for this phone's endpoint (`POST /api/app/assertion {endpoint: Link.endpointId()}`); returns the Mac's `bound`.
+    /// A phone paired before accounts calls it when it signs in. Refusals are `Refused` with the link code
+    /// `account_mismatch` (the Mac removed this phone: its account differs from the Mac's; the app then forgets the
+    /// Mac), `mac_signed_out` or `account_unconfirmed` (nothing changed), and the Mac's words as the detail. Works while
+    /// locked. Network: not on the UI thread.
+    pub fn bind_account(&self, assertion: String) -> Result<bool, FerbError> {
+        guard(|| Ok(self.core()?.bind_account(&assertion)?))
+    }
+
     /// The last `mac_info` kept (no network).
     pub fn cached_mac_info(&self) -> Result<Option<MacInfo>, FerbError> {
         guard(|| Ok(self.core()?.cached_mac_info()?.conv()))

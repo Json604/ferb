@@ -55,6 +55,9 @@ impl LinkError {
                 | PAIR_SECRET_WRONG
                 | PAIR_DENIED
                 | DEVICE_LIMIT
+                | ACCOUNT_MISMATCH
+                | MAC_SIGNED_OUT
+                | ACCOUNT_UNCONFIRMED
         )
     }
 }
@@ -69,6 +72,12 @@ pub const PAIR_BUSY: &str = "pair_busy";
 pub const DEVICE_LIMIT: &str = "device_limit";
 pub const ALREADY_PAIRED: &str = "already_paired";
 pub const VERSION_MISMATCH: &str = "version_mismatch";
+/// PHN-828: a phone pairs only with a Mac signed in to the same FERB account; the daemon checks the server's signed
+/// statement the phone sent, before the owner is asked. Each says what to do in its words; none is fixed by a redial
+/// (the pairing code was used): a new code on the Mac.
+pub const ACCOUNT_MISMATCH: &str = "account_mismatch";
+pub const MAC_SIGNED_OUT: &str = "mac_signed_out";
+pub const ACCOUNT_UNCONFIRMED: &str = "account_unconfirmed";
 // ---- authorization ------------------------------------------------------------------------------------
 pub const METHOD_NOT_ALLOWED: &str = "method_not_allowed";
 pub const MAC_LINK_OLDER: &str = "mac_link_older";
@@ -131,6 +140,9 @@ pub fn close_code(code: &str) -> u32 {
         DEVICE_LIMIT => 0x19,
         BAD_REQUEST => 0x1a,
         STALLED => 0x1b,
+        ACCOUNT_MISMATCH => 0x1c,
+        MAC_SIGNED_OUT => 0x1d,
+        ACCOUNT_UNCONFIRMED => 0x1e,
         _ => 0x1f,
     }
 }

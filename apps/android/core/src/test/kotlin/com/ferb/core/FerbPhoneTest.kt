@@ -244,12 +244,25 @@ class FerbPhoneTest {
         keys.gone.add(KeyKind.STRONG) // a fingerprint was added
         p.call { } // nothing else changes
         val old = keys.pairs[KeyKind.STRONG]!!.public
-        assertTrue(p.pair("FERB-INVENTED") is Outcome.Ok)
+        assertTrue(p.pair("FERB-INVENTED", "fpa1.invented.statement") is Outcome.Ok)
         assertEquals(2, uplinks.starts.size)
         assertEquals(1, uplinks.made.first().shutDown)
         assertEquals(listOf("FERB-INVENTED"), uplinks.made.last().paired)
         assertNotEquals(Proofs.publicKey(old), uplinks.starts.last().keys.strong)
         assertEquals(KeyState.OK, (p.state.value as PhoneState.Open).keys.strong)
+    }
+
+    // decision: PHN-828
+    @Test
+    fun pairing_hands_the_account_statement_to_the_link_for_its_own_endpoint() = runBlocking {
+        val uplinks = FakeUplinks()
+        val p = phone(Vault(dir, MemoryProtector(), SoftwareKeys()), uplinks)
+        assertNull("no link yet, no endpoint to name", p.endpointId())
+        p.start()
+        assertEquals(FAKE_ENDPOINT, p.endpointId())
+        assertTrue(p.pair("FERB-INVENTED", "fpa1.invented.statement") is Outcome.Ok)
+        assertEquals(listOf("FERB-INVENTED"), uplinks.made.last().paired)
+        assertEquals(listOf("fpa1.invented.statement"), uplinks.made.last().accounts)
     }
 
     // decision: PHN-498

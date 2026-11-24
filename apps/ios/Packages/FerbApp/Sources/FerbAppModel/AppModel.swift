@@ -4,8 +4,9 @@ import FerbMobile
 import Foundation
 import Observation
 
-/// What fills the screen: one at a time, nothing private before `main` (PHN-8).
-public enum Gate: Sendable { case starting, failed, noScreenLock, locked, pair, codes, removed, main }
+/// What fills the screen: one at a time, nothing private before `main` (PHN-8). `signIn`: after the lock, before
+/// anything else, while no FERB account is signed in on this phone (kb PHN-827).
+public enum Gate: Sendable { case starting, failed, noScreenLock, locked, signIn, pair, codes, removed, main }
 
 /// Why the pairing screen shows again (or nil on a first run).
 public enum PairReason: Sendable { case wiped, removed, keys, unknown }
@@ -39,6 +40,12 @@ public enum AppSheet: Equatable, Sendable {
     case insomnia
     /// Show me (APP-983): the Mac's camera while this shows, out of screenshots and captures.
     case camera
+    /// FERB's account on this phone (kb PHN-827): who is signed in, Sign out, Delete account.
+    case account
+    /// Sign out's confirmation (kb PHN-829: the Mac is forgotten with it).
+    case signOut
+    /// Delete account's confirmation.
+    case deleteAccount
 }
 
 /// A short line for the owner: a catalog key (Android's string name) and its arguments (the Mac's own words, when
@@ -140,6 +147,13 @@ public struct UiState: Equatable {
     public var pairReason: PairReason? = nil
     public var pairing = false
     public var pairError: Note? = nil
+    /// The pairing gate shows "FERB runs on your Mac" first (kb PHN-829): signed in, no Mac paired yet, until "I've
+    /// installed it — pair now" (a re-pairing goes straight to the pairing page).
+    public var macFirst = false
+    /// The link's code of the last pairing error (the account's refusals offer another account).
+    public var pairErrorCode: String? = nil
+    /// Delete account's failure line, on its sheet.
+    public var accountProblem: Note? = nil
     public var link: LinkStatus? = nil
     public var keys: KeyHealth? = nil
     public var conversation: String? = nil
@@ -161,6 +175,9 @@ public struct UiState: Equatable {
     public var macNeed: MacNeed? = nil
     /// The Mac doesn't know this phone's keys any more (`unlock_invalid`): it needs pairing again (PHN-649).
     public var macForgotPhone = false
+    /// The Mac's own words when it removed this phone over its account (`account_mismatch` while binding, PHN-828):
+    /// the removed page says them.
+    public var removedWords: String? = nil
     /// The Mac's side while the app is already open (PHN-641): its unlock under way, or slow to answer.
     public var macLine: MacLine? = nil
     /// The Mac has really not been reachable (kb PHN-753): stopped for good, or not online for `UnlockTiming.linkLost`
@@ -323,6 +340,12 @@ public final class AppModel {
     @ObservationIgnored private var workRowIds: [String] = []
 
     @ObservationIgnored let api: PhoneApi
+    /// FERB's account on this phone (kb PHN-827): signed out shows the sign-in page, whatever else holds.
+    public let account: AccountModel
+    /// "I've installed it — pair now" was chosen (the phone-first page gives way to the pairing page).
+    @ObservationIgnored private var pairChosen = false
+    /// Binding a legacy pairing was tried since the last unlock (at most once per unlock, kb PHN-828).
+    @ObservationIgnored private var bindTried = false
     @ObservationIgnored let session: Session
     @ObservationIgnored private let prefs: Prefs
     @ObservationIgnored private let local: LocalFiles
@@ -436,7 +459,7 @@ public final class AppModel {
         return s
     }
 
-    public init(api: PhoneApi, session: Session, prefs: Prefs, local: LocalFiles,
+    public init(api: PhoneApi, account: AccountModel, session: Session, prefs: Prefs, local: LocalFiles,
                 screenLock: @escaping () -> Bool = { Biometry.screenLockSet }, corpus: Corpus? = .bundled,
                 saved: SavedState = SavedState(), now: @escaping () -> Date = Date.init, locator: Locator? = nil,
                 coarse: @escaping () -> Coarse? = { nil }, locationAnswered: @escaping () -> Void = {},
@@ -445,6 +468,7 @@ public final class AppModel {
         self.timing = timing
         self.steady = steady
         self.api = api
+        self.account = account
         self.session = session
         self.prefs = prefs
         self.local = local
@@ -474,6 +498,7 @@ public final class AppModel {
             refresh()
         }
         ui.chatDay = today()
+        followAccount()
         start()
     }
 
@@ -481,6 +506,7 @@ public final class AppModel {
         let state: PhoneState
         let link: LinkStatus?
         let locked: Bool
+        let signedIn: Bool
     }
 
     /// Remakes [places] and [saidToday] from the rows, the days, the messages with files and the chat's day: in place for
@@ -513,13 +539,15 @@ public final class AppModel {
 
     private func start() {
         follows.append(Follow({ [weak self] () -> [Sending]? in self?.outgoing.messages }) { [weak self] (_: [Sending]) in self?.rebuildPlaces() })
-        follows.append(Follow({ [weak self] () -> GateInput? in guard let self else { return nil }; return GateInput(state: api.state, link: api.link, locked: session.locked) }) { [weak self] (g: GateInput) in
+        follows.append(Follow({ [weak self] () -> GateInput? in guard let self else { return nil }; return GateInput(state: api.state, link: api.link, locked: session.locked, signedIn: account.account != nil) }) { [weak self] (g: GateInput) in
             guard let self else { return }
             ui.link = g.link
             ui.keys = g.state.keys
             gateOf(g.state, g.link, g.locked)
             showPending()
             if g.state.isOpen && g.link?.paired == true && prefs.pairedSince == 0 {
+                // a pairing made signed in carried the account's assertion: it is this account's from the start
+                prefs.pairedAccount = account.account?.id
                 prefs.pairedSince = Int64(now().timeIntervalSince1970 * 1000)
                 prefs.justPaired = true
                 refreshProfile()
@@ -546,6 +574,7 @@ public final class AppModel {
             guard let self else { return }
             // not while the opening prompt's statement is on its way: its unlock reads the chat itself
             if online && !session.locked && statement == nil { Task { await self.syncNow() } }
+            if online { bindIfNeeded() }
         })
         // can't reach the Mac (kb PHN-753): only once it has stopped for good, or hasn't been online for
         // timing.linkLost of the app being open and unlocked; every open starts the count again (connecting is normal:
@@ -587,6 +616,13 @@ public final class AppModel {
         follows.append(Follow({ [weak self] () -> Bool? in guard let self else { return nil }; return session.locked }) { [weak self] (locked: Bool) in
             guard let self else { return }
             if !locked {
+                // the account's tokens refreshed when they are about to end (never a lockout when offline); a pairing
+                // made before sign-in existed is bound to the account (once per unlock until it is)
+                bindTried = false
+                Task {
+                    await self.account.check()
+                    self.bindIfNeeded()
+                }
                 // opened or unlocked: today's chat, on the day it is now (kb PHN-696, PHN-697)
                 turnTheDay()
                 earlier = false
@@ -673,6 +709,7 @@ public final class AppModel {
     // ---- the gate -------------------------------------------------------------------------------------------------
 
     private func gateOf(_ s: PhoneState, _ l: LinkStatus?, _ locked: Bool) {
+        let signedIn = account.account != nil
         var wiped: Lost?
         if case .open(_, let w) = s { wiped = w }
         let keys = s.keys
@@ -680,11 +717,13 @@ public final class AppModel {
         let gate: Gate
         switch s {
         // the lock page needs neither the library, the store nor the link: it shows at the first frame (PHN-633)
-        case .closed, .starting: gate = !screenLock() ? .noScreenLock : locked ? .locked : .starting
-        case .failed: gate = .failed
+        // signed out (kb PHN-827): the sign-in, right after the lock and before anything else of FERB's
+        case .closed, .starting: gate = !screenLock() ? .noScreenLock : locked ? .locked : !signedIn ? .signIn : .starting
+        case .failed: gate = !signedIn && !locked && screenLock() ? .signIn : .failed
         case .open:
             if !screenLock() { gate = .noScreenLock }
             else if locked { gate = .locked }
+            else if !signedIn { gate = .signIn }
             else if let l {
                 if l.phase == .pairingWaitForMac { gate = .codes }
                 else if removed { gate = .removed }
@@ -705,10 +744,12 @@ public final class AppModel {
             else if l.phase == .stopped || l.phase == .waiting || l.phase == .idle, let p = l.problem {
                 ui.pairing = false
                 ui.pairError = Self.pairNote(p.code, p.detail)
+                ui.pairErrorCode = p.code
             }
         }
         ui.gate = gate
         ui.pairReason = reason
+        ui.macFirst = gate == .pair && reason == nil && !pairChosen && !ui.pairing
         if case .failed(let code, let detail) = s { ui.failure = "\(code): \(detail)" } else { ui.failure = nil }
     }
 
@@ -1243,6 +1284,8 @@ public final class AppModel {
 
     // ---- pairing (PHN-442, PHN-447) ---------------------------------------------------------------------------------
 
+    /// Pairs from a code (PHN-102), carrying the server's signed word of this phone's account for its own link id: the
+    /// Mac's daemon pairs only a phone of its own account, before it asks the owner (PHN-828).
     @discardableResult
     public func pair(_ code: String) -> Task<Void, Never> {
         busy("pair") { [self] in
@@ -1250,11 +1293,130 @@ public final class AppModel {
             if text.isEmpty { return }
             ui.pairing = true
             ui.pairError = nil
+            ui.pairErrorCode = nil
             sheet = nil
-            if case .failed(let e) = await api.pair(text) {
+            guard let endpoint = await api.endpointId(), !endpoint.isEmpty else {
+                ui.pairing = false
+                ui.pairError = Self.errorNote(.Closed(detail: "FERB is not open.", linkCode: nil))
+                return
+            }
+            let assertion: String
+            switch await account.assertion(endpoint: endpoint) {
+            case .ok(let a): assertion = a
+            case .offline:
+                ui.pairing = false
+                ui.pairError = Note("pair_needs_internet")
+                return
+            case .down:
+                ui.pairing = false
+                ui.pairError = Note("signin_not_answering")
+                return
+            case .signedOut:
+                // the gate shows the sign-in now
+                ui.pairing = false
+                return
+            }
+            if case .failed(let e) = await api.pair(text, account: assertion) {
                 ui.pairing = false
                 ui.pairError = Self.pairNote(e.linkCode ?? e.code, e.detail)
+                ui.pairErrorCode = e.linkCode ?? e.code
             }
+        }
+    }
+
+    /// "I've installed it — pair now" on the phone-first page: the pairing page (kb PHN-829).
+    public func choosePair() {
+        pairChosen = true
+        recheck()
+    }
+
+    // ---- the account (kb PHN-827..829) -------------------------------------------------------------------------------
+
+    /// Wires the account's sign-ins to the app: a different account than the last one here forgets the Mac paired under
+    /// it (a phone pairs only within one account, PHN-828); a sign-in says who is signed in.
+    private func followAccount() {
+        account.onSignedIn = { [weak self] info, changed in
+            guard let self else { return }
+            pairChosen = false
+            if changed {
+                AppLog.i("a different account signed in: the Mac paired under the other one is forgotten")
+                Task { await self.forgetHere(quiet: true) }
+            }
+            note(Note("signin_signed_in_as", info.email))
+            recheck()
+            bindTried = false
+            bindIfNeeded()
+        }
+        // signed out by the site: the same as Sign out (kb PHN-828): the Mac is left too, then the sign-in shows
+        account.onSignedOutBySite = { [weak self] in
+            guard let self else { return }
+            AppLog.i("the site ended the sign-in: this phone leaves its Mac as on Sign out")
+            busy("account") {
+                self.sheet = nil
+                await self.forgetHere(quiet: true)
+                self.pairChosen = false
+                self.recheck()
+            }
+        }
+    }
+
+    /// A pairing made before sign-in existed has no account on the Mac's side: the phone binds it (kb PHN-828) with the
+    /// site's assertion for its link id, while signed in, paired, online and unlocked, at most once per unlock until the
+    /// Mac says bound. `account_mismatch`: the Mac removed this phone (its words on the removed page); the Mac signed
+    /// out, an unconfirmed account, no network: nothing changes, tried again at the next unlock (never unpaired).
+    private func bindIfNeeded() {
+        // pairedSince 0: a pairing just made (signed in, with the assertion): the gate's follow records its account
+        guard !bindTried, !session.locked, let acct = account.account, prefs.pairedAccount == nil, prefs.pairedSince > 0,
+              let l = api.link, l.paired, l.phase == .online else { return }
+        bindTried = true
+        Task { [self] in
+            guard let endpoint = await api.endpointId(), !endpoint.isEmpty,
+                  case .ok(let assertion) = await account.assertion(endpoint: endpoint) else { return }
+            switch await api.bindAccount(assertion: assertion) {
+            case .ok(true):
+                if account.account?.id == acct.id {
+                    prefs.pairedAccount = acct.id
+                    AppLog.i("the pairing is bound to the account")
+                }
+            case .ok(false):
+                break
+            case .failed(let e):
+                AppLog.i("binding the pairing: \(e.linkCode ?? e.code)")
+                if e.linkCode == "account_mismatch" {
+                    ui.removedWords = e.detail.isEmpty ? nil : e.detail
+                    ui.macForgotPhone = true
+                    recheck()
+                }
+            }
+        }
+    }
+
+    /// Sign out (confirmed): this phone leaves its Mac first (best effort `phone.forget_self` through the link, then
+    /// forgotten here), then the account (the site's sign-out, best effort) and the sign-in shows.
+    @discardableResult
+    public func signOut() -> Task<Void, Never> {
+        busy("account", tap: true) { [self] in
+            sheet = nil
+            await forgetHere(quiet: true)
+            await account.signOut()
+            pairChosen = false
+            recheck()
+        }
+    }
+
+    /// Delete account (confirmed): the site must delete it; only then the same clearing as Sign out.
+    @discardableResult
+    public func deleteAccount() -> Task<Void, Never> {
+        busy("account", tap: true) { [self] in
+            ui.accountProblem = nil
+            guard await account.delete() else {
+                if account.account != nil { ui.accountProblem = Note("account_delete_failed") }
+                return
+            }
+            sheet = nil
+            await forgetHere(quiet: true)
+            pairChosen = false
+            recheck()
         }
     }
 
@@ -1267,7 +1429,13 @@ public final class AppModel {
         }
     }
 
-    public func clearPairError() { ui.pairError = nil }
+    public func clearPairError() {
+        ui.pairError = nil
+        ui.pairErrorCode = nil
+    }
+
+    /// The pairing's error is the Mac's refusal of this phone's account (kb PHN-828): another account fixes it.
+    public var pairAccountRefused: Bool { ui.pairErrorCode.map(Self.accountRefusals.contains) ?? false }
 
     // ---- chat -----------------------------------------------------------------------------------------------------
 
@@ -2077,34 +2245,48 @@ public final class AppModel {
     public func forget() -> Task<Void, Never> {
         busy("forget", tap: true) { [self] in
             sheet = nil
-            live.stop()
-            camera.stop()
-            switch await api.forget() {
-            case .ok(let told):
-                statement = nil
-                ui.macForgotPhone = false
-                ui.macNeed = nil
-                ui.needsMacUnlock = false
-                // PHN-646: the Mac removed this phone too, or it couldn't be told (then it still lists it until removed)
-                AppLog.i("forgot the Mac; the Mac was \(told ? "told" : "not reachable")")
-                if !told { note(Note("forget_mac_kept")) }
-                prefs.forgetPairing()
-                temporary = nil
-                tab = .chat
-                earlier = false
-                presented = []
-                transfers.clear()
-                outgoing.clear()
-                ui.mac = nil
-                ui.macTasks = nil
-                ui.files = FilesUi()
-                ui.settings = nil
-                ui.status = nil
-                review.locked()
-                refreshProfile()
-            case .failed(let e):
-                failed(e)
-            }
+            await forgetHere(quiet: false)
+        }
+    }
+
+    /// Forget this Mac's work: the Mac is told first when it can be (`link.forget`, the daemon's `phone.forget_self`,
+    /// PHN-646), then everything of that pairing goes here. `quiet` (signing out, another account): no line about a Mac
+    /// that couldn't be told, and none at all when no Mac was paired.
+    private func forgetHere(quiet: Bool) async {
+        live.stop()
+        camera.stop()
+        let wasPaired = api.link?.paired == true
+        if quiet && !wasPaired && prefs.pairedSince == 0 {
+            // nothing paired: the link's identity stays (no Mac knows it)
+            return
+        }
+        switch await api.forget() {
+        case .ok(let told):
+            statement = nil
+            ui.macForgotPhone = false
+            ui.removedWords = nil
+            ui.macNeed = nil
+            ui.needsMacUnlock = false
+            pairChosen = false
+            // PHN-646: the Mac removed this phone too, or it couldn't be told (then it still lists it until removed)
+            AppLog.i("forgot the Mac; the Mac was \(told ? "told" : "not reachable")")
+            if !told && !quiet { note(Note("forget_mac_kept")) }
+            prefs.forgetPairing()
+            temporary = nil
+            tab = .chat
+            earlier = false
+            presented = []
+            transfers.clear()
+            outgoing.clear()
+            ui.mac = nil
+            ui.macTasks = nil
+            ui.files = FilesUi()
+            ui.settings = nil
+            ui.status = nil
+            review.locked()
+            refreshProfile()
+        case .failed(let e):
+            failed(e)
         }
     }
 
@@ -2275,6 +2457,9 @@ public final class AppModel {
         }
     }
 
+    /// The Mac's refusals of the phone's account at pairing (the link's error codes, kb PHN-828).
+    public static let accountRefusals: Set<String> = ["account_mismatch", "mac_signed_out", "account_unconfirmed"]
+
     public static func pairNote(_ code: String?, _ detail: String?) -> Note {
         switch code {
         case "pair_window_closed": return Note("pair_expired")
@@ -2284,6 +2469,8 @@ public final class AppModel {
         case "pair_busy": return Note("pair_busy")
         case "already_paired": return Note("pair_already")
         case "mac_unreachable", "offline": return Note("pair_unreachable")
+        // the Mac's own words for an account it won't pair with (kb PHN-828): they name both accounts
+        case let c? where accountRefusals.contains(c) && !(detail ?? "").isEmpty: return Note("err_mac_said", detail ?? "")
         default: return Note("err_other", detail ?? "")
         }
     }

@@ -68,6 +68,10 @@ pub mod codes {
     pub const UNLOCK_INVALID: &str = "unlock_invalid";
     pub const FRESH_UNLOCK: &str = "fresh_unlock_required";
     pub const QUESTION_NOT_WAITING: &str = "question_not_waiting";
+    /// PHN-828: the Mac's refusals of a pairing or of `phone.bind_account` (refusals: the words say what to do).
+    pub const ACCOUNT_MISMATCH: &str = "account_mismatch";
+    pub const MAC_SIGNED_OUT: &str = "mac_signed_out";
+    pub const ACCOUNT_UNCONFIRMED: &str = "account_unconfirmed";
     /// The phone itself stopped a transfer (paused or cancelled by the owner): nothing failed.
     pub const CANCELLED: &str = "cancelled";
     /// The transport has no way to do this (a transport that carries calls only).

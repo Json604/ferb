@@ -4267,3 +4267,47 @@ rule = "For HAND-717: what stays of PHN-813 and PHN-815 now that sessions are ar
 why = "Both were built for the session screen but serve Watch live, the camera and the main chat; the owner's complaints behind them (taps falling through, a list unlike the chat's) still hold there."
 evidence = "iPhone AppScreensTests testThePageUnderAWholeScreenSheetIsOutOfReach; Android ScreenGuardTest and the chat's list tests."
 paths = ["apps/android/design/src/main/kotlin/com/ferb/design/MotionHosts.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Root.swift", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/ChatList.swift"]
+
+[PHN-827]
+title = "The phone apps: sign in at first launch; a phone installed first is sent to FERB on the Mac"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "required. google and apple. a setup step and first launch on the mac, but how are we gonna do those cases where its phone download first???"
+words_source = "Owner 2026-11-24, relayed verbatim by the coordinator, answering \"(a) Required or optional? (b) Google only, or also Sign in with Apple? (c) Where in the app?\"."
+rule = "On a phone the first screen after the app lock (PHN-8) is the sign-in: Continue with Google, Continue with Apple. Signed in with no Mac paired, the phone says FERB runs on the Mac, gives the download address, can email the download link to the signed-in address (Send me the link), and goes to pairing with \"I've installed it — pair now\". Pairing itself is PHN-102's."
+why = "The owner asked how the phone-first case works: the phone can't be used without a Mac, so it hands the person to the Mac and to pairing."
+paths = ["apps/android", "apps/ios", "site/api/app"]
+live = ["LIVE-1203"]
+
+[PHN-828]
+title = "A phone pairs only with a Mac signed in to the same FERB account"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "why this??? cant we enforce matching emails??? it might help in future too"
+words_source = "Owner 2026-11-24, relayed verbatim by the coordinator, on the proposal that a phone and a Mac signed in to different accounts only get a plain warning, not a block."
+rule = "Pairing is refused unless the phone and the Mac are signed in to the same FERB account, matched on the account's id (never the email text, which differs for Apple's private relay and in casing), with the emails named in the refusal: \"This phone is signed in as {phone email}, but FERB on this Mac is signed in as {mac email}. Sign in with the same account on both.\" A Mac that signs in to another account removes the phones paired under the old one with one notice; a phone that signs out is unpaired."
+why = "The owner wants it enforced, not warned about, and expects it to matter later."
+paths = ["engine/crates/ferb-daemon/src/phone", "engine/crates/ferb-link", "apps/android", "apps/ios"]
+live = ["LIVE-1204"]
+
+[PHN-829]
+title = "How the phones sign in: the system sign-in browser, the phone's secure store, the phone-first screen"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For PHN-827. Both phones use the site's web flow for Google and Apple with PKCE S256 and the app's state: iPhone through ASWebAuthenticationSession and ferb-auth://callback, Android through Custom Tabs and the verified App Link https://ferb.kartikey.xyz/app/callback. Tokens live only in the phone's secure store (iPhone Keychain, this device only; Android encrypted with a Keystore key). Refresh as on the Mac. Send me the link calls /api/app/send-link. Sign out and Delete account first unpair the phone (phone.forget_self, best effort) and forget the Mac."
+why = "The same rules as FERB.app (APP-1128) on each phone's own platform tools."
+paths = ["apps/android", "apps/ios"]
+live = ["LIVE-1203"]
+
+[PHN-830]
+title = "How the Mac checks a phone's account at pairing: a server-signed assertion, verified by the daemon"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For PHN-828. The phone gets a 5-minute assertion from /api/app/assertion: ECDSA P-256 by a key only Vercel holds over {kid, aud ferb-pair, sub = account id, email, dev = its link endpoint, iat, exp}. It rides the pairing hello; the link helper only forwards it (PHN-124). Before asking the owner the daemon checks kid (pinned in its source), signature, aud, expiry and dev, then compares sub with the Mac's account: account_mismatch, mac_signed_out or account_unconfirmed. Nothing at run time adds a key. Phone rows keep their account id; a Mac account change removes the others."
+why = "The phone can't be trusted to say which account it has (PHN-124): only a statement the server signed, bound to this phone's link identity and minutes old, proves it. P-256 because the engine already verifies phone proofs with it (no new dependency)."
+paths = ["engine/crates/ferb-daemon/src/phone", "engine/crates/ferb-link/src", "engine/crates/ferb-mobile-ffi/src/link.rs", "engine/runtime/store/migrations", "site/api/app"]
+live = ["LIVE-1204"]

@@ -118,7 +118,24 @@ final class FakePhone: PhoneApi {
         while answerHeld { try? await Task.sleep(nanoseconds: 5_000_000) }
         return unlockResult
     }
-    func pair(_ code: String) async -> Outcome<Void> { calls.append("pair:\(code)"); return .ok(()) }
+    /// The assertions pairings carried (PHN-828), and what the pair call answers.
+    @ObservationIgnored var pairedAccounts: [String] = []
+    @ObservationIgnored var pairResult: Outcome<Void> = .ok(())
+    @ObservationIgnored var endpoint: String? = "invented-endpoint-1"
+    func pair(_ code: String, account: String) async -> Outcome<Void> {
+        calls.append("pair:\(code)")
+        pairedAccounts.append(account)
+        return pairResult
+    }
+    func endpointId() async -> String? { endpoint }
+    /// What binding a legacy pairing answers (PHN-828), and the assertions it carried.
+    @ObservationIgnored var bindResult: Outcome<Bool> = .ok(true)
+    @ObservationIgnored var bound: [String] = []
+    func bindAccount(assertion: String) async -> Outcome<Bool> {
+        calls.append("bind")
+        bound.append(assertion)
+        return bindResult
+    }
     var macForgot = true
     func forget() async -> Outcome<Bool> { calls.append("forget"); return .ok(macForgot) }
 
@@ -475,6 +492,12 @@ final class Rig {
     let local: LocalFiles
     let suite = "ferb-app-test-\(UUID().uuidString)"
     let prefs: Prefs
+    /// FERB's account (kb PHN-827): signed in as an invented account unless a test clears it; its Keychain item in
+    /// memory, the site a fake (no network).
+    let accountStore = MemoryStore()
+    let http = FakeHttp()
+    let web = FakeWeb()
+    let account: AccountModel
     var screenLock = true
     /// Short waits, so a test sees the bounds without real seconds (Android's tests move a test clock instead).
     var timing = UnlockTiming(statementAge: 100, statementRetry: 0.02, statementTries: 6, macSlow: 0.4, recheck: 0.02, rechecks: 2)
@@ -485,10 +508,18 @@ final class Rig {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("ferb-app-\(UUID().uuidString)", isDirectory: true)
         local = LocalFiles(root: root)
         prefs = Prefs(defaults: UserDefaults(suiteName: suite)!)
+        prefs.accountDeviceId = "test-device-000001"
+        try? accountStore.set("account", AccountModel.savedItem(Rig.someone, accessToken: "fa1_first", accessExpiresAt: Date().addingTimeInterval(3600),
+                                                                refreshToken: "fr1_first"))
+        try? accountStore.set("account.last", Data(Rig.someone.id.utf8))
+        account = AccountModel(store: accountStore, http: http, web: web, prefs: prefs, version: "1.0 test", deviceName: "Invented iPhone")
     }
 
+    nonisolated static let someone = AccountInfo(id: "11111111-1111-4111-8111-111111111111", email: "someone@example.com", name: "Someone",
+                                     providers: ["google"])
+
     func model(corpus: Corpus? = nil, locator: Locator? = nil, now: (() -> Date)? = nil) -> AppModel {
-        let m = AppModel(api: phone, session: session, prefs: prefs, local: local, screenLock: { [weak self] in self?.screenLock ?? true },
+        let m = AppModel(api: phone, account: account, session: session, prefs: prefs, local: local, screenLock: { [weak self] in self?.screenLock ?? true },
                          corpus: corpus, now: now ?? Date.init, locator: locator, timing: timing, steady: { [clock] in clock.t })
         m.prompts = prompts
         return m

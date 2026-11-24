@@ -76,7 +76,7 @@ android {
 // The JVM tests' stand-in phone, also for the frame measurements on an emulator or phone (FrameBudgetOnPhoneTest, kb
 // PHN-713): the chat drawn by the app's own screens, without a Mac.
 tasks.matching { it.name == "compileDebugAndroidTestKotlin" }.configureEach {
-    (this as org.jetbrains.kotlin.gradle.tasks.KotlinCompile).source(file("src/test/kotlin/com/ferb/app/FakePhone.kt"))
+    (this as org.jetbrains.kotlin.gradle.tasks.KotlinCompile).source(file("src/test/kotlin/com/ferb/app/FakePhone.kt"), file("src/test/kotlin/com/ferb/app/FakeAccount.kt"))
 }
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
@@ -119,6 +119,8 @@ dependencies {
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
     implementation(libs.zxing.cpp)
+    // FERB's account (kb PHN-827): the sign-in opens in a Custom Tab, else the default browser
+    implementation(libs.browser)
 
     testImplementation(bom)
     testImplementation(libs.junit)

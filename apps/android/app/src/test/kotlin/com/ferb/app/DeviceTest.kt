@@ -206,7 +206,7 @@ class DeviceTest {
 
     private fun vm(locator: Locator, answered: () -> Unit = {}) =
         FerbViewModel(phone, session, prefs, { true }, null, SavedStateHandle(), LocalFiles(Files.createTempDirectory("ferb-device").toFile()) { null },
-            locator = locator, say = context::getString, locationAnswered = answered).also {
+            locator = locator, say = context::getString, locationAnswered = answered, account = testAccount()).also {
             it.prompts = object : Prompts {
                 override fun signer(kind: KeyKind, why: Why) = FakeSigner(kind)
                 override suspend fun local() = true

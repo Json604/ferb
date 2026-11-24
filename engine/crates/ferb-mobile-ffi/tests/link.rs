@@ -144,14 +144,15 @@ fn an_app_pairs_unlocks_and_sends_through_the_real_link() {
     assert!(!link.status().paired);
 
     // a code that is not one: refused at once, with the link's code
-    let bad = link.pair("not a code".into()).unwrap_err();
+    let bad = link.pair("not a code".into(), String::new()).unwrap_err();
     assert!(matches!(bad, FerbError::Refused { .. }), "{bad:?}");
     assert_eq!(bad.link_code(), Some("bad_request"));
 
     // pairing by the typed code: both screens show the same six digits, then the owner's Yes
     let mut admin = w.bridge.admin_events();
     let qr = w.bridge.pair_start().unwrap();
-    link.pair(qr["code"].as_str().unwrap().to_string()).unwrap();
+    link.pair(qr["code"].as_str().unwrap().to_string(), String::new())
+        .unwrap();
     let asked = rt.block_on(async {
         tokio::time::timeout(Duration::from_secs(30), async {
             loop {
@@ -252,7 +253,7 @@ fn an_app_pairs_unlocks_and_sends_through_the_real_link() {
     assert!(link.is_closed());
     assert!(matches!(link.retry(), Err(FerbError::Closed { .. })));
     assert!(matches!(
-        link.pair(qr["code"].as_str().unwrap().into()),
+        link.pair(qr["code"].as_str().unwrap().into(), String::new()),
         Err(FerbError::Closed { .. })
     ));
     assert!(
@@ -360,7 +361,8 @@ fn files_the_preview_the_status_and_the_lock_through_the_real_link() {
     .unwrap();
     let mut admin = w.bridge.admin_events();
     let qr = w.bridge.pair_start().unwrap();
-    link.pair(qr["code"].as_str().unwrap().to_string()).unwrap();
+    link.pair(qr["code"].as_str().unwrap().to_string(), String::new())
+        .unwrap();
     let asked = rt.block_on(async {
         tokio::time::timeout(Duration::from_secs(30), async {
             while admin.recv().await.unwrap()["event"] != "pair_request" {}

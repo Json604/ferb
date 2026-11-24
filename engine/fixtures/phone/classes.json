@@ -1,9 +1,9 @@
 {
   "counts": {
-    "plain": 58,
+    "plain": 59,
     "private": 44,
     "sensitive": 52,
-    "never": 28
+    "never": 31
   },
   "methods": {
     "about.get": {
@@ -23,6 +23,33 @@
       "refused_params": [],
       "owner_to_confirm": false,
       "why": "is FERB.app's own first-run and how-to data, written by the app"
+    },
+    "account.clear": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's own sign-in to your FERB account; the phone signs in to the same account on the phone (PHN-828)"
+    },
+    "account.get": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's own sign-in to your FERB account; the phone signs in to the same account on the phone (PHN-828)"
+    },
+    "account.save": {
+      "class": "never",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "is FERB.app's own sign-in to your FERB account; the phone signs in to the same account on the phone (PHN-828)"
     },
     "attention.ack": {
       "class": "plain",
@@ -809,6 +836,15 @@
       "refused_params": [],
       "owner_to_confirm": false,
       "why": "is the record of what phones did, which no phone call reads or changes (PHN-114)"
+    },
+    "phone.bind_account": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "binds this phone to its FERB account with the site's signed statement; a phone of another account than the Mac's is removed (PHN-828)"
     },
     "phone.challenge": {
       "class": "plain",

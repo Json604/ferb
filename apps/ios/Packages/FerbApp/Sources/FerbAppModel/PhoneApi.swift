@@ -24,7 +24,14 @@ public protocol PhoneApi: AnyObject {
     func stop(taskIds: [String]) async -> Outcome<Void>
     func loadOlder(conversation: String) async -> Outcome<OlderState>
     func unlock(_ signer: Signer) async -> Outcome<Void>
-    func pair(_ code: String) async -> Outcome<Void>
+    /// Pairs from a code; `account` is the server's signed assertion of this phone's FERB account for [endpointId],
+    /// which the Mac's daemon checks against its own account before it asks the owner (PHN-828).
+    func pair(_ code: String, account: String) async -> Outcome<Void>
+    /// This phone's link id (its endpoint id), or nil before the link started: what the account's assertion names.
+    func endpointId() async -> String?
+    /// Binds a pairing made before sign-in existed to this phone's account (`phone.bind_account`, kb PHN-828): the
+    /// Mac's `bound`; its refusals carry the link's code (`account_mismatch`: the Mac removed this phone).
+    func bindAccount(assertion: String) async -> Outcome<Bool>
     /// "Forget this Mac": `.ok(true)` when the Mac removed this phone too, `.ok(false)` when it couldn't be told.
     func forget() async -> Outcome<Bool>
     /// Paired with its lock key there: the opening prompt can sign an unlock statement before the link is up.
@@ -168,7 +175,9 @@ public final class LibraryPhone: PhoneApi {
     public func stop(taskIds: [String]) async -> Outcome<Void> { await phone.call { try $0.stop(taskIds: taskIds) } }
     public func loadOlder(conversation: String) async -> Outcome<OlderState> { await phone.call { try $0.loadOlder(conversation: conversation) } }
     public func unlock(_ signer: Signer) async -> Outcome<Void> { await phone.unlock(signer) }
-    public func pair(_ code: String) async -> Outcome<Void> { await phone.pair(code) }
+    public func pair(_ code: String, account: String) async -> Outcome<Void> { await phone.pair(code, account: account) }
+    public func endpointId() async -> String? { await phone.endpointId() }
+    public func bindAccount(assertion: String) async -> Outcome<Bool> { await phone.call { try $0.bindAccount(assertion: assertion) } }
     public func forget() async -> Outcome<Bool> { await phone.forgetThisMac() }
     public func statementReady() async -> Bool { await phone.statementReady() }
     public func unlockWithStatement(payload: String, sig: String, ageMs: UInt64) async -> Outcome<Void> {

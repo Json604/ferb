@@ -73,7 +73,8 @@ struct RootView: View {
                                 // the first run's asks come once, after the first unlock, before pairing or the app
                                 // (kb PHN-636)
                                 let asks = !shell.firstRun.pending.isEmpty && (gate == .pair || gate == .main)
-                                MotionSwitch(Screen(gate: gate, scan: gate == .pair && model.sheet == .scan && !model.ui.pairing, asks: asks),
+                                MotionSwitch(Screen(gate: gate, scan: gate == .pair && model.sheet == .scan && !model.ui.pairing, asks: asks,
+                                                    macFirst: gate == .pair && model.ui.macFirst),
                                              instant: { $0.gate == .locked || $0.gate == .starting }) { s in
                                     if s.asks { AsksPage(asker: shell.firstRun, insets: insets) } else { page(s.gate, insets: insets, moment: moment) }
                                 }
@@ -111,6 +112,8 @@ struct RootView: View {
         let gate: Gate
         let scan: Bool
         var asks = false
+        /// The pairing gate's phone-first page (kb PHN-829).
+        var macFirst = false
     }
 
     @ViewBuilder private func page(_ gate: Gate, insets: PhoneInsets, moment: SkyMoment) -> some View {
@@ -128,8 +131,13 @@ struct RootView: View {
             }
         case .locked:
             UnlockPage(insets: insets, bio: Words.bioName, symbol: Words.bioSymbol) { model.unlockApp() }
+        case .signIn:
+            // kb PHN-827: signed out, FERB shows only this after the lock
+            SignInView(account: model.account, insets: insets)
         case .pair:
-            if model.sheet == .scan && !model.ui.pairing {
+            if model.ui.macFirst {
+                MacFirstView(model: model, insets: insets)
+            } else if model.sheet == .scan && !model.ui.pairing {
                 ScanPage(model: model, insets: insets)
             } else {
                 PairView(model: model, insets: insets)
@@ -137,8 +145,9 @@ struct RootView: View {
         case .codes:
             CodesPage(code: model.ui.link?.pairingCode ?? "", insets: insets) { model.cancelPairing() }
         case .removed:
+            // the Mac's own words when it removed this phone over its account (kb PHN-828)
             MessagePage(title: L.s("removed_title"),
-                        text: L.bio(model.ui.pairReason == .keys ? "pair_reason_keys"
+                        text: model.ui.removedWords ?? L.bio(model.ui.pairReason == .keys ? "pair_reason_keys"
                                     : model.ui.pairReason == .unknown ? "pair_reason_unknown" : "pair_reason_removed"),
                         action: L.s("pair_again"), insets: insets) { model.forget() }
         case .main:
@@ -172,9 +181,17 @@ struct PairView: View {
                 Card(padding: 16) {
                     Text(line).type(15.5, .regular, Ink.black).frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityAddTraits(.updatesFrequently)
+                    other
                 }
                 .padding(.horizontal, 16).padding(.top, 70)
             }
+        }
+    }
+
+    /// The Mac refused this phone's account (kb PHN-828): its words, and the way to another account under them.
+    @ViewBuilder private var other: some View {
+        if model.pairAccountRefused {
+            Pill(title: L.s("account_other"), kind: .grey, height: 44) { model.show(.signOut) }.padding(.top, 12)
         }
     }
 

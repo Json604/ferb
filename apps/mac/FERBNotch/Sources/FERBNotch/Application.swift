@@ -178,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     }
                 actions.setup = setup
                 actions.replayIntro = { [appSetup] in appSetup.replayIntro() }
+                actions.account = appSetup.account
                 actions.runFerb = { [setup] arguments, line, done in setup.runner.run(arguments, line: line, done: done) }
             }
             actions.correctMemory = { [weak coordinator] text in

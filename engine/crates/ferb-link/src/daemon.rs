@@ -62,6 +62,10 @@ pub const REFUSALS: &[(i64, &str, &str)] = &[
         "Remove one in FERB's phone list on the Mac, then pair again",
     ),
     (-32024, errors::FILE_CHANGED, "Fetch it again"),
+    // PHN-828: the daemon's words say what to do (sign in with the same account; scan a new code)
+    (-32025, errors::ACCOUNT_MISMATCH, ""),
+    (-32026, errors::MAC_SIGNED_OUT, ""),
+    (-32027, errors::ACCOUNT_UNCONFIRMED, ""),
     (-32600, errors::BAD_REQUEST, ""),
     // -32040..-32049 were the coding sessions' refusals, retired with the sessions on 2026-11-24 (HAND-717,
     // engine/ARCHIVE-sessions.md): never reuse them, an older phone still reads them as those refusals.

@@ -66,10 +66,14 @@ final class FakeUplink: Uplink, @unchecked Sendable {
         try mobile.connectTransport(transport: mac)
         try mobile.linkEvent(eventJson: #"{"type":"state","phase":"online","tier":"direct"}"#)
     }
-    func pair(_ code: String) throws {
+    /// The account assertion each pairing carried (PHN-828).
+    private(set) var accounts: [String] = []
+    func pair(_ code: String, account: String) throws {
+        accounts.append(account)
         if code != "FERB-good" { throw FerbError.Refused(detail: "That code didn't work.", linkCode: "pair_secret_wrong") }
         paired = true
     }
+    func endpointId() -> String { "invented-endpoint-1" }
     func status() -> LinkStatus? { nil }
     /// What the app told the link, in the order it arrived.
     private let l = NSLock()
@@ -198,15 +202,19 @@ final class FerbPhoneTests: XCTestCase {
     }
 
     // decision: PHN-408, PHN-563
+    // decision: PHN-828
     func testPairingAndForgettingTheMac() async throws {
         let secrets = MemoryStore()
         let uplinks = FakeUplinks()
         let p = phone(secrets, uplinks)
         await p.start()
-        let bad = await p.pair("FERB-bad")
+        let endpoint = await p.endpointId()
+        XCTAssertEqual(endpoint, "invented-endpoint-1", "the link's own id, for the account's assertion")
+        let bad = await p.pair("FERB-bad", account: "fpa1.invented.one")
         XCTAssertEqual(bad.error?.linkCode, "pair_secret_wrong")
-        let good = await p.pair("FERB-good")
+        let good = await p.pair("FERB-good", account: "fpa1.invented.two")
         XCTAssertNotNil(good.value)
+        XCTAssertEqual(uplinks.made.flatMap(\.accounts), ["fpa1.invented.one", "fpa1.invented.two"], "each pairing carries the assertion")
         XCTAssertEqual(p.vault.registeredKeys(), uplinks.starts[0].keys, "what the Mac holds is recorded")
         let before = uplinks.starts[0].keys
 

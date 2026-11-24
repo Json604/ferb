@@ -97,7 +97,7 @@ class TemporaryChatTest {
     }
 
     private fun vm() = FerbViewModel(phone, session, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-        LocalFiles(root) { null }, say = { "" })
+        LocalFiles(root) { null }, say = { "" }, account = testAccount())
 
     private fun said(id: String, text: String): Item {
         val at = today.atTime(9, 0).atZone(zone).toEpochSecond() - 978_307_200.0

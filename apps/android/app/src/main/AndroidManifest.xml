@@ -30,6 +30,12 @@
             <action android:name="android.speech.RecognitionService" />
         </intent>
     </queries>
+    <!-- FERB's sign-in (kb PHN-827): which browser offers Custom Tabs (CustomTabsClient.getPackageName) -->
+    <queries>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+    </queries>
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
@@ -56,6 +62,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
             <!-- No link opens pairing: a web page or another app must never start it (the phone lab's rule). -->
+            <!-- FERB's sign-in answer (kb PHN-827): a verified App Link to exactly this address; the site's
+                 /.well-known/assetlinks.json names this app. Used only when its state is the sign-in this phone began;
+                 anything else arriving here is ignored. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="ferb.kartikey.xyz" android:path="/app/callback" />
+            </intent-filter>
         </activity>
 
         <!-- Stay connected (PHN-421, PHN-501) -->

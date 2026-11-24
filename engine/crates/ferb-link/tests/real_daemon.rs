@@ -11,6 +11,7 @@ mod common;
 use chrono::{FixedOffset, TimeZone};
 use common::*;
 use ferb_core::interfaces::{BoxFuture, Clock};
+use ferb_daemon::phone::account::{AccountCheck, MacAccount};
 use ferb_daemon::phone::link::LinkControl;
 use ferb_daemon::phone::{Limits, Phones, QuestionFacts, Questions, Seams};
 use ferb_link::{
@@ -40,6 +41,44 @@ impl Clock for Still {
     fn sleep_until(&self, _t: ferb_core::when::DateTime) -> BoxFuture<'_, ()> {
         Box::pin(async {})
     }
+}
+
+/// The site's test vector for the pairing assertion (PHN-828; site/tests/fixtures/assertion-vector.json): an invented key
+/// (the SHA-256 of its label), its kid, the account it names. Never a FERB key.
+fn site_vector() -> Value {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../site/tests/fixtures/assertion-vector.json"
+    );
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+/// The Mac's account: the vector's.
+fn mac_account() -> MacAccount {
+    let v = site_vector();
+    MacAccount {
+        id: v["payload"]["sub"].as_str().unwrap().into(),
+        email: v["payload"]["email"].as_str().unwrap().into(),
+    }
+}
+
+/// The site's assertion for this phone's endpoint, of `sub`/`email`, at the daemon's still clock.
+fn assertion(endpoint: &str, sub: &str, email: &str) -> String {
+    use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use p256::ecdsa::signature::Signer;
+    use sha2::{Digest, Sha256};
+    let v = site_vector();
+    let key = p256::ecdsa::SigningKey::from_slice(&Sha256::digest(
+        v["test_key_label"].as_str().unwrap().as_bytes(),
+    ))
+    .unwrap();
+    let now = Still.now().timestamp();
+    let claims = json!({"v": 1, "kid": v["kid"], "aud": "ferb-pair", "sub": sub, "email": email, "dev": endpoint,
+                        "iat": now, "exp": now + 300});
+    let payload = URL_SAFE_NO_PAD.encode(claims.to_string());
+    let sig: p256::ecdsa::Signature = key.sign(format!("ferb-pair/v1.{payload}").as_bytes());
+    format!("fpa1.{payload}.{}", URL_SAFE_NO_PAD.encode(sig.to_bytes()))
 }
 
 struct NoQuestions;
@@ -102,6 +141,17 @@ async fn real(devices_max: usize) -> Real {
         questions: Arc::new(NoQuestions),
         prompts: None,
         journal: Arc::new(|_k: &str, _v: Value| {}),
+        // PHN-828: the site's test key, and the Mac signed in to the vector's account
+        account: {
+            let v = site_vector();
+            AccountCheck::new(
+                &[(
+                    v["kid"].as_str().unwrap(),
+                    v["test_public_key_sec1_uncompressed_b64"].as_str().unwrap(),
+                )],
+                Arc::new(|| Some(mac_account())),
+            )
+        },
         publish: {
             let p = published.clone();
             Arc::new(move |k: &str, v: Map<String, Value>| {
@@ -190,7 +240,13 @@ impl Real {
     /// The QR, the phone's proof, the daemon's question, the owner's Yes in FERB.app.
     async fn pair(&self, p: &TestPhone) {
         let invite = self.phones.code_start().await.expect("phone.pair_start");
-        p.phone.pair(invite["code"].as_str().unwrap()).unwrap();
+        let mac = mac_account();
+        p.phone
+            .pair_with_account(
+                invite["code"].as_str().unwrap(),
+                Some(&assertion(&p.phone.id(), &mac.id, &mac.email)),
+            )
+            .unwrap();
         let asked = wait(30, || {
             self.published
                 .lock()
@@ -578,4 +634,56 @@ async fn the_phone_s_record_and_its_precise_fix_cross_the_real_bridge() {
         .unwrap()
         .unwrap();
     assert_eq!((fix.latitude, fix.longitude), (18.5, 73.8));
+}
+
+/// PHN-828 end to end: a phone signed in to another FERB account sends its assertion in the hello; the daemon refuses
+/// it before the owner is asked, and the phone stops with the daemon's code and words (the QR's code is used up).
+// decision: PHN-828
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_of_another_account_is_refused_through_the_real_bridge() {
+    let w = real(5).await;
+    let p = TestPhone::start("Pixel", &w.shared, false, None, true).await;
+    let invite = w.phones.code_start().await.expect("phone.pair_start");
+    p.phone
+        .pair_with_account(
+            invite["code"].as_str().unwrap(),
+            Some(&assertion(
+                &p.phone.id(),
+                "11111111-2222-4333-8444-555555555555",
+                "bob@example.com",
+            )),
+        )
+        .unwrap();
+    assert!(
+        wait(30, || p.stop_code() == errors::ACCOUNT_MISMATCH).await,
+        "{}",
+        p.phone.phase()
+    );
+    let mac = mac_account();
+    assert_eq!(
+        p.phone.phase()["error"]["message"],
+        format!(
+            "This phone is signed in as bob@example.com, but FERB on this Mac is signed in as {}. Sign in with the \
+             same account on both.",
+            mac.email
+        )
+    );
+    assert!(
+        !w.published
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(k, _)| k == "phone.pair_requested"),
+        "the owner was never asked"
+    );
+    // without an assertion at all (an older phone app): "couldn't confirm"
+    let q = TestPhone::start("Old", &w.shared, false, None, true).await;
+    let invite = w.phones.code_start().await.expect("phone.pair_start");
+    q.phone.pair(invite["code"].as_str().unwrap()).unwrap();
+    assert!(
+        wait(30, || q.stop_code() == errors::ACCOUNT_UNCONFIRMED).await,
+        "{}",
+        q.phone.phase()
+    );
+    drop(w.server);
 }

@@ -70,6 +70,8 @@ struct FERBAppActions {
     var setup: SetupModel?
     /// Settings → General → Replay intro: the first-run intro's every beat again (kb area app).
     var replayIntro: (() -> Void)?
+    /// Settings → Account (APP-1128): the owner's FERB account; nil in a development build that sets nothing up.
+    var account: AccountSession?
     /// Runs FERB.app's own `ferb` with these arguments (plan C's runner, one at a time): each output line, then the exit
     /// status. False when another run is under way.
     var runFerb: ((_ arguments: [String], _ line: @escaping (String) -> Void,
@@ -229,7 +231,7 @@ struct FERBWindowView: View {
                         sidebarButton(section.title, symbol: section.symbol, destination: .section(section))
                     }
                     settingsGroup("Experience", tabs: [.general, .notch, .notifications])
-                    settingsGroup("Connections", tabs: [.ai, .browsers, .permissions, .phone])
+                    settingsGroup("Connections", tabs: [.account, .ai, .browsers, .permissions, .phone])
                     settingsGroup("Manage FERB", tabs: [.privacy, .data, .stored, .advanced, .about])
                 }.padding(.horizontal, 12).padding(.bottom, 24)
             }.scrollIndicators(.automatic)

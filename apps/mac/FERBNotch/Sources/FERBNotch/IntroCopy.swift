@@ -12,6 +12,7 @@ enum IntroCopy {
         static let permissionsNext = "permissions.next"
         static func permission(_ id: String) -> String { "permission." + id }
         static let openLoginItems = "openLoginItems"
+        static let accountGoogle = "account.google", accountApple = "account.apple"
         static let pairAll = "pairAll", browsersLater = "browsersLater", next = "next"
         static let identityNow = "identityNow", identityLater = "identityLater"
         static func profile(_ index: Int) -> String { "profile.\(index)" }
@@ -35,6 +36,21 @@ enum IntroCopy {
     static func serviceFailed(_ why: String?) -> IntroLine {
         IntroLine(text: "I couldn't start my background part.", detail: why.flatMap(lastLine),
                   choices: [IntroChoice(Pick.retry, "Try again")])
+    }
+
+    // MARK: 1b. Your FERB account (APP-1128): required, no skip
+
+    static let account = IntroLine(text: "To start, sign in to FERB.",
+                                   detail: "One FERB account for your Mac and your phone. " + AccountWords.emails,
+                                   choices: [IntroChoice(Pick.accountGoogle, AccountWords.google),
+                                             IntroChoice(Pick.accountApple, AccountWords.apple)])
+    static let accountWaiting = IntroLine(text: AccountWords.waiting)
+    static func accountFailed(_ why: String?) -> IntroLine {
+        IntroLine(text: why ?? AccountWords.serverDown, choices: account.choices)
+    }
+    static func accountSignedIn(_ email: String) -> IntroLine { IntroLine(text: AccountWords.signedIn(email)) }
+    static func accountPhonesRemoved(_ email: String, names: [String]) -> IntroLine {
+        IntroLine(text: AccountWords.signedIn(email), detail: AccountWords.phonesRemoved(email, names: names))
     }
 
     // MARK: 2. Sign in

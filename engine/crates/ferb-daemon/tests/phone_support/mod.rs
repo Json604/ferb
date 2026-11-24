@@ -12,6 +12,7 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use chrono::{FixedOffset, TimeZone};
 use ferb_core::interfaces::{BoxFuture, Clock};
+use ferb_daemon::phone::account::{AccountCheck, MacAccount};
 use ferb_daemon::phone::{
     proof::SPKI, Limits, MacPrompts, Phones, QuestionFacts, Questions, ScreenPrompt, Seams,
 };
@@ -175,6 +176,65 @@ pub fn call_proof(k: &SigningKey, challenge: &str, method: &str, params: &Value)
     )
 }
 
+/// The site's test vector for the pairing assertion (PHN-828): an invented key pair, its kid, and one assertion signed
+/// by it (site/tests/fixtures/assertion-vector.json, which the site's own tests check too). Never a FERB key.
+pub fn site_vector() -> Value {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../site/tests/fixtures/assertion-vector.json"
+    );
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+/// The vector's kid.
+pub const SITE_KID: &str = "test-2026-11";
+
+/// The vector's private key: the SHA-256 of its `test_key_label` (an invented key; the site's tests derive it alike).
+pub fn site_key() -> SigningKey {
+    use sha2::{Digest, Sha256};
+    let v = site_vector();
+    let label = v["test_key_label"].as_str().unwrap();
+    let key = SigningKey::from_slice(&Sha256::digest(label.as_bytes())).unwrap();
+    let point = key.verifying_key().to_encoded_point(false);
+    assert_eq!(
+        STANDARD.encode(point.as_bytes()),
+        v["test_public_key_sec1_uncompressed_b64"].as_str().unwrap(),
+        "the vector's private and public halves"
+    );
+    key
+}
+
+/// The account FERB on the test Mac is signed in to.
+pub const ACCOUNT_ID: &str = "0b5f3c1e-7d2a-4e8b-9c61-2f4a8d3e5b70";
+pub const ACCOUNT_EMAIL: &str = "ada@example.com";
+
+pub fn mac_account() -> MacAccount {
+    MacAccount {
+        id: ACCOUNT_ID.into(),
+        email: ACCOUNT_EMAIL.into(),
+    }
+}
+
+/// An assertion of these claims, signed by `key` as the site signs one (`ferb-pair/v1.` + the payload's base64url).
+pub fn assertion_of(key: &SigningKey, claims: &Value) -> String {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let payload = URL_SAFE_NO_PAD.encode(claims.to_string());
+    let sig: Signature = key.sign(format!("ferb-pair/v1.{payload}").as_bytes());
+    format!("fpa1.{payload}.{}", URL_SAFE_NO_PAD.encode(sig.to_bytes()))
+}
+
+/// The claims the site gives `endpoint` for the Mac's account at the world's time now.
+pub fn claims(w: &World, endpoint: &str) -> Value {
+    let now = w.clock.now().timestamp();
+    json!({"v": 1, "kid": SITE_KID, "aud": "ferb-pair", "sub": ACCOUNT_ID, "email": ACCOUNT_EMAIL, "dev": endpoint,
+           "iat": now, "exp": now + 300})
+}
+
+/// The phone's assertion of the Mac's own account, as a signed-in phone gets it before pairing.
+pub fn assertion(w: &World, endpoint: &str) -> String {
+    assertion_of(&site_key(), &claims(w, endpoint))
+}
+
 pub struct World {
     pub dir: tempfile::TempDir,
     pub server: Server,
@@ -186,6 +246,8 @@ pub struct World {
     pub db: Arc<Mutex<ferb_store::Db>>,
     /// What the stub handlers were called with (method, params).
     pub calls: Arc<Mutex<Vec<(String, Value)>>>,
+    /// The FERB account the Mac is signed in to (PHN-828); a test signs it out or in.
+    pub mac: Arc<Mutex<Option<MacAccount>>>,
 }
 
 impl World {
@@ -203,7 +265,18 @@ impl EventStream for One {
 
 /// A world with the phone area and stub handlers, its server started; `prompts` as given.
 pub async fn world(prompts: Option<Arc<dyn MacPrompts>>) -> World {
-    world_at(tempfile::tempdir().unwrap(), prompts, "run/d.sock").await
+    world_at(tempfile::tempdir().unwrap(), prompts, "run/d.sock", true).await
+}
+
+/// A world whose build pins the site's test key or none (PHN-828: a build with no key can't confirm accounts).
+pub async fn world_with(prompts: Option<Arc<dyn MacPrompts>>, keys_pinned: bool) -> World {
+    world_at(
+        tempfile::tempdir().unwrap(),
+        prompts,
+        "run/d.sock",
+        keys_pinned,
+    )
+    .await
 }
 
 /// The daemon started again over the same store (PHN-649: what lives only in memory, the unlock windows, is gone).
@@ -211,13 +284,14 @@ pub async fn world(prompts: Option<Arc<dyn MacPrompts>>) -> World {
 pub async fn reopen(w: World) -> World {
     let World { dir, server, .. } = w;
     drop(server);
-    world_at(dir, None, "run/d2.sock").await
+    world_at(dir, None, "run/d2.sock", true).await
 }
 
 async fn world_at(
     dir: tempfile::TempDir,
     prompts: Option<Arc<dyn MacPrompts>>,
     sock: &str,
+    keys_pinned: bool,
 ) -> World {
     let db = ferb_store::Db::open(dir.path().join("ferb.db")).unwrap();
     db.migrate().unwrap();
@@ -229,6 +303,20 @@ async fn world_at(
     let journal = Arc::new(Mutex::new(Vec::new()));
     let published = Arc::new(Mutex::new(Vec::new()));
     let n = Arc::new(AtomicU64::new(1));
+    let mac = Arc::new(Mutex::new(Some(mac_account())));
+    let public = site_vector()["test_public_key_sec1_uncompressed_b64"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let pinned: &[(&str, &str)] = if keys_pinned {
+        &[(SITE_KID, public.as_str())]
+    } else {
+        &[]
+    };
+    let account = AccountCheck::new(pinned, {
+        let mac = mac.clone();
+        Arc::new(move || mac.lock().unwrap().clone())
+    });
     let seams = Seams {
         db: db.clone(),
         clock: clock.clone(),
@@ -250,6 +338,7 @@ async fn world_at(
                 p.lock().unwrap().push((k.to_owned(), Value::Object(v)))
             })
         },
+        account,
     };
     let phones = Phones::new(seams, Limits::default());
     let tokens = Arc::new(RunTokens::new(Arc::new(ferb_rpc::SystemClock::default())));
@@ -295,6 +384,7 @@ async fn world_at(
         published,
         db,
         calls,
+        mac,
     }
 }
 
@@ -508,7 +598,7 @@ impl Conn {
 pub async fn pair(w: &World, endpoint: &str, keys: &Keys, strong: bool, device: bool) {
     let mut link = Conn::link(w).await;
     let mut params = json!({"endpoint": endpoint, "name": format!("Phone {endpoint}"), "app": "FERB Android",
-                            "code": "123 456", "unlock_pub": spki(&keys.lock)});
+                            "code": "123 456", "unlock_pub": spki(&keys.lock), "account": assertion(w, endpoint)});
     if strong {
         params["strong_pub"] = json!(spki(&keys.strong));
     }

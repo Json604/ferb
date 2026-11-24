@@ -19,6 +19,8 @@ public final class AppShell: ObservableObject {
     public let prefs: Prefs
     public let local: LocalFiles
     public let model: AppModel
+    /// FERB's account on this phone (kb PHN-827).
+    public let account: AccountModel
     let signals: PhoneSignals
     let notifier: Notifier
     let poster = NotificationPoster()
@@ -41,10 +43,11 @@ public final class AppShell: ObservableObject {
         phone = FerbPhone.create()
         local = LocalFiles.forPhone()
         let api = LibraryPhone(phone)
+        account = Self.account(prefs: prefs)
         let sensors = Sensors(prefs: prefs)
         self.sensors = sensors
         firstRun = FirstRunAsker(prefs: prefs, sensors: sensors)
-        model = AppModel(api: api, session: session, prefs: prefs, local: local, saved: Self.loadSaved(),
+        model = AppModel(api: api, account: account, session: session, prefs: prefs, local: local, saved: Self.loadSaved(),
                          locator: sensors, coarse: { sensors.places.coarse }, locationAnswered: {},
                          voice: AppleSpeech(), micAllowed: { AppleSpeech.allowed })
         model.prompts = Self.prompts(phone)
@@ -147,6 +150,30 @@ public final class AppShell: ObservableObject {
         }
     }
 
+    // ---- the account ------------------------------------------------------------------------------------------------
+
+    /// The real account: the Keychain (its own service, apart from the vault's), URLSession, the system's web sheet.
+    /// A Debug simulator run by the UI tests (`-FERBUITestUnlock YES`) never reaches the site: an account in memory
+    /// (signed in with `-FERBUITestSignedIn YES`) and a stand-in site. Never in a Release build or on a phone.
+    private static func account(prefs: Prefs) -> AccountModel {
+        let b = Bundle.main
+        let version = b.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        #if DEBUG && targetEnvironment(simulator)
+        if UserDefaults.standard.bool(forKey: "FERBUITestUnlock") {
+            let store = MemoryStore()
+            if prefs.accountDeviceId == nil { prefs.accountDeviceId = "ui-test-device-0001" }
+            if UserDefaults.standard.bool(forKey: "FERBUITestSignedIn") {
+                try? store.set("account", AccountModel.savedItem(
+                    AccountInfo(id: "00000000-0000-4000-8000-000000000001", email: "someone@example.com", name: nil, providers: ["google"]),
+                    accessToken: "fa1_invented", accessExpiresAt: Date().addingTimeInterval(3600), refreshToken: "fr1_invented"))
+            }
+            return AccountModel(store: store, http: UITestSite(), web: UITestWeb(), prefs: prefs, version: version)
+        }
+        #endif
+        return AccountModel(store: KeychainStore(service: "com.ferb.phone.account"), http: URLSessionHttp(), web: SystemWebSignIn(),
+                            prefs: prefs, version: version)
+    }
+
     // ---- the prompts ------------------------------------------------------------------------------------------------
 
     /// The real prompts; a Debug build on the simulator started by the UI tests with `-FERBUITestUnlock YES` passes
@@ -191,6 +218,25 @@ public final class AppShell: ObservableObject {
 }
 
 #if DEBUG && targetEnvironment(simulator)
+/// The UI tests' stand-in for FERB's site (Debug, simulator only): an invented pairing assertion, a sent link; nothing
+/// leaves the simulator.
+final class UITestSite: HttpClient {
+    func send(_ request: URLRequest) async throws -> (status: Int, body: Data) {
+        switch request.url?.path {
+        case "/api/app/assertion": return (200, Data(#"{"assertion":"fpa1.invented.ui-test","expires_in":300}"#.utf8))
+        case "/api/app/send-link": return (200, Data(#"{"sent":true,"email":"someone@example.com"}"#.utf8))
+        case "/api/app/signout": return (200, Data(#"{"ok":true}"#.utf8))
+        default: return (503, Data(#"{"error":"unavailable"}"#.utf8))
+        }
+    }
+}
+
+/// The UI tests' stand-in for the web sign-in sheet: closed at once.
+@MainActor
+final class UITestWeb: WebSignIn {
+    func open(_ url: URL, callbackScheme: String) async -> WebSignInResult { .cancelled }
+}
+
 /// The UI tests' stand-in for the system prompt (Debug, simulator only): the owner "passed" it at once, or, for the
 /// first `-FERBUITestCancelPrompts N` prompts, cancelled it. Signing still goes through the phone's keys (software
 /// ones on the simulator).

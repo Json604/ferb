@@ -74,7 +74,7 @@ class SendWithFilesTest {
     }
 
     private fun vm(): FerbViewModel =
-        FerbViewModel(phone, session, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(), local).also {
+        FerbViewModel(phone, session, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(), local, account = testAccount()).also {
             it.prompts = object : Prompts {
                 override fun signer(kind: KeyKind, why: Why) = FakeSigner(kind, false)
                 override suspend fun local() = true

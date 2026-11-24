@@ -91,6 +91,9 @@ struct Hello {
     device_pub: Option<String>,
     #[serde(default)]
     strong_pub: Option<String>,
+    /// While pairing: the server's signed statement of the phone's FERB account, which the daemon checks (PHN-828).
+    #[serde(default)]
+    account: Option<String>,
 }
 
 /// A paired phone as the daemon lists it (`link.devices`): the daemon's own table is the authority (kb PHN-469).
@@ -1130,7 +1133,8 @@ impl Bridge {
             .link_call(
                 "link.pair_request",
                 json!({"endpoint": peer, "name": name, "app": hello.app.chars().take(40).collect::<String>(), "code": code,
-                       "unlock_pub": hello.unlock_pub, "device_pub": hello.device_pub, "strong_pub": hello.strong_pub}),
+                       "unlock_pub": hello.unlock_pub, "device_pub": hello.device_pub, "strong_pub": hello.strong_pub,
+                       "account": hello.account}),
                 Duration::from_secs(5),
             )
             .await?;

@@ -494,3 +494,25 @@ words_source = "His answer, relayed by the coordinator, when told the site's Goo
 rule = "Supersedes REL-433. The site's Download button is a plain link: /download/FILE redirects (307, REL-432) to the latest public release's file; nothing is asked. Signing in happens inside the FERB app (the app sign-in work). The download sign-in's records already kept stay for update emails with their one-click unsubscribe; the privacy page says so."
 supersedes = ["REL-433"]
 paths = ["site/index.html", "site/vercel.json", "site/privacy.html", "site/analytics.js"]
+
+[REL-440]
+title = "FERB's apps need a FERB account: Google or Apple, one account system with the site"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "also the login is to be added on the app. a proper in app login - see and tell how to do it securely and save in some db too. we can have mongodb or anything you say … required. google and apple. a setup step and first launch on the mac, but how are we gonna do those cases where its phone download first???"
+words_source = "Owner 2026-11-24, relayed verbatim: asking for a proper in-app login kept in a database, then answering \"(a) Required or optional? (b) Google only, or also Apple? (c) Where in the app?\"."
+rule = "FERB.app, the iPhone app and the Android app each need the owner signed in to a FERB account before they can be used: Continue with Google or Continue with Apple, nothing else. The account lives in the site's existing user list (Neon Postgres, ferb_users; REL-442 keeps the download sign-in's rows): one account system, no new service. Signing in says that FERB may email about important updates with a one-click unsubscribe. Deleting the account in an app deletes its row, devices and sign-ins."
+why = "He wants a proper in-app login kept in a database, required, Google and Apple. The site's Neon list is already built and holds the download sign-ins, so the agent chose it over a new database (he left it open: \"mongodb or anything you say\")."
+paths = ["site/api", "site/sql", "site/privacy.html", "apps/mac/FERBNotch/Sources/NotchCore/Account.swift", "apps/android", "apps/ios"]
+live = ["LIVE-1202", "LIVE-1203"]
+
+[REL-441]
+title = "How the apps sign in: /api/app, PKCE one-time codes, opaque rotating tokens, Apple verified locally"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For REL-440. site/api/app: start (provider, platform, the app's PKCE S256 challenge and state, a redirect from an exact allowlist: ferb-auth://callback, or the Android App Link /app/callback), callback (Google by openid-client; Apple by form_post, its id_token checked against Apple's JWKS; private-relay emails accepted), token (a 120 s one-time code bound to the challenge; then an opaque 1 h access token and a rotating 90-day refresh token, kept only as SHA-256; a refresh token used twice revokes its family), me, signout, delete, assertion, send-link. Rate limits in the database."
+why = "PKCE with an exact redirect allowlist is what RFC 8252 asks of apps on custom schemes and App Links; opaque tokens stored hashed mean a database leak gives no usable token; rotation with reuse detection limits a stolen refresh token. No new npm dependency: node:crypto signs and verifies the JWTs."
+paths = ["site/api/app", "site/api/_lib", "site/sql", "site/tests", "site/vercel.json", "site/env.example"]
+live = ["LIVE-1202", "LIVE-1203"]

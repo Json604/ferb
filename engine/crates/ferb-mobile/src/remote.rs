@@ -984,6 +984,18 @@ impl Mobile {
         Ok(info)
     }
 
+    /// PHN-828: binds this phone to its FERB account on the Mac (`phone.bind_account`): `assertion` is the site's signed
+    /// statement for this phone's own link endpoint (`/api/app/assertion`). A phone paired before accounts is bound when
+    /// it signs in; the Mac's answer `bound` (true once this phone is the Mac's account's). The Mac refuses with the link
+    /// codes `account_mismatch` (it removed this phone: another account than the Mac's), `mac_signed_out` or
+    /// `account_unconfirmed` (nothing changed), each with the words to show. Works while locked: the site's signature
+    /// proves it.
+    pub fn bind_account(&self, assertion: &str) -> MobileResult<bool> {
+        let t = self.shared.transport_online()?;
+        let v = Shared::call(&t, "phone.bind_account", json!({"assertion": assertion}))?;
+        Ok(v["bound"].as_bool().unwrap_or(false))
+    }
+
     /// The last `mac_info` kept (no network).
     pub fn cached_mac_info(&self) -> MobileResult<Option<MacInfo>> {
         let st = self.shared.open_state()?;

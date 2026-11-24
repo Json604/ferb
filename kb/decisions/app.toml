@@ -4749,3 +4749,25 @@ rule = "FERB.app's temporary chat behaves exactly as the normal chat: the same m
 why = "Two copies of the chat drifted apart (its own task list, journal 194; no arrival, journal 199); one path can't."
 paths = ["apps/mac/FERBNotch/Sources/FERBNotch/TemporaryChatModel.swift", "apps/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "apps/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift", "apps/mac/FERBNotch/Sources/FERBNotch/EntryWatch.swift", "apps/mac/FERBNotch/Sources/NotchCore/TemporaryChat.swift"]
 live = ["LIVE-1194"]
+
+[APP-1127]
+title = "FERB.app: signing in to FERB is a setup step and happens at first launch"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "required. google and apple. a setup step and first launch on the mac, but how are we gonna do those cases where its phone download first???"
+words_source = "Owner 2026-11-24, relayed verbatim by the coordinator, answering \"(a) Required or optional? (b) Google only, or also Sign in with Apple? (c) Where in the app?\"."
+rule = "FERB.app asks the owner to sign in to FERB (Google or Apple) as a step of the setup tour on the first launch, and FERB.app can't be used until they are signed in."
+why = "REL-440 makes the account required; on the Mac it belongs to setup."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift", "apps/mac/FERBNotch/Sources/NotchCore/IntroPlan.swift"]
+live = ["LIVE-1202"]
+
+[APP-1128]
+title = "How FERB.app signs in: an account step after Meet, the system sign-in browser, the Keychain"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For APP-1127. The tour's account step comes right after Meet (IntroBeat.account, raw value 8), Google or Apple, no skip, repeating with the reason until signed in; an install with no account gets that step alone at its next launch. Sign-in runs in ASWebAuthenticationSession (not ephemeral), which catches ferb-auth://callback itself. Tokens go only to the daemon's account.save (one Keychain item via the signed helper). A refresh that can't reach the server keeps the owner signed in; only the server's No signs out and brings the step back. Settings → Account: who, Sign out, Delete account."
+why = "Before the model sign-in, nothing in FERB.app is reachable signed out. Apple's sign-in browser keeps the password from FERB and the callback from other apps; a universal link needs associated domains the self-signed build can't carry. The daemon is FERB's one way to the Keychain (GATE-543)."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/Account.swift", "apps/mac/FERBNotch/Sources/FERBNotch/AccountWebSignIn.swift", "apps/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift", "apps/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "apps/mac/FERBNotch/Sources/NotchCore/IntroPlan.swift", "engine/crates/ferb-daemon"]
+live = ["LIVE-1202"]

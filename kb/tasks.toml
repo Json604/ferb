@@ -1010,3 +1010,22 @@ status = "blocked"
 why = "Built and replayed on Sonnet (patch .local/checker-slim.patch, tables .local/checker-slim-replays.md): -61% context; missed 7edd twice, 455bfe materials and d83a 1 of 2. Next: the same 4 cases twice on Codex, then decide."
 decisions = ["ORCH-694"]
 after = []
+
+[T-1305]
+title = "Confirm how long a FERB sign-in lasts and the sign-in's limits"
+area = "release"
+kind = "question"
+status = "open"
+why = "REL-441: access token 1 hour; refresh token 90 days from its last use, so an app unused 90 days asks to sign in again. Send me the link: once per 10 minutes, five a day per account. Sign-in starts 20 and token calls 30 per 10 minutes per address. The agent's numbers until the owner says."
+decisions = ["REL-441", "PHN-827"]
+after = []
+ask = "A FERB sign-in on a Mac or phone stays signed in as long as the app is used at least once every 90 days; after 90 days unused it asks to sign in again. \"Send me the link\" sends at most once every 10 minutes and five times a day. Keep these, or other numbers?"
+
+[T-1306]
+title = "Pin the pairing assertion's public key in the daemon once the owner made the key pair"
+area = "phone"
+kind = "build"
+status = "blocked"
+why = "PHN-830: the pinned list is empty until the owner makes the P-256 key (~/Desktop/FERB-app-signin-setup.md) and sets it in Vercel; until then every pairing is refused (account_unconfirmed). Add his public key (SEC1, base64) under his kid, with a test, and ship it."
+decisions = ["PHN-828", "PHN-830"]
+after = []

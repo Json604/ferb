@@ -632,11 +632,13 @@ impl Link {
 
     /// Pairs from a scanned QR code's text or a typed `FERB-` code. Returns at once; the status then shows the
     /// pairing, the six digits to compare (`pairing_code`), and online once the owner said Yes on the Mac. A phone
-    /// already paired is refused (`refused`, link code `already_paired`): forget first.
-    pub fn pair(&self, code: String) -> Result<(), FerbError> {
+    /// already paired is refused (`refused`, link code `already_paired`): forget first. `account`: the server's signed
+    /// statement of this phone's FERB account (`/api/app/assertion` for this endpoint id), which the Mac's daemon
+    /// checks against its own account before it asks the owner (PHN-828).
+    pub fn pair(&self, code: String, account: String) -> Result<(), FerbError> {
         guard(|| {
             self.inner
-                .command(json!({"cmd": "pair", "qr": code}))
+                .command(json!({"cmd": "pair", "qr": code, "account": account}))
                 .map(|_| ())
         })
     }

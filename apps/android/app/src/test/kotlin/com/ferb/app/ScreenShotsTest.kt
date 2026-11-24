@@ -85,7 +85,7 @@ class ScreenShotsTest {
 
     private val vm by lazy {
         FerbViewModel(phone, Session { 0L }, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-shots").toFile()) { null })
+            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-shots").toFile()) { null }, account = testAccount())
     }
     private val phone = FakePhone()
     private val host = object : Host {

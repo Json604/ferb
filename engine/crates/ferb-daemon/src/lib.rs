@@ -4,6 +4,8 @@
 //! - [`areas_a`]: memory, memory import, schedules and timers, retention, records, chat history, settings.
 //! - [`areas_b`]: the other handler areas.
 
+/// APP-1128, PHN-828: FERB.app's sign-in to the owner's FERB account, kept in the Keychain through FERB's signed helper.
+pub mod account;
 pub mod areas_a;
 pub mod areas_b;
 /// T-1274: insomnia mode (APP-980..APP-985): keeping the Mac working while the owner is away.

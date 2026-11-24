@@ -134,7 +134,19 @@ class FakePhone : PhoneApi {
         answerGate?.await()
         return r
     }
-    override suspend fun pair(code: String): Outcome<Unit> { calls += "pair:$code"; return Outcome.Ok(Unit) }
+    /** The account statement each pairing carried (kb PHN-828), in order; [endpoint] is what it must name. */
+    val pairAccounts = ArrayList<String>()
+    var endpoint: String? = com.ferb.core.FAKE_ENDPOINT
+    override suspend fun pair(code: String, account: String): Outcome<Unit> { calls += "pair:$code"; pairAccounts += account; return Outcome.Ok(Unit) }
+    override suspend fun endpointId(): String? = endpoint
+
+    /** The statements each bind carried (kb PHN-828), and what each bind answers in turn (then Ok(true)). */
+    val binds = ArrayList<String>()
+    val bindScript = ArrayDeque<Outcome<Boolean>>()
+    override suspend fun bindAccount(assertion: String): Outcome<Boolean> {
+        calls += "bind"; binds += assertion
+        return bindScript.removeFirstOrNull() ?: Outcome.Ok(true)
+    }
     var macForgot = true
     override suspend fun forget(): Outcome<Boolean> { calls += "forget"; return Outcome.Ok(macForgot) }
 

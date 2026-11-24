@@ -3,12 +3,13 @@ import SwiftUI
 import NotchCore
 
 enum SettingsTab: Hashable, CaseIterable, Identifiable {
-    case general, notch, notifications, ai, browsers, permissions, phone, privacy, data, stored, advanced, about
+    case account, general, notch, notifications, ai, browsers, permissions, phone, privacy, data, stored, advanced, about
 
     var id: SettingsTab { self }
 
     var title: String {
         switch self {
+        case .account: return "Account"
         case .general: return "General"
         case .notch: return "Notch & Shortcuts"
         case .ai: return "Thinking"
@@ -26,6 +27,7 @@ enum SettingsTab: Hashable, CaseIterable, Identifiable {
 
     var subtitle: String {
         switch self {
+        case .account: return "Your FERB account on this Mac."
         case .general: return "Launch, updates and a fresh introduction."
         case .notch: return "How FERB opens, listens and stays out of your way."
         case .notifications: return "Choose what gets your attention and how it sounds."
@@ -43,6 +45,7 @@ enum SettingsTab: Hashable, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
+        case .account: return "person.crop.circle"
         case .general: return "gearshape"
         case .notch: return "macwindow"
         case .ai: return "sparkles"
@@ -86,6 +89,11 @@ struct SettingsView: View {
     var body: some View {
         Group {
             switch selection.settingsTab {
+            case .account:
+                if let account = actions.account { AccountSettingsPage(account: account) }
+                else {
+                    WindowPage { Text("Your FERB account is set up in FERB.app.").font(.system(size: 12)).foregroundStyle(.secondary) }
+                }
             case .general:
                 GeneralSettingsPage(loginItems: actions.loginItems, updates: actions.updates, onReplayIntro: actions.replayIntro,
                                     turnOff: actions.turnOff, runningTasks: actions.runningTasks)
@@ -106,6 +114,70 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .toggleStyle(.switch)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Settings → Account (APP-1128): who is signed in to FERB on this Mac, Sign out, Delete account. The tokens are never
+/// shown; signing out or deleting brings the account step back at once (signed out blocks FERB.app).
+struct AccountSettingsPage: View {
+    @ObservedObject var account: AccountSession
+    @State private var asking: Question?
+    @State private var failure: String?
+
+    enum Question: Identifiable {
+        case signOut, delete(String)
+        var id: String { if case .delete = self { return "delete" } else { return "signOut" } }
+    }
+
+    var body: some View {
+        WindowPage {
+            WindowSettingsSection(title: "Account") {
+                if let info = account.account {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(AccountWords.signedInAs(info.email)).font(.system(size: 13, weight: .medium))
+                        if !info.providerWords.isEmpty {
+                            Text(info.providerWords).font(.system(size: 12)).foregroundStyle(.secondary)
+                        }
+                        if account.checkTrouble {
+                            Text(AccountWords.checkTrouble).font(.system(size: 12)).foregroundStyle(.secondary)
+                        }
+                    }
+                    HStack(spacing: 12) {
+                        Button(AccountWords.signOut) { asking = .signOut }
+                        Button(AccountWords.deleteAccount) { asking = .delete(info.email) }
+                        Spacer(minLength: 0)
+                    }
+                    .disabled(account.busy)
+                    if let failure { Text(failure).font(.system(size: 12)).foregroundStyle(.secondary) }
+                } else {
+                    Text(account.state == .unknown ? "Checking your FERB account…" : "You're not signed in to FERB.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .alert(question, isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } })) {
+            switch asking {
+            case .signOut?:
+                Button(AccountWords.signOut, role: .destructive) { Task { await account.signOut() } }
+            case .delete?:
+                Button(AccountWords.deleteConfirm, role: .destructive) {
+                    Task {
+                        failure = nil
+                        if !(await account.deleteAccount()) { failure = account.line ?? AccountWords.deleteFailed }
+                    }
+                }
+            case nil: EmptyView()
+            }
+            Button(AccountWords.cancel, role: .cancel) {}
+        }
+    }
+
+    private var question: String {
+        switch asking {
+        case .signOut?: return AccountWords.signOutQuestion
+        case .delete(let email)?: return AccountWords.deleteQuestion(email)
+        case nil: return ""
+        }
     }
 }
 

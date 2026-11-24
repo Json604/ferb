@@ -182,7 +182,7 @@ final class FerbMobileTests: XCTestCase {
         let state = try XCTUnwrap(kept.state, "a first start hands its new key over")
         XCTAssertEqual(link.status().phase, .idle, "not paired")
         XCTAssertFalse(link.status().paired)
-        XCTAssertThrowsError(try link.pair(code: "FERB-not-a-real-code")) { error in
+        XCTAssertThrowsError(try link.pair(code: "FERB-not-a-real-code", account: "fpa1.invented.assertion")) { error in
             XCTAssertEqual((error as? FerbError).map(code), "refused", "\(error)")
         }
         link.shutdown()

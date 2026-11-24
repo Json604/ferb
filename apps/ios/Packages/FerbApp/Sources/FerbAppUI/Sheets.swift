@@ -139,6 +139,12 @@ struct SheetsView: View {
             Plain(title: L.s("help_title"), text: L.s("help_text"), insets: insets, close: close)
         case .background:
             Plain(title: L.s("background_title"), text: L.s("background_text"), insets: insets, close: { model.show(.profile) })
+        case .account:
+            AccountSheet(model: model, insets: insets, close: { model.show(.profile) })
+        case .signOut:
+            SignOutSheet(model: model, insets: insets, close: close)
+        case .deleteAccount:
+            DeleteAccountSheet(model: model, insets: insets, close: { model.show(.account) })
         }
     }
 }
@@ -221,6 +227,11 @@ struct Profile: View {
                      lockOn: true,   // PHN-8: FERB always opens with Face ID, Touch ID or the passcode; there is no off
                      onClose: close, onForget: { model.show(.forget) },
                      more: AnyView(VStack(spacing: 0) {
+                         // FERB's account (kb PHN-827): who is signed in; its sheet signs out or deletes the account
+                         Divide()
+                         CardRow(title: L.s("account_signed_in_as", model.account.account?.email ?? ""),
+                                 detail: AccountModel.providerWords(model.account.account?.providers ?? []),
+                                 onClick: { model.show(.account) }) { RowIcon(symbol: "person.crop.circle") } trailing: { Opens() }
                          Divide()
                          CardRow(title: L.s("profile_screenshots"),
                                  // says honestly whether this iOS keeps the pictures of the Mac out of screenshots (PHN-811)

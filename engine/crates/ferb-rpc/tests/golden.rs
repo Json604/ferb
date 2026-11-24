@@ -45,13 +45,15 @@ fn names(value: &Value) -> Vec<String> {
 // decision: PHN-581
 // decision: MEM-442
 // decision: MEM-460
+// decision: APP-1128
 #[test]
 fn the_method_table_is_python_s_plus_the_stage_2_additions() {
     use ferb_rpc::auth::{
-        DATA_ADDITIONS, DEVICE_ADDITIONS, IDENTIFIER_ADDITIONS, INSOMNIA_ADDITIONS, LINK_ADDITIONS,
-        MEMORY_IMPORT_ADDITIONS, OWNER_APP_ONLY, PHONE_ADDITIONS, PHONE_FILES,
-        PHONE_LINK_ADDITIONS, PHONE_OWN, PHONE_SESSION, PROJECT_ADDITIONS, SCREEN_USE_ADDITIONS,
-        STAGE2_ADDITIONS, TEMPORARY_ADDITIONS, UNINSTALL_ADDITIONS,
+        ACCOUNT_ADDITIONS, DATA_ADDITIONS, DEVICE_ADDITIONS, IDENTIFIER_ADDITIONS,
+        INSOMNIA_ADDITIONS, LINK_ADDITIONS, MEMORY_IMPORT_ADDITIONS, OWNER_APP_ONLY, PHONE_ACCOUNT,
+        PHONE_ADDITIONS, PHONE_FILES, PHONE_LINK_ADDITIONS, PHONE_OWN, PHONE_SESSION,
+        PROJECT_ADDITIONS, SCREEN_USE_ADDITIONS, STAGE2_ADDITIONS, TEMPORARY_ADDITIONS,
+        UNINSTALL_ADDITIONS,
     };
     let table = fixture("table.json");
     let added = |name: &str| {
@@ -66,11 +68,13 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
             || PHONE_SESSION.contains(&name)
             || PHONE_FILES.contains(&name)
             || PHONE_OWN.contains(&name)
+            || PHONE_ACCOUNT.contains(&name)
             || LINK_ADDITIONS.contains(&name)
             || SCREEN_USE_ADDITIONS.contains(&name)
             || INSOMNIA_ADDITIONS.contains(&name)
             || MEMORY_IMPORT_ADDITIONS.contains(&name)
             || TEMPORARY_ADDITIONS.contains(&name)
+            || ACCOUNT_ADDITIONS.contains(&name)
     };
     for role in Role::ALL {
         let ours: Vec<String> = METHODS
@@ -120,6 +124,7 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
         .chain(&SCREEN_USE_ADDITIONS)
         .chain(&INSOMNIA_ADDITIONS)
         .chain(&TEMPORARY_ADDITIONS)
+        .chain(&ACCOUNT_ADDITIONS)
     {
         let name = *name;
         let rows: Vec<_> = METHODS.iter().filter(|m| m.name == name).collect();
@@ -132,7 +137,12 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
         );
     }
     // stage 3 (T-1202): a phone session's own calls belong to no role; the link helper's to its own role only
-    for name in PHONE_SESSION.iter().chain(&PHONE_FILES).chain(&PHONE_OWN) {
+    for name in PHONE_SESSION
+        .iter()
+        .chain(&PHONE_FILES)
+        .chain(&PHONE_OWN)
+        .chain(&PHONE_ACCOUNT)
+    {
         let row = METHODS.iter().find(|m| m.name == *name).unwrap();
         assert!(row.roles.is_empty() && !row.app_only, "{name}");
     }
@@ -144,7 +154,7 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
     // the numbers the port was told to expect, and the six of stage 2 (then 8: insomnia mode, T-1274; the last 3:
     // the owner's word on an imported memory and what the Memory page shows of it, MEM-442, not FERB.app's alone;
     // then 4 with his two switches, MEM-459; then 6: the review of an import and its answers, MEM-460; the last 2:
-    // the temporary chat, ORCH-699)
+    // the temporary chat, ORCH-699; the last 3: FERB.app's sign-in to the owner's FERB account, APP-1128)
     let count = |role| METHODS.iter().filter(|m| m.roles.contains(&role)).count();
     assert_eq!(
         (
@@ -154,10 +164,10 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
             METHODS.iter().filter(|m| m.app_only).count()
         ),
         (
-            106 + 6 + 2 + 7 + 1 + 2 + 1 + 5 + 7 + 1 + 2 + 8 + 6 + 2,
+            106 + 6 + 2 + 7 + 1 + 2 + 1 + 5 + 7 + 1 + 2 + 8 + 6 + 2 + 3,
             3,
             0,
-            20 + 6 + 2 + 7 + 4 + 1 + 2 + 1 + 5 + 7 + 1 + 2 + 8 + 2
+            20 + 6 + 2 + 7 + 4 + 1 + 2 + 1 + 5 + 7 + 1 + 2 + 8 + 2 + 3
         )
     );
     let mut sorted: Vec<&str> = METHODS.iter().map(|m| m.name).collect();

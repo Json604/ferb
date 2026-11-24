@@ -398,7 +398,7 @@ final class AppModelTests: XCTestCase {
         vm.typed("Half a thought")
         let saved = vm.saved
         session.lockNow() // a relaunch starts locked (an unlock brings the home screen back, as on Android)
-        let again = AppModel(api: phone, session: session, prefs: rig.prefs, local: rig.local, screenLock: { true }, corpus: nil, saved: saved)
+        let again = AppModel(api: phone, account: rig.account, session: session, prefs: rig.prefs, local: rig.local, screenLock: { true }, corpus: nil, saved: saved)
         XCTAssertEqual(again.tab, .tasks)
         XCTAssertEqual(again.draft, "Half a thought")
         // typing never left today's home page (kb PHN-696): nothing was said, so it is still the home page

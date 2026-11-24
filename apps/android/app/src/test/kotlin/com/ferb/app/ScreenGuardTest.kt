@@ -48,7 +48,7 @@ class ScreenGuardTest {
     }
 
     private fun vm() = FerbViewModel(FakePhone(), Session { 0L }, Prefs(androidx.test.core.app.ApplicationProvider.getApplicationContext()), { true }, null,
-        androidx.lifecycle.SavedStateHandle(), com.ferb.app.model.LocalFiles(java.nio.file.Files.createTempDirectory("ferb-guard").toFile()) { null })
+        androidx.lifecycle.SavedStateHandle(), com.ferb.app.model.LocalFiles(java.nio.file.Files.createTempDirectory("ferb-guard").toFile()) { null }, account = testAccount())
 
     /** Every kind of sheet FERB slides up (FerbViewModel's Sheet), the big live views among them. */
     private val everySheet: List<Sheet?> = listOf(

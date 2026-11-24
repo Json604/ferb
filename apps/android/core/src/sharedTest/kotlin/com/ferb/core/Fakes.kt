@@ -193,12 +193,18 @@ class FakeMac : Transport {
     }
 }
 
+/** The fake link's endpoint id (what an account statement names). */
+const val FAKE_ENDPOINT = "invented-endpoint-0001"
+
 /** One entry of a fake folder. */
 data class FakeEntry(val name: String, val dir: Boolean = false, val size: Long = 0, val locked: Boolean = false)
 
 /** The fake Mac as the core's way to the Mac, online on a direct path. */
 class FakeUplink(val mac: FakeMac = FakeMac(), private val online: Boolean = true) : Uplink {
     val paired = CopyOnWriteArrayList<String>()
+
+    /** The account statement each pairing carried (kb PHN-828), in the order of [paired]. */
+    val accounts = CopyOnWriteArrayList<String>()
     val active = CopyOnWriteArrayList<Boolean>()
     var shutDown = 0
     var closed = 0
@@ -206,9 +212,11 @@ class FakeUplink(val mac: FakeMac = FakeMac(), private val online: Boolean = tru
         mobile.connectTransport(mac)
         if (online) mobile.linkEvent("""{"type":"state","phase":"online","tier":"direct"}""")
     }
-    override fun pair(code: String) {
+    override fun pair(code: String, account: String) {
         paired.add(code)
+        accounts.add(account)
     }
+    override fun endpointId(): String = FAKE_ENDPOINT
     override fun status(): LinkStatus? = null
     override fun setActive(on: Boolean) {
         active.add(on)

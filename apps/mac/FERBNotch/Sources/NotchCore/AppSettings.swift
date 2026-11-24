@@ -136,6 +136,7 @@ public enum AppSettings {
 
     /// UserDefaults keys FERB.app writes that are no owner preference, each with why.
     public static let internalKeys: [String: String] = [
+        "FERBAccountDevice": "this install's random id for FERB's sign-in server (APP-1128; not a secret, no choice)",
         "FERBActiveTaskID": "the task the notch shows now (state, not a choice)",
         "FERBAnnouncedAttentionIDs": "notices already announced (bookkeeping)",
         "FERBAskedNotifications": "whether macOS was asked for notifications (bookkeeping)",

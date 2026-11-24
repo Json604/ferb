@@ -4,7 +4,11 @@ import androidx.annotation.StringRes
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ferb.app.model.AccountModel
+import com.ferb.app.model.AccountUi
+import com.ferb.app.model.Answer
 import com.ferb.app.model.AnswerFlow
+import com.ferb.app.model.Provider
 import com.ferb.app.model.Answered
 import com.ferb.app.model.ChatModel
 import com.ferb.app.model.ChatRow
@@ -84,8 +88,11 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** What fills the screen: one at a time, nothing private before [MAIN] (PHN-8). */
-enum class Gate { STARTING, FAILED, NO_SCREEN_LOCK, LOCKED, PAIR, CODES, REMOVED, MAIN }
+/**
+ * What fills the screen: one at a time, nothing private before [MAIN] (PHN-8). [SIGN_IN]: signed out of FERB's account,
+ * right after the lock and before anything else (kb PHN-827); [PAIR] starts with the phone-first page (kb PHN-829).
+ */
+enum class Gate { STARTING, FAILED, NO_SCREEN_LOCK, LOCKED, SIGN_IN, PAIR, CODES, REMOVED, MAIN }
 
 /** Why the pairing screen shows again (or null on a first run). */
 enum class PairReason { WIPED, REMOVED, KEYS, UNKNOWN }
@@ -134,6 +141,11 @@ sealed interface Sheet {
 
     /** Show me (APP-983): the Mac's camera while this shows; screenshots as the owner's switch says (PHN-810). */
     data object Camera : Sheet
+
+    /** FERB's account on this phone (kb PHN-827): who is signed in, Sign out, Delete account. */
+    data object Account : Sheet
+    data object SignOut : Sheet
+    data object DeleteAccount : Sheet
 }
 
 /** What pressing the microphone needs from the screen: nothing more, or Android's microphone question. */
@@ -251,6 +263,14 @@ data class UiState(
     val newKeys: Boolean = false,
     /** The temporary chat while it is on: the chat tab shows only it (null: the normal chat). */
     val temporary: TemporaryUi? = null,
+    /** FERB's account on this phone (kb PHN-827): signed in or not, the sign-in page's line. */
+    val account: AccountUi = AccountUi(),
+    /** What "Send me the link" did, on the phone-first page (kb PHN-829). */
+    val linkNote: Note? = null,
+    /** The account page's line (a delete that didn't go through). */
+    val accountNote: Note? = null,
+    /** The Mac's own words for why it removed this phone (an account that isn't its own, kb PHN-828), or null. */
+    val removedNote: Note? = null,
 )
 
 /**
@@ -285,6 +305,8 @@ class FerbViewModel(
     private val io: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
     /** The phone's steady clock in ms (the unlock statement's age, PHN-649). */
     private val steady: () -> Long = { android.os.SystemClock.elapsedRealtime() },
+    /** FERB's account (kb PHN-827): signed out blocks everything after the lock; pairing carries its statement. */
+    private val account: AccountModel,
 ) : ViewModel() {
     /** FERB's alerts put away on this phone this session (kb PHN-791): hidden at once, before the Mac's next status drops
      *  them. Declared first: the constructor's first read applies a status before the properties below are made. */
@@ -310,6 +332,12 @@ class FerbViewModel(
 
     /** The chat tab shows the earlier days (kb PHN-696): "Earlier messages" opened them; Today and a send come back. */
     val earlier: StateFlow<Boolean> = saved.getStateFlow("earlier", false)
+
+    /** "I've installed it — pair now" was tapped: the pairing page instead of the phone-first one (kb PHN-829). */
+    val pairNow: StateFlow<Boolean> = saved.getStateFlow("pair_now", false)
+
+    /** Opens the sign-in's address in a Custom Tab, else the default browser (the activity sets it; none in tests). */
+    var openBrowser: ((String) -> Unit)? = null
     val draft: StateFlow<String> = saved.getStateFlow("draft", "")
     private val _settings = MutableStateFlow(readSettings())
     val settings: StateFlow<PhoneSettings> = _settings.asStateFlow()
@@ -421,12 +449,46 @@ class FerbViewModel(
             }.distinctUntilChanged().collect { thumbnails.show(it) }
         }
         viewModelScope.launch {
+            // kb PHN-828: signed out by the server is a sign-out: the Mac is told (bounded) and forgotten here, as Sign out
+            account.ended.collect {
+                AppLog.i("the sign-in server ended this sign-in: forgetting the Mac")
+                busy("account") { forgetMac(); saved["pair_now"] = false; _ui.update { it.copy(linkNote = null, accountNote = null) } }
+            }
+        }
+        viewModelScope.launch {
+            // kb PHN-828: a pairing made before FERB's account existed is bound to the account signed in here: once per
+            // unlock (and again after a sign-in), when the link is online, until the Mac says it is bound
+            var wasLocked = true
+            var wasIn: String? = null
+            combine(session.locked, api.link, account.state) { locked, l, a -> Triple(locked, l, a.account?.id) }.collect { (locked, l, id) ->
+                if (locked) { wasLocked = true; wasIn = id; return@collect }
+                if (wasLocked || id != wasIn) bindTried = false
+                wasLocked = false
+                wasIn = id
+                // a fresh pairing records its account itself (pairedSince is set with it); only an older one binds
+                if (bindTried || id == null || l?.paired != true || l.phase != LinkPhase.ONLINE) return@collect
+                if (prefs.pairedSince == 0L || prefs.pairedAccount == id) return@collect
+                bindTried = true
+                launch { bindAccount(id) }
+            }
+        }
+        viewModelScope.launch {
+            // kb PHN-827: signed out blocks everything after the lock, whatever else is ready
+            account.state.collect { a ->
+                // signed out: no sheet of the signed-in app waits behind the sign-in page
+                if (a.known && a.account == null) _sheet.value = null
+                _ui.update { gateOf(it.copy(account = a), api.state.value, api.link.value, session.locked.value) }
+            }
+        }
+        viewModelScope.launch {
             combine(api.state, api.link, session.locked) { s, l, locked -> Triple(s, l, locked) }.collect { (s, l, locked) ->
                 _ui.update { gateOf(it.copy(link = l, keys = s.keys), s, l, locked) }
                 showPending()
                 if (s is PhoneState.Open && l?.paired == true && prefs.pairedSince == 0L) {
                     prefs.pairedSince = now()
                     prefs.justPaired = true
+                    // the account this pairing was made under (kb PHN-828): another account signing in here forgets it
+                    prefs.pairedAccount = account.accountId
                 }
             }
         }
@@ -491,6 +553,8 @@ class FerbViewModel(
         viewModelScope.launch {
             session.locked.collect { locked ->
                 if (!locked) {
+                    // each open: the sign-in is still good (a refresh when due; the server's no signs out, kb PHN-827)
+                    launch { account.check() }
                     // the home screen only for an empty chat: a first-time user, or a new day with nothing said yet
                     // (kb PHN-626); the chat as soon as something was said today
                     // opened or unlocked: today's chat, on the day it is now (kb PHN-696, PHN-697)
@@ -560,6 +624,9 @@ class FerbViewModel(
             !screenLock() -> Gate.NO_SCREEN_LOCK
             // the lock page needs neither the library, the store nor the link: it shows at the first frame (PHN-633)
             locked -> Gate.LOCKED
+            // kb PHN-827: FERB's account first, before anything else; it needs neither the library nor the link
+            !u.account.known -> Gate.STARTING
+            u.account.account == null -> Gate.SIGN_IN
             s is PhoneState.Closed || s is PhoneState.Starting -> Gate.STARTING
             l == null -> Gate.STARTING
             l.phase == LinkPhase.PAIRING_WAIT_FOR_MAC -> Gate.CODES
@@ -1100,7 +1167,21 @@ class FerbViewModel(
         if (text.isEmpty()) return@busy
         _ui.update { it.copy(pairing = true, pairError = null) }
         _sheet.value = null
-        when (val r = api.pair(text)) {
+        // kb PHN-828: the server's signed statement of this phone's account, for this link's own id; the Mac's daemon
+        // refuses a phone of another account (or of none) before it asks the owner
+        val endpoint = api.endpointId()
+        val statement = when (val a = endpoint?.let { account.assertion(it) }) {
+            is Answer.Ok -> a.value
+            null -> { _ui.update { it.copy(pairing = false, pairError = Note(R.string.err_try_again)) }; return@busy }
+            Answer.Offline -> { _ui.update { it.copy(pairing = false, pairError = Note(R.string.pair_needs_internet)) }; return@busy }
+            is Answer.Refused -> {
+                // signed out by the server: the sign-in page comes by itself; else the server isn't answering
+                val n = if (a.error == AccountModel.SIGNED_OUT) null else Note(R.string.signin_not_answering)
+                _ui.update { it.copy(pairing = false, pairError = n) }
+                return@busy
+            }
+        }
+        when (val r = api.pair(text, statement)) {
             is Outcome.Ok -> Unit
             is Outcome.Failed -> _ui.update {
                 it.copy(pairing = false, pairError = pairNote(r.error.linkCode ?: r.code, r.detail))
@@ -1115,6 +1196,100 @@ class FerbViewModel(
     }
 
     fun clearPairError() = _ui.update { it.copy(pairError = null) }
+
+    // ---- FERB's account (kb PHN-827, PHN-829) -----------------------------------------------------------------------
+
+    /** "Continue with Google" / "Continue with Apple": the site's sign-in in a Custom Tab (or the default browser). */
+    fun signIn(provider: Provider) = busy("signin") {
+        val url = account.begin(provider)
+        val open = openBrowser
+        if (open == null || runCatching { open(url) }.isFailure) account.browserLeft()
+    }
+
+    /** The App Link back from the browser (`/app/callback`): used only when its state is this sign-in's. */
+    fun signInReturned(url: String) = viewModelScope.launch {
+        val before = account.accountId
+        if (!account.returned(url)) return@launch
+        val now = account.accountId ?: return@launch
+        // kb PHN-828: a Mac paired under another account isn't this account's: it is forgotten here
+        val pairedUnder = prefs.pairedAccount
+        if (now != before && pairedUnder != null && pairedUnder != now && _ui.value.link?.paired == true) forgetMac()
+    }
+
+    /** Back in the app without the browser's answer (it was closed): the sign-in buttons work again. */
+    fun browserLeft() = account.browserLeft()
+
+    /** A bind of an older pairing was tried in this unlock (kb PHN-828): at most once per unlock or sign-in. */
+    private var bindTried = false
+
+    /**
+     * Binds a pairing made before FERB's account to [id] (kb PHN-828): the server's statement for this link's id, then
+     * `phone.bind_account`. Bound: recorded, never asked again. `account_mismatch`: the Mac removed this phone; its words
+     * show on the removed page. Anything else (offline, the Mac signed out, unconfirmed): nothing changes, tried again
+     * at the next unlock; never an unpairing.
+     */
+    private suspend fun bindAccount(id: String) {
+        val endpoint = api.endpointId() ?: return
+        val statement = (account.assertion(endpoint) as? Answer.Ok)?.value ?: return
+        when (val r = api.bindAccount(statement)) {
+            is Outcome.Ok -> if (r.value && account.accountId == id) {
+                prefs.pairedAccount = id
+                AppLog.i("the pairing is bound to the account")
+            }
+            is Outcome.Failed -> if ((r.error.linkCode ?: r.code) == "account_mismatch") {
+                AppLog.i("the Mac refused this phone's account; it removed the phone")
+                _ui.update { gateOf(it.copy(macForgotPhone = true, removedNote = pairNote("account_mismatch", r.detail)),
+                    api.state.value, api.link.value, session.locked.value) }
+            }
+        }
+    }
+
+    /** "I've installed it — pair now" (true), or back to the phone-first page (false). */
+    fun pairNow(on: Boolean) {
+        saved["pair_now"] = on
+        if (!on) _sheet.value = null
+    }
+
+    /** "Send me the link": the download page's address to the account's e-mail, to open on the Mac. */
+    fun sendLink() = busy("send-link", tap = true) {
+        _ui.update { it.copy(linkNote = null) }
+        val n = when (val r = account.sendLink()) {
+            is Answer.Ok -> Note(R.string.macfirst_sent, r.value.ifEmpty { _ui.value.account.account?.email.orEmpty() })
+            is Answer.Refused -> when {
+                r.error == AccountModel.SIGNED_OUT -> null
+                r.status == 429 -> Note(R.string.macfirst_sent_recently)
+                else -> Note(R.string.macfirst_send_failed)
+            }
+            Answer.Offline -> Note(R.string.macfirst_send_failed)
+        }
+        _ui.update { it.copy(linkNote = n) }
+    }
+
+    /**
+     * Sign out (after its question): the Mac is asked to remove this phone and everything of it here goes (as Forget
+     * this Mac), then the account: kept tokens at once, the server told (best effort). The sign-in page comes.
+     */
+    fun signOut() = busy("account", tap = true) {
+        _sheet.value = null
+        forgetMac()
+        account.signOut()
+        saved["pair_now"] = false
+        _ui.update { it.copy(linkNote = null, accountNote = null) }
+    }
+
+    /** Delete account (after its question): only when the server deleted it, the Mac and everything here go too. */
+    fun deleteAccount() = busy("account", tap = true) {
+        _ui.update { it.copy(accountNote = null) }
+        if (!account.delete()) {
+            _ui.update { it.copy(accountNote = Note(R.string.account_delete_failed)) }
+            _sheet.value = Sheet.Account
+            return@busy
+        }
+        _sheet.value = null
+        forgetMac()
+        saved["pair_now"] = false
+        _ui.update { it.copy(linkNote = null) }
+    }
 
     // ---- chat -----------------------------------------------------------------------------------------------------
 
@@ -1877,19 +2052,32 @@ class FerbViewModel(
     /** Forget this Mac (PHN-408): the fetched chat, the Mac, the keys and the files here go; the pairing screen comes. */
     fun forget() = busy("forget", tap = true) {
         _sheet.value = null
+        when (val told = forgetMac()) {
+            null -> Unit
+            false -> note(Note(R.string.forget_mac_kept))
+            true -> Unit
+        }
+    }
+
+    /**
+     * Forget this Mac's work, shared with Sign out (kb PHN-827): the Mac is asked to remove this phone (bounded), then
+     * the fetched chat, the Mac, the keys and the files here go. True: the Mac was told; false: it couldn't be; null:
+     * the phone couldn't forget (said).
+     */
+    private suspend fun forgetMac(): Boolean? {
         live.stop()
-        when (val r = api.forget()) {
+        return when (val r = api.forget()) {
             is Outcome.Ok -> {
                 prefs.forgetPairing(); saved["tab"] = PhoneTab.CHAT; saved["earlier"] = false
                 withContext(Dispatchers.IO) { transfers.clear(); outgoing.clear() }
                 statement = null
                 _ui.update { it.copy(mac = null, macTasks = null, files = FilesUi(), settings = null, status = null,
-                    macForgotPhone = false, macNeed = null, needsMacUnlock = false) }
+                    macForgotPhone = false, removedNote = null, macNeed = null, needsMacUnlock = false) }
                 // PHN-646: the Mac removed this phone too, or it couldn't be told (then it still lists it until removed there)
                 AppLog.i("forgot the Mac; the Mac was ${if (r.value) "told" else "not reachable"}")
-                if (!r.value) note(Note(R.string.forget_mac_kept))
+                r.value
             }
-            is Outcome.Failed -> failed(r.error)
+            is Outcome.Failed -> { failed(r.error); null }
         }
     }
 
@@ -2049,6 +2237,9 @@ class FerbViewModel(
             "pair_busy" -> Note(R.string.pair_busy)
             "already_paired" -> Note(R.string.pair_already)
             "mac_unreachable", "offline" -> Note(R.string.pair_unreachable)
+            // kb PHN-828: the Mac's daemon refused this phone's account; its own words name both accounts
+            "account_mismatch", "mac_signed_out", "account_unconfirmed" ->
+                if (detail.isNullOrBlank()) Note(R.string.err_other, code) else Note(R.string.err_mac_said, detail)
             else -> Note(R.string.err_other, detail)
         }
     }

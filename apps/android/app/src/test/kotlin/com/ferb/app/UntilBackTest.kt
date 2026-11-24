@@ -52,7 +52,7 @@ class UntilBackTest {
     fun tearDown() { Dispatchers.resetMain(); root.deleteRecursively() }
 
     private fun vm() = FerbViewModel(phone, session, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-        LocalFiles(root) { null }).also {
+        LocalFiles(root) { null }, account = testAccount()).also {
         it.prompts = object : Prompts {
             override fun signer(kind: KeyKind, why: Why) = FakeSigner(kind, false).also(signers::add)
             override suspend fun local() = true

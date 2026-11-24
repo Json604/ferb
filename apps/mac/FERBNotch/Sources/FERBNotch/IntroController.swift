@@ -10,7 +10,7 @@ enum IntroAnswer: Equatable {
     case entry(String)
 }
 
-/// FERB.app's first-run tour (kb area app): Meet → Sign in → Permissions → Pair browsers → FERB's email →
+/// FERB.app's first-run tour (kb area app): Meet → Your FERB account (APP-1128) → Sign in → Permissions → Pair browsers → FERB's email →
 /// Try → Control → Home. FERB speaks in text lines in the notch, the orb points at places on screen, every grant counts
 /// only when the system confirms it, and every wait shows what FERB is doing, alive, with its elapsed time (APP-665).
 /// Try runs the task the owner picks for real, through the normal chat path (APP-666); the tour never starts a task the
@@ -61,6 +61,9 @@ final class IntroController {
     /// The tasks the owner started in Try, newest last: Control offers to stop one still running and starts none of
     /// its own (APP-696).
     var tryTasks: [UUID] = []
+    /// The owner's FERB account (APP-1128): the account step signs in through it and can't be skipped. Nil (tests that
+    /// aren't about it): the step has nothing to do.
+    var account: AccountSession?
     var seenControls: Set<IntroControl> = []
     var controlWaiter: (() -> Void)?
 
@@ -106,9 +109,9 @@ final class IntroController {
         var plan = beats
         var ifNeeded: Set<IntroBeat> = []
         if let resume {
-            let before = beats.filter { $0.rawValue < resume.rawValue && ($0 == .signIn || $0 == .permissions) }
+            let before = beats.filter { $0 < resume && ($0 == .account || $0 == .signIn || $0 == .permissions) }
             ifNeeded = Set(before)
-            plan = before + beats.filter { $0.rawValue >= resume.rawValue }
+            plan = before + beats.filter { $0 >= resume }
         }
         guard !plan.isEmpty else { return }
         running = true
@@ -194,10 +197,11 @@ final class IntroController {
             if ifNeeded.contains(next), !(await stillNeeded(next)) { continue }
             guard live else { return }
             beat = next
-            notch.introSkippable = next.rawValue >= IntroBeat.permissions.rawValue    // APP-685
+            notch.introSkippable = next >= .permissions    // APP-685
             if next != .home { progress.resumeBeat = next }
             switch next {
             case .meet: await meet()
+            case .account: await accountStep()
             case .signIn: await signIn()
             case .permissions: await permissions()
             case .browsers: await browsers()
@@ -237,6 +241,9 @@ final class IntroController {
     /// A beat from before the resume point, run again only when its step is missing now.
     private func stillNeeded(_ beat: IntroBeat) async -> Bool {
         switch beat {
+        case .account:
+            guard let account else { return false }
+            return await account.load() == .signedOut
         case .signIn:
             await setup.refreshAI()
             return !Self.connected(setup.ai)
@@ -287,7 +294,8 @@ final class IntroController {
 
     /// The required steps still missing, from the last snapshots: sign-in, then each required permission not yet on.
     func remaining() -> [String] {
-        var left = Self.connected(setup.ai) ? [] : ["sign_in"]
+        var left = account?.state == .signedOut ? ["account"] : []
+        left += Self.connected(setup.ai) ? [] : ["sign_in"]
         if setup.permissions == nil {               // the daemon didn't answer: every required row, except those on
             left += SetupModel.allowAllSequence.filter { id in
                 !setup.appRows.contains { $0.id == id && $0.status == .granted }
@@ -360,7 +368,7 @@ final class IntroController {
     private func handle(_ action: IntroAction) {
         switch action {
         case .skipTour:
-            guard beat.map({ $0.rawValue >= IntroBeat.permissions.rawValue }) == true else { return }
+            guard beat.map({ $0 >= .permissions }) == true else { return }
             skip()
         case .choose(let id):
             if let act = sideChoices[id] { act(); return }

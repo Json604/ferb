@@ -93,7 +93,7 @@ class MainThreadStormTest {
             onMain {
                 Notifier(context, api, prefs, session).start(scope)
                 tellMacOnLock(scope, session, api, LocalFiles.forPhone(context))
-                vm = FerbViewModel(api, session, prefs, { true }, null, SavedStateHandle(), LocalFiles.forPhone(context))
+                vm = FerbViewModel(api, session, prefs, { true }, null, SavedStateHandle(), LocalFiles.forPhone(context), account = testAccount())
                 vm.prompts = object : Prompts {
                     // the system prompt: the owner's finger takes a moment, then the lock key signs
                     override fun signer(kind: KeyKind, why: Why) = object : Signer {
@@ -380,7 +380,8 @@ class StormUplinks(private val mac: StormMac) : UplinkFactory {
                 mobile.connectTransport(mac)
                 this@StormUplinks.mobile = mobile
             }
-            override fun pair(code: String) {}
+            override fun pair(code: String, account: String) {}
+            override fun endpointId(): String = ""
             override fun status(): LinkStatus? = now
             override fun setActive(on: Boolean) {}
             override fun networkChanged(kind: String?) {}

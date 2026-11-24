@@ -129,7 +129,7 @@ class FrameBudgetOnPhoneTest {
         ui = UiState(gate = Gate.MAIN, link = FakePhone.status(), keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.OK),
             conversation = "c1", rows = rows(n, "The reply"))
         val vm = FerbViewModel(FakePhone(), Session { 0L }, Prefs(ApplicationProvider.getApplicationContext()), { true }, null,
-            SavedStateHandle(), LocalFiles(File(instrumentation.targetContext.cacheDir, "frames-${System.nanoTime()}").apply { mkdirs() }) { null })
+            SavedStateHandle(), LocalFiles(File(instrumentation.targetContext.cacheDir, "frames-${System.nanoTime()}").apply { mkdirs() }) { null }, account = testAccount())
         scenario = ActivityScenario.launch(ComponentActivity::class.java)
         val longest = longestMain { onMain {
             scenario.onActivity { a ->
@@ -232,7 +232,7 @@ class FrameBudgetOnPhoneTest {
             scenario = ActivityScenario.launch(ComponentActivity::class.java)
             scenario.onActivity { a ->
                 vm = FerbViewModel(phone, session, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-                    LocalFiles(File(instrumentation.targetContext.cacheDir, "frames-${System.nanoTime()}").apply { mkdirs() }) { null })
+                    LocalFiles(File(instrumentation.targetContext.cacheDir, "frames-${System.nanoTime()}").apply { mkdirs() }) { null }, account = testAccount())
                 a.enableEdgeToEdge()
                 a.setContent {
                     val u by vm.ui.collectAsState()

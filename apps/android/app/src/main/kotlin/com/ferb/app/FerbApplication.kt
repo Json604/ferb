@@ -47,6 +47,10 @@ class FerbApplication : Application() {
         private set
     lateinit var sensors: DeviceSensors
         private set
+
+    /** FERB's account on this phone (kb PHN-827): sealed under its own Keystore key, read once at the start. */
+    lateinit var account: com.ferb.app.model.AccountModel
+        private set
     val scope = MainScope()
 
     /** An activity was made in this process already: the next one is a warm start (StartLog, the launch). */
@@ -77,6 +81,12 @@ class FerbApplication : Application() {
         Thread(corpusLoad, "ferb-corpus").start()
         prefs = Prefs(this)
         session = Session { SystemClock.elapsedRealtime() }
+        account = com.ferb.app.model.AccountModel(
+            com.ferb.app.model.SealedAccountStore(java.io.File(noBackupFilesDir, "account"), com.ferb.core.KeystoreProtector(this, "ferb.key.account")),
+            com.ferb.app.model.AccountServer(com.ferb.app.model.UrlConnectionHttp(), com.ferb.app.model.Device(prefs.deviceId, BuildConfig.VERSION_NAME),
+                System::currentTimeMillis),
+            Dispatchers.IO, System::currentTimeMillis)
+        scope.launch { account.load() }
         phone = FerbPhone.create(this)
         api = LibraryPhone(phone)
         signals = AndroidSignals(this, phone)

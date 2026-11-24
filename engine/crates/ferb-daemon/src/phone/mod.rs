@@ -27,9 +27,16 @@
 //!   without one (today: nothing in FERB clicks system prompts) the six on-screen methods are refused from a phone with
 //!   `needs_the_mac`, before anything opens.
 //!
+//! - **The FERB account** ([`account`], PHN-828): a phone pairs only with a Mac signed in to the same FERB account. The
+//!   pairing hello carries FERB's site's signed statement of the phone's account; `link.pair_request` checks it against
+//!   the Mac's own account before the owner is asked, and the phone's row keeps the account it paired under. When the
+//!   Mac's account changes, every phone bound to another account is removed ([`Phones::account_changed`]); a phone
+//!   paired before accounts (none recorded) keeps working and binds itself when it signs in (`phone.bind_account`).
+//!
 //! A phone's turn is the owner's: the handlers FERB.app's calls reach answer it, with the phone named as the client
 //! (`client_id` `phone:<endpoint>`), so the Mac shows which device sent it (APP-916).
 
+pub mod account;
 pub mod asking;
 pub mod device;
 pub mod files;
@@ -170,6 +177,8 @@ pub struct Seams {
     pub journal: Arc<Note>,
     /// A bus event FERB.app hears (`phone.pair_requested`, `phone.unused`, `phone.removed`).
     pub publish: Arc<Publish>,
+    /// PHN-828: the trusted keys for the site's pairing statements and the Mac's own FERB account.
+    pub account: account::AccountCheck,
 }
 
 impl Seams {
@@ -349,7 +358,7 @@ impl Phones {
     /// Registers the area's methods and sets its gate on `server`.
     pub fn register(&self, server: &Server) {
         server.set_phone_gate(self.gate());
-        let unary: [(&str, Handler); 17] = [
+        let unary: [(&str, Handler); 16] = [
             ("phone.list", |p, s, _| p.list(&s)),
             ("phone.rename", |p, _, a| p.rename(&a)),
             ("phone.remove", |p, s, a| p.remove(&s, &a)),
@@ -379,8 +388,8 @@ impl Phones {
             }),
             ("phone.keys", |p, s, a| p.keys(&s, &a)),
             ("phone.device_report", |p, s, a| p.device_report(&s, &a)),
+            // (phone.bind_account is async below: the Mac's account may be read from the Keychain)
             ("link.devices", |p, _, _| p.devices()),
-            ("link.pair_request", |p, _, a| p.pair_request(&a)),
             ("link.pair_cancel", |p, _, a| p.pair_cancel(&a)),
         ];
         for (name, f) in unary {
@@ -390,6 +399,16 @@ impl Phones {
                 async move { f(&me, s, a) }
             });
         }
+        let me = self.clone();
+        server.register_unary("phone.bind_account", move |s: Session, a: Params| {
+            let me = me.clone();
+            async move { me.bind_account(&s, &a).await }
+        });
+        let me = self.clone();
+        server.register_unary("link.pair_request", move |_s: Session, a: Params| {
+            let me = me.clone();
+            async move { me.pair_request(&a).await }
+        });
         let me = self.clone();
         server.register_unary("link.pair_wait", move |_s: Session, a: Params| {
             let me = me.clone();
@@ -558,13 +577,147 @@ impl Phones {
             .phone
             .as_ref()
             .map_or_else(|| "mac".to_owned(), |p| p.device.clone());
+        if self.remove_phone(&id, &by)?.is_none() {
+            return Err(coded(refused(phone_gate::NOT_FOUND, "No such phone.")));
+        }
+        if session.phone.is_none() {
+            inner.audit("", "phone.remove", "owner", "ok", json!({"removed": id}));
+        }
+        let mut out = Params::new();
+        out.insert("removed".into(), json!(id));
+        Ok(out)
+    }
+
+    /// PHN-828: FERB on this Mac is signed in to `account_id` now. Every live phone bound to another account is removed
+    /// as `phone.remove` removes one (`by` "account"), and a pairing waiting for the owner's Yes under another account
+    /// ends unpaired. A phone paired before accounts (no account recorded) stays: it binds itself when it signs in
+    /// (`phone.bind_account`). The phones removed, as `(id, name)`.
+    // decision: PHN-828
+    pub fn account_changed(&self, account_id: &str) -> Result<Vec<(String, String)>, HandlerError> {
+        let inner = &self.inner;
+        {
+            let mut pairing = lock(&inner.pairing);
+            if let Some(p) = pairing
+                .as_mut()
+                .filter(|p| p.decided.is_none() && p.new.account_id.as_deref() != Some(account_id))
+            {
+                p.decided = Some(false);
+                let phone = p.new.endpoint.clone();
+                drop(pairing);
+                inner
+                    .pair_ended(json!({"phone": phone, "paired": false, "why": "account changed"}));
+                inner.decided.notify_waiters();
+            }
+        }
+        let others: Vec<Phone> = {
+            let db = lock(&inner.seams.db);
+            table::live(db.conn()).map_err(store_fault)?
+        }
+        .into_iter()
+        .filter(|p| p.account_id.as_deref().is_some_and(|a| a != account_id))
+        .collect();
+        let mut removed = Vec::new();
+        for p in others {
+            if let Some(gone) = self.remove_phone(&p.endpoint, "account")? {
+                inner.audit(
+                    "",
+                    "account.save",
+                    "owner",
+                    "ok",
+                    json!({"removed": gone.endpoint}),
+                );
+                removed.push((gone.endpoint, gone.name));
+            }
+        }
+        Ok(removed)
+    }
+
+    /// `phone.bind_account {assertion}` (PHN-828): a paired phone's own statement of its FERB account (the site's signed
+    /// assertion for this session's own endpoint), checked as a pairing's is. The Mac's account: the phone is bound to
+    /// it (`changed` when it had none or another recorded). Another account: the phone is removed as `phone.remove`
+    /// removes one (`by` "account") and refused `account_mismatch`. The Mac signed out, or a statement that can't be
+    /// confirmed: refused, nothing changed. `{bound: true, changed}`.
+    // decision: PHN-828
+    pub async fn bind_account(&self, session: &Session, params: &Params) -> HandlerResult {
+        let inner = &self.inner;
+        let Some(phone) = session.phone.as_ref() else {
+            return Err(coded(refused(
+                phone_gate::BAD_REQUEST,
+                "phone.bind_account is a paired phone's own call",
+            )));
+        };
+        let dev = inner.live(&phone.device).map_err(coded)?;
+        let check = inner.seams.account.clone();
+        let mac = tokio::task::spawn_blocking(move || check.mac_account())
+            .await
+            .unwrap_or(None);
+        let now = inner.seams.clock.now().timestamp();
+        let statement = params.get("assertion").and_then(Value::as_str);
+        let refusal = match inner
+            .seams
+            .account
+            .check(statement, &dev.endpoint, now, mac.as_ref())
+        {
+            Ok(c) => {
+                let changed = dev.account_id.as_deref() != Some(c.account_id.as_str());
+                if changed {
+                    let db = lock(&inner.seams.db);
+                    table::bind_account(db.conn(), &dev.endpoint, &c.account_id)
+                        .map_err(store_fault)?;
+                    drop(db);
+                    (inner.seams.journal)(
+                        "phone.account_bound",
+                        json!({"phone": dev.endpoint, "had_account": dev.account_id.is_some()}),
+                    );
+                }
+                inner.audit(
+                    &dev.endpoint,
+                    "phone.bind_account",
+                    "plain",
+                    "ok",
+                    json!({"changed": changed}),
+                );
+                let mut out = Params::new();
+                out.insert("bound".into(), json!(true));
+                out.insert("changed".into(), json!(changed));
+                return Ok(out);
+            }
+            Err(r) => r,
+        };
+        let detail = match &refusal {
+            account::AccountRefused::Unconfirmed(why) => json!(why),
+            _ => Value::Null,
+        };
+        (inner.seams.journal)(
+            "phone.bind_refused",
+            json!({"phone": dev.endpoint, "why": refusal.name(), "detail": detail}),
+        );
+        inner.audit(
+            &dev.endpoint,
+            "phone.bind_account",
+            "plain",
+            refusal.name(),
+            json!({}),
+        );
+        if matches!(refusal, account::AccountRefused::Mismatch { .. }) {
+            // another account than the Mac's: this phone goes, as any removal (its sessions end, the helper is told)
+            self.remove_phone(&dev.endpoint, "account")?;
+        }
+        Err(coded(refused(refusal.code(), refusal.words())))
+    }
+
+    /// Removes one live phone: the row marked, its sessions and windows ended, its files' state and record dropped, a
+    /// "until I'm back" it gave ended, the helper told, journaled and published. The phone as it was, or `None`.
+    fn remove_phone(&self, id: &str, by: &str) -> Result<Option<Phone>, HandlerError> {
+        let inner = &self.inner;
         let removed = {
             let db = lock(&inner.seams.db);
-            table::remove(db.conn(), &id, &by, &inner.now_iso()).map_err(store_fault)?
+            table::remove(db.conn(), id, by, &inner.now_iso()).map_err(store_fault)?
         };
         let Some(removed) = removed else {
-            return Err(coded(refused(phone_gate::NOT_FOUND, "No such phone.")));
+            return Ok(None);
         };
+        let id = id.to_owned();
         lock(&inner.state).forget_device(&id);
         files::forget_device(inner, &id);
         inner.forget_device_record(&id);
@@ -580,12 +733,7 @@ impl Phones {
         ev.insert("phone".into(), json!(id));
         ev.insert("name".into(), json!(removed.name));
         (inner.seams.publish)("phone.removed", ev);
-        if session.phone.is_none() {
-            inner.audit("", "phone.remove", "owner", "ok", json!({"removed": id}));
-        }
-        let mut out = Params::new();
-        out.insert("removed".into(), json!(id));
-        Ok(out)
+        Ok(Some(removed))
     }
 
     /// `phone.audit {limit?}`: what phones did, newest last (FERB.app's; no phone reads it).
@@ -709,27 +857,54 @@ impl Phones {
         Ok(out)
     }
 
-    /// `link.pair_request {endpoint, name, app?, code, unlock_pub?, device_pub?, strong_pub?}`: the helper checked the
-    /// phone's proof of the QR's one-time secret (PHN-102); the owner is now asked on the Mac, naming the phone and
-    /// the six digits both screens show. One pairing waits at a time: a new one replaces it (the old is a No).
-    pub fn pair_request(&self, params: &Params) -> HandlerResult {
+    /// `link.pair_request {endpoint, name, app?, code, unlock_pub?, device_pub?, strong_pub?, account?}`: the helper
+    /// checked the phone's proof of the QR's one-time secret (PHN-102); the phone's FERB account is checked against the
+    /// Mac's (`account`, the site's signed statement: PHN-828), and only then is the owner asked on the Mac, naming the
+    /// phone and the six digits both screens show. One pairing waits at a time: a new one replaces it (the old is a No).
+    pub async fn pair_request(&self, params: &Params) -> HandlerResult {
+        let (endpoint, code) = pair_request_shape(params)?;
+        // the Mac's account may be read from the Keychain the first time: off the async runtime
+        let check = self.inner.seams.account.clone();
+        let mac = tokio::task::spawn_blocking(move || check.mac_account())
+            .await
+            .unwrap_or(None);
+        let now = self.inner.seams.clock.now().timestamp();
+        let statement = params.get("account").and_then(Value::as_str);
+        // decision: PHN-828 — before the owner is asked: a phone of another account (or none confirmed) never is
+        let account_id =
+            match self
+                .inner
+                .seams
+                .account
+                .check(statement, &endpoint, now, mac.as_ref())
+            {
+                Ok(c) => c.account_id,
+                Err(r) => {
+                    let detail = match &r {
+                        account::AccountRefused::Unconfirmed(why) => json!(why),
+                        _ => Value::Null,
+                    };
+                    (self.inner.seams.journal)(
+                        "phone.pair_refused",
+                        json!({"phone": endpoint, "why": r.name(), "detail": detail}),
+                    );
+                    self.inner
+                        .audit(&endpoint, "link.pair_request", "link", r.name(), json!({}));
+                    return Err(coded(refused(r.code(), r.words())));
+                }
+            };
+        self.pair_request_ask(params, endpoint, code, account_id)
+    }
+
+    fn pair_request_ask(
+        &self,
+        params: &Params,
+        endpoint: String,
+        code: String,
+        account_id: String,
+    ) -> HandlerResult {
         let inner = &self.inner;
         let bad = |why: &str| coded(refused(phone_gate::BAD_REQUEST, why));
-        let endpoint = text(params, "endpoint")
-            .filter(|e| e.chars().count() <= 200)
-            .ok_or_else(|| bad("link.pair_request needs the phone's endpoint id"))?;
-        let code =
-            text(params, "code").ok_or_else(|| bad("link.pair_request needs the six digits"))?;
-        let digits: Vec<char> = code.chars().collect();
-        let six = digits.len() == 7
-            && digits[3] == ' '
-            && digits
-                .iter()
-                .enumerate()
-                .all(|(i, c)| i == 3 || c.is_ascii_digit());
-        if !six {
-            return Err(bad("the pairing code is six digits, as \"123 456\""));
-        }
         let live = {
             let db = lock(&inner.seams.db);
             table::live(db.conn()).map_err(store_fault)?
@@ -760,6 +935,7 @@ impl Phones {
             unlock_pub: offered_key(params, "unlock_pub"),
             device_pub: offered_key(params, "device_pub"),
             strong_pub: offered_key(params, "strong_pub"),
+            account_id: Some(account_id),
         };
         let id = proof::b64u(&(inner.seams.nonce)());
         let pending = Pending {
@@ -933,6 +1109,26 @@ impl Phones {
         out.insert("cancelled".into(), json!(cancelled));
         Ok(out)
     }
+}
+
+/// `link.pair_request`'s endpoint and six digits, before anything else is looked at.
+fn pair_request_shape(params: &Params) -> Result<(String, String), HandlerError> {
+    let bad = |why: &str| coded(refused(phone_gate::BAD_REQUEST, why));
+    let endpoint = text(params, "endpoint")
+        .filter(|e| e.chars().count() <= 200)
+        .ok_or_else(|| bad("link.pair_request needs the phone's endpoint id"))?;
+    let code = text(params, "code").ok_or_else(|| bad("link.pair_request needs the six digits"))?;
+    let digits: Vec<char> = code.chars().collect();
+    let six = digits.len() == 7
+        && digits[3] == ' '
+        && digits
+            .iter()
+            .enumerate()
+            .all(|(i, c)| i == 3 || c.is_ascii_digit());
+    if !six {
+        return Err(bad("the pairing code is six digits, as \"123 456\""));
+    }
+    Ok((endpoint, code))
 }
 
 fn paired_json(paired: bool, device: Option<String>) -> Params {

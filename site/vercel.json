@@ -25,5 +25,14 @@
       "permanent": false
     }
   ],
-  "rewrites": []
+  "rewrites": [
+    {
+      "source": "/.well-known/assetlinks.json",
+      "destination": "/api/app/assetlinks"
+    },
+    {
+      "source": "/app/callback",
+      "destination": "/api/app/landing"
+    }
+  ]
 }

@@ -197,6 +197,9 @@ fun Sheets(vm: FerbViewModel, ui: UiState, sheet: Sheet?, insets: PhoneInsets, h
             Pill(stringResource(R.string.cancel), Modifier.padding(top = 4.dp), PillKind.PLAIN, height = 44.dp, onClick = { vm.show(Sheet.Profile) })
         }
         Sheet.Help -> Plain(stringResource(R.string.help_title), stringResource(R.string.help_text), insets, close)
+        Sheet.Account -> AccountSheet(vm, ui, insets, close)
+        Sheet.SignOut -> SignOutSheet(vm, ui, insets)
+        Sheet.DeleteAccount -> DeleteAccountSheet(vm, ui, insets)
     }
 }
 
@@ -258,6 +261,11 @@ private fun Profile(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, host: H
             com.ferb.design.screens.ConnectionRow(mark, linkStateWords(mark), linkPathWords(mark)) { vm.show(Sheet.Connection) }
         },
         more = {
+            // kb PHN-827: FERB's account, its page on a tap (Sign out, Delete account)
+            if (ui.account.account != null) {
+                Divide()
+                AccountRow(vm, ui)
+            }
             // kb PHN-765: what keeps FERB's questions from reaching this phone, said where he looks, with its fix
             blocker?.let { b ->
                 Divide()

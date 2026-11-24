@@ -181,6 +181,9 @@ struct PInner {
     cfg: PhoneConfig,
     state: Mutex<PhoneState>,
     invite: Mutex<Option<Invite>>,
+    /// The server's signed statement of this phone's FERB account (`/api/app/assertion`), sent in the pairing hello for
+    /// the Mac's daemon to check (PHN-828); with the invite, used once.
+    pair_account: Mutex<Option<String>>,
     online: Mutex<Option<Online>>,
     active: Mutex<bool>,
     stopped: Mutex<Option<LinkError>>,
@@ -321,6 +324,7 @@ impl Phone {
             pushed_bytes: Default::default(),
             calls: Default::default(),
             invite: Mutex::new(None),
+            pair_account: Mutex::new(None),
             online: Mutex::new(None),
             active: Mutex::new(true),
             stopped: Mutex::new(None),
@@ -494,8 +498,15 @@ impl Phone {
         self.inner.dials.lock().unwrap().clone()
     }
 
-    /// Start pairing from the scanned QR text. Replaces any earlier pairing on this phone.
+    /// Start pairing from the scanned QR text. Replaces any earlier pairing on this phone. No account statement: the
+    /// Mac's daemon refuses it unless it is a test's (PHN-828); the apps use [`Phone::pair_with_account`].
     pub fn pair(&self, qr: &str) -> LinkResult<()> {
+        self.pair_with_account(qr, None)
+    }
+
+    /// Start pairing from the scanned QR text with the server's signed statement of this phone's FERB account, which
+    /// the hello carries for the Mac's daemon to check against its own account (PHN-828). PHN-102's proof is unchanged.
+    pub fn pair_with_account(&self, qr: &str, account: Option<&str>) -> LinkResult<()> {
         let invite = Invite::parse(qr)?;
         // A pairing link never replaces the Mac this phone is paired with: the owner forgets that Mac first.
         if self
@@ -523,6 +534,10 @@ impl Phone {
             });
         }
         *self.inner.invite.lock().unwrap() = Some(invite);
+        *self.inner.pair_account.lock().unwrap() = account
+            .map(str::trim)
+            .filter(|a| !a.is_empty() && a.len() <= 4096)
+            .map(str::to_owned);
         *self.inner.stopped.lock().unwrap() = None;
         self.drop_conn();
         self.inner.wake.notify_one();
@@ -1272,8 +1287,12 @@ impl Phone {
         let proof = invite
             .as_ref()
             .map(|i| B64.encode(pairing::proof(&i.secret, i.mac, self.ep().id())));
+        let account = invite
+            .as_ref()
+            .and_then(|_| self.inner.pair_account.lock().unwrap().clone());
         let hello = json!({"v": self.inner.cfg.version.0, "min_v": self.inner.cfg.version.1, "name": self.inner.cfg.name,
-                           "app": self.inner.cfg.app, "level": self.inner.cfg.level, "build": crate::build(), "pair": proof, "unlock_pub": self.inner.cfg.unlock_pub, "device_pub": self.inner.cfg.device_pub, "strong_pub": self.inner.cfg.strong_pub});
+                           "app": self.inner.cfg.app, "level": self.inner.cfg.level, "build": crate::build(), "pair": proof, "unlock_pub": self.inner.cfg.unlock_pub, "device_pub": self.inner.cfg.device_pub, "strong_pub": self.inner.cfg.strong_pub,
+                           "account": account});
         if let Err(e) = wire::write_json(&mut tx, K_HELLO, &hello).await {
             return Err(why_closed(conn, e).await);
         }

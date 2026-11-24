@@ -91,6 +91,44 @@ final class AppScreensTests: XCTestCase {
         shot(ScanPageLayout(access: .notAsked, insets: .lab, onAllow: {}, onTypeCode: {}, onCancel: {}) { EmptyView() }, app: "scanner-camera-noon")
     }
 
+    /// FERB's account pages at an iPhone SE's width and height (375 by 667, the smallest iOS 17 runs on) and the lab's
+    /// (402 by 874): the sign-in, its line, and phone first, with the app's words.
+    // decision: PHN-827, PHN-829, PHN-416
+    func testTheSignInAndPhoneFirstPagesAtBothWidths() async {
+        let phones: [(String, CGSize, PhoneInsets)] = [("375", CGSize(width: 375, height: 667), PhoneInsets(top: 20, bottom: 0)),
+                                                       ("402", PhoneInsets.labSize, .lab)]
+        rig.phone.link = FakePhone.status(.idle, paired: false)
+        let vm = rig.model()
+        rig.session.unlocked()
+        await eventually("phone first") { vm.ui.gate == .pair && vm.ui.macFirst }
+        rig.http.script("/api/app/send-link", (200, #"{"sent":true,"email":"someone@example.com"}"#))
+        func draw<V: View>(_ page: V, _ size: CGSize, _ insets: PhoneInsets) -> some View {
+            PhoneScreen(moment: .lab(12.5), insets: insets, glide: false) { page }
+                .frame(width: size.width, height: size.height)
+                .stillMotion()
+        }
+        for (w, size, insets) in phones {
+            AppSnapshot.assert(draw(MacFirstView(model: vm, insets: insets), size, insets), size: size, path: "app/mac-first-\(w)-noon.png")
+        }
+        await rig.account.sendLink().value
+        for (w, size, insets) in phones {
+            AppSnapshot.assert(draw(MacFirstView(model: vm, insets: insets), size, insets), size: size, path: "app/mac-first-sent-\(w)-noon.png")
+        }
+        rig.account.clearLocal()
+        await eventually("sign-in") { vm.ui.gate == .signIn }
+        for (w, size, insets) in phones {
+            AppSnapshot.assert(draw(SignInView(account: rig.account, insets: insets), size, insets), size: size, path: "app/sign-in-\(w)-noon.png")
+            AppSnapshot.assert(draw(SignInPage(title: L.s("signin_title"), text: L.s("signin_text"), google: L.s("signin_google"),
+                                               apple: L.s("signin_apple"), footnote: L.s("signin_footnote"), line: L.s("signin_cancelled"),
+                                               insets: insets), size, insets),
+                               size: size, path: "app/sign-in-cancelled-\(w)-noon.png")
+        }
+        AppSnapshot.assert(draw(SignInPage(title: L.s("signin_title"), text: L.s("signin_text"), google: L.s("signin_google"),
+                                           apple: L.s("signin_apple"), footnote: L.s("signin_footnote"), line: L.s("signin_finishing"),
+                                           working: true, insets: .lab), PhoneInsets.labSize, .lab),
+                           size: PhoneInsets.labSize, path: "app/sign-in-browser-402-noon.png")
+    }
+
     // decision: PHN-416, PHN-8
     func testTheLockIsTheLabsUnlockPage() {
         same(UnlockPage(insets: .lab, bio: "Face ID", symbol: "faceid"), asDesign: "unlock-noon")

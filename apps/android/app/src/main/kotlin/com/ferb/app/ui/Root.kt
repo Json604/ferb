@@ -88,6 +88,8 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
     val uiState = vm.ui.collectAsState()
     val gate by remember { derivedStateOf { uiState.value.gate } }
     val pairing by remember { derivedStateOf { uiState.value.pairing } }
+    val pairReason by remember { derivedStateOf { uiState.value.pairReason } }
+    val pairNow by vm.pairNow.collectAsState()
     val tab by vm.tab.collectAsState()
     val home by vm.home.collectAsState()
     val sheet by vm.sheet.collectAsState()
@@ -171,8 +173,13 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
             val screen: Any = when {
                 asks.pending.isNotEmpty() && (gate == Gate.PAIR || gate == Gate.MAIN) -> AsksScreen
                 gate == Gate.PAIR && sheet == Sheet.Scan && !pairing -> ScanScreen
+                // kb PHN-829: signed in with no Mac yet, the phone-first page; "pair now" goes on to the pairing page
+                // (a phone that was paired before, or a pairing under way, goes straight there)
+                gate == Gate.PAIR && !pairNow && pairReason == null && !pairing -> MacFirstScreen
                 else -> gate
             }
+            // back from the pairing page to the phone-first one
+            androidx.activity.compose.BackHandler(enabled = screen == Gate.PAIR && pairNow && pairReason == null && sheet == null) { vm.pairNow(false) }
             MotionSwitch(screen, Modifier.fillMaxSize(), instant = { it == Gate.LOCKED || it == Gate.STARTING }) { s ->
                 val ui = uiState.value
                 when (s) {
@@ -181,11 +188,14 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
                     Gate.FAILED -> Failed(insets)
                     Gate.NO_SCREEN_LOCK -> NoScreenLock(insets)
                     Gate.LOCKED -> UnlockPage(insets, onUnlock = { vm.unlockApp() })
+                    // kb PHN-827: signed out of FERB's account: only the sign-in page, no sheet, nothing else
+                    Gate.SIGN_IN -> SignIn(vm, ui, insets)
+                    MacFirstScreen -> MacFirst(vm, ui, insets)
                     ScanScreen -> Scanner(vm, insets) { vm.show(null) }
                     AsksScreen -> Asks(asks, insets)
                     Gate.PAIR -> Pair(vm, ui.pairing, ui.pairReason, ui.pairError?.let { noteText(it) }, insets)
                     Gate.CODES -> CodesPage(ui.link?.pairingCode.orEmpty(), insets, onCancel = { vm.cancelPairing() })
-                    Gate.REMOVED -> Removed(vm, ui.pairReason, insets)
+                    Gate.REMOVED -> Removed(vm, ui.pairReason, ui.removedNote?.let { noteText(it) }, insets)
                     // the connection control in every page's top bar (kb PHN-751)
                     Gate.MAIN -> androidx.compose.runtime.CompositionLocalProvider(com.ferb.design.components.LocalConnection provides rememberConnection(vm, ui)) {
                         Main(vm, ui, tab, home, insets, moment, host)
@@ -210,6 +220,9 @@ private object ScanScreen
 
 /** The first run's asks, a page of its own before pairing or the app (MotionSwitch's key). */
 private object AsksScreen
+
+/** The phone-first page (kb PHN-829), a screen of the pairing gate of its own (MotionSwitch's key). */
+private object MacFirstScreen
 
 /** What the first run's page needs: the asks still to make, Continue and Not now (kb PHN-636). */
 class FirstRunUi(val pending: List<FirstRun.Ask>, val onContinue: () -> Unit, val onNotNow: () -> Unit)
@@ -309,10 +322,11 @@ internal fun Pair(vm: FerbViewModel, pairing: Boolean, reason: PairReason?, erro
 }
 
 @Composable
-private fun Removed(vm: FerbViewModel, reason: PairReason?, insets: PhoneInsets) {
+private fun Removed(vm: FerbViewModel, reason: PairReason?, words: String?, insets: PhoneInsets) {
     Message(
         title = stringResource(R.string.removed_title),
-        text = stringResource(when (reason) {
+        // the Mac's own words when it removed this phone for another account (kb PHN-828)
+        text = words ?: stringResource(when (reason) {
             PairReason.KEYS -> R.string.pair_reason_keys
             PairReason.UNKNOWN -> R.string.pair_reason_unknown
             else -> R.string.pair_reason_removed

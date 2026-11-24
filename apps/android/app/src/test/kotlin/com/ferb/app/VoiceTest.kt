@@ -74,7 +74,7 @@ class VoiceTest {
     fun tearDown() { Dispatchers.resetMain(); root.deleteRecursively() }
 
     private fun vm(input: VoiceInput? = voice) = FerbViewModel(phone, session, prefs, { true }, null, SavedStateHandle(), LocalFiles(root) { null },
-        now = { t }, voice = input, micAllowed = { mic }).also {
+        now = { t }, voice = input, micAllowed = { mic }, account = testAccount()).also {
         it.prompts = object : Prompts {
             override fun signer(kind: KeyKind, why: Why) = FakeSigner(kind, false)
             override suspend fun local() = true

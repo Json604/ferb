@@ -163,11 +163,21 @@ public final class FerbPhone {
     }
 
     /// Pairs from a scanned or typed code. Keys iOS deleted are made anew first (and missing ones the phone can hold
-    /// now, such as the lock key after a passcode was set), and the link restarts to carry them.
-    public func pair(_ code: String) async -> Outcome<Void> {
-        let r = await engine.serial { $0.pair(code) }
+    /// now, such as the lock key after a passcode was set), and the link restarts to carry them. `account`: the
+    /// server's signed assertion of this phone's FERB account for [endpointId] (PHN-828), carried in the pairing hello.
+    public func pair(_ code: String, account: String) async -> Outcome<Void> {
+        let r = await engine.serial { $0.pair(code, account: account) }
         publishOpen()
         return r
+    }
+
+    /// This phone's link id (its endpoint id), or nil before the link started. A restart for new keys keeps it (the
+    /// same kept state); Forget this Mac makes a new one.
+    public func endpointId() async -> String? {
+        await engine.serial { e in
+            MainGuard.offMain("the link's endpoint id")
+            return e.uplink?.endpointId()
+        }
     }
 
     /// PHN-125: the signed unlock the app sends on open: one prompt with the lock key.
@@ -365,12 +375,12 @@ final class Engine: @unchecked Sendable {
         }
     }
 
-    func pair(_ code: String) -> Outcome<Void> {
+    func pair(_ code: String, account: String) -> Outcome<Void> {
         do {
             let fresh = try vault.keys.renew()
             if fresh != pubs { try restartLink(fresh) }
             guard let u = uplink else { return .failed(.Closed(detail: "FERB is not open.", linkCode: nil)) }
-            try u.pair(code)
+            try u.pair(code, account: account)
             // the keys this pairing's hello carries: what the Mac will hold (registerKeys adds any made later)
             vault.saveRegisteredKeys(fresh)
             wiped = nil

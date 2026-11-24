@@ -11,7 +11,15 @@ import com.ferb.mobile.Mobile
 interface Uplink {
     /** Makes this the core's way to the Mac. */
     fun attach(mobile: Mobile)
-    fun pair(code: String)
+
+    /**
+     * Pairs from a scanned or typed code. [account]: the server's signed statement of this phone's FERB account for
+     * this link's own [endpointId] (`/api/app/assertion`), which the Mac's daemon checks before it asks (kb PHN-828).
+     */
+    fun pair(code: String, account: String)
+
+    /** This phone's link id (its endpoint id): what the account statement names; empty when the link can't say. */
+    fun endpointId(): String
     fun status(): LinkStatus?
     fun setActive(on: Boolean)
 
@@ -62,7 +70,8 @@ class LinkUplinks(private val tune: (LinkConfig) -> LinkConfig = { it }) : Uplin
 
 private class LinkUplink(private val link: Link) : Uplink {
     override fun attach(mobile: Mobile) = mobile.connect(link)
-    override fun pair(code: String) = link.pair(code)
+    override fun pair(code: String, account: String) = link.pair(code, account)
+    override fun endpointId(): String = link.endpointId()
     override fun status(): LinkStatus? = link.status()
     override fun setActive(on: Boolean) = link.setActive(on)
     override fun networkChanged(kind: String?) = link.networkChanged(kind)

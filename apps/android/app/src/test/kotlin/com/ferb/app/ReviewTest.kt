@@ -129,7 +129,7 @@ class ReviewTest {
         phone.memoryReview = ReviewData.review
         phone.status = PhoneStatus(false, true, false, listOf(ReviewData.statusQuestion), emptyList(), emptyList(), null)
         val vm = FerbViewModel(phone, Session { 0L }, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-            LocalFiles(root) { null })
+            LocalFiles(root) { null }, account = testAccount())
         compose.setContent {
             val ui by vm.ui.collectAsState()
             CompositionLocalProvider(LocalQuestions provides ui.questions, LocalBusy provides ui.busy) { QuestionBox(vm, "ap-r", null, null) }

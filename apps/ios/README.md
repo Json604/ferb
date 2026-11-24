@@ -55,6 +55,20 @@ screenshots are re-recorded with `TEST_RUNNER_FERB_RECORD_SNAPSHOTS=1` (its READ
   No DNS context is needed on iOS: n0-dns-resolver reads the nameservers through libresolv (PHN-478), so there is no
   `NativeInit` twin.
 - **The scanner** (PHN-564): AVFoundation's QR reader, as PHN-447 named.
+- **FERB's account** (PHN-827..829, the owner's "required. google and apple."): after the lock and before anything else,
+  signed out shows only the sign-in (FerbAppModel `AccountModel`, FerbAppUI `AccountViews.swift`). Google and Apple both
+  go through the site's web flow in ASWebAuthenticationSession (callback `ferb-auth://callback`, PKCE S256 and our own
+  state; no URL scheme registered); a native Sign in with Apple would need a second audience on the server and is not
+  built. The account and its tokens are one Keychain item of the service `com.ferb.phone.account`
+  (AfterFirstUnlockThisDeviceOnly), apart from the vault's so Forget this Mac never signs out; the device id is in
+  UserDefaults, and its absence (a new install) deletes what an earlier install left in that service. Signed in with
+  no Mac paired: "FERB runs on your Mac" (the address, Send me the link, then pairing). Pairing first asks the site for
+  the account's assertion for this phone's link id and carries it to the Mac (`pair(code:account:)`); the Mac's refusal
+  is shown in its own words. Sign out, Delete account (This phone → the account's row) and a sign-in the site ended
+  (`invalid_grant`, or a call refused after a refresh) all leave the Mac too. A pairing made before sign-in existed is bound to the account
+  (`phone.bind_account` with the assertion) at sign-in or the next unlock, once per unlock until the Mac says bound;
+  `account_mismatch` shows the Mac's words on the removed page, anything else waits for the next unlock. The UI
+  tests never reach the site: `-FERBUITestSignedIn YES` (Debug, simulator) signs in an invented account in memory.
 - **Screenshots** (PHN-810, PHN-811, the owner's PHN-598): iOS has no public FLAG_SECURE. FERB follows the owner's one
   Block screenshots switch, set once at the root (`ferbScreens` in FerbAppUI `Privacy.swift`) and carried into every page
   and every window it presents. With it on, the pictures of the Mac (Watch live, a task's short view, the Mac's camera)

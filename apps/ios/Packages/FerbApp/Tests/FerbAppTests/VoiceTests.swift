@@ -84,7 +84,7 @@ final class VoiceTests: XCTestCase {
 
     private func model(_ input: VoiceInput? = nil) async -> AppModel {
         let c = rig.clock
-        let m = AppModel(api: rig.phone, session: rig.session, prefs: rig.prefs, local: rig.local, screenLock: { true }, corpus: nil,
+        let m = AppModel(api: rig.phone, account: rig.account, session: rig.session, prefs: rig.prefs, local: rig.local, screenLock: { true }, corpus: nil,
                          now: { Date(timeIntervalSince1970: c.t) }, voice: input ?? voice, micAllowed: { [weak self] in self?.mic ?? false })
         m.prompts = rig.prompts
         await eventually("main") { m.ui.gate == .main }

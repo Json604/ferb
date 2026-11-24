@@ -8,6 +8,23 @@ package com.ferb.app.model
 object Json {
     fun parse(text: String): Any? = Reader(text).run { val v = value(); space(); require(i == s.length) { "trailing text" }; v }
 
+    /** [s] as a JSON string, quoted and escaped (the few bodies the app writes itself: the account's, kb PHN-827). */
+    fun quote(s: String): String {
+        val out = StringBuilder(s.length + 2).append('"')
+        for (c in s) {
+            when {
+                c == '"' -> out.append("\\\"")
+                c == '\\' -> out.append("\\\\")
+                c == '\n' -> out.append("\\n")
+                c == '\r' -> out.append("\\r")
+                c == '\t' -> out.append("\\t")
+                c < ' ' || c == '\u2028' || c == '\u2029' -> out.append("\\u%04x".format(c.code))
+                else -> out.append(c)
+            }
+        }
+        return out.append('"').toString()
+    }
+
     private class Reader(val s: String) {
         var i = 0
 

@@ -113,7 +113,7 @@ class ScrollWorkTest {
         val ui = UiState(gate = Gate.MAIN, link = FakePhone.status(), keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.OK),
             conversation = "c1", rows = rows)
         val vm = FerbViewModel(FakePhone(), Session { 0L }, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-scroll").toFile()) { null })
+            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-scroll").toFile()) { null }, account = testAccount())
         compose.setContent {
             val moment = remember { labMoment(12.5) }
             Box(Modifier.size(Phone.frameWidth, Phone.frameHeight)) {

@@ -84,6 +84,21 @@ public final class Prefs: @unchecked Sendable {
         set { d.set(Array(newValue).sorted(), forKey: "seen") }
     }
 
+    /// This install's device id for FERB's account (kb PHN-827): random, made at the first start, not secret (the site
+    /// records it with the sign-in). Its absence marks a new install. Forget this Mac and signing out keep it.
+    public var accountDeviceId: String? {
+        get { d.string(forKey: "account_device_id") }
+        set { d.set(newValue, forKey: "account_device_id") }
+    }
+
+    /// The FERB account id this phone's pairing is bound to (kb PHN-828): set by a pairing made signed in, or by
+    /// binding a pairing made before sign-in existed (`phone.bind_account`); nil for such a legacy pairing until then.
+    /// An opaque id, not secret. Goes with the pairing.
+    public var pairedAccount: String? {
+        get { d.string(forKey: "paired_account") }
+        set { d.set(newValue, forKey: "paired_account") }
+    }
+
     /// Forget this Mac: what belonged to that pairing goes; the phone's own switches stay.
     /// Insomnia mode's ends already said (their ids only, APP-980): each is said once, in the app or as a quiet
     /// notification, whichever sees it first. True for the first claim of `id`.
@@ -98,6 +113,6 @@ public final class Prefs: @unchecked Sendable {
     }
 
     public func forgetPairing() {
-        for k in ["paired_since", "just_paired", "announced", "seen", "insomnia_said"] { d.removeObject(forKey: k) }
+        for k in ["paired_since", "just_paired", "announced", "seen", "insomnia_said", "paired_account"] { d.removeObject(forKey: k) }
     }
 }

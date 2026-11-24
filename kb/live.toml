@@ -5147,3 +5147,30 @@ request = "Open the site and browse without answering; then No thanks and browse
 pass = "Without OK only page views, page leaves and `continue with google clicked` reach PostHog, cookieless, with no location, and the browser keeps no ph_ cookie or storage; after OK the visit's clicks, heatmaps, web vitals and events appear and its recording replays; the GPC browser gets no question and only the anonymous count; /api/admin and the sign-in and download pages load no PostHog; nothing on the site looks or works differently apart from the bar at the foot of the page."
 decisions = ["REL-435", "REL-438", "REL-439"]
 sitting = "website review after deployment"
+
+[LIVE-1202]
+title = "FERB.app: signing in to FERB is required; first run, an existing install, Settings → Account"
+area = "app"
+surface = "A FERB.app build with this change installed after the site is deployed with the app sign-in set up; a fresh Mac account or a wiped ~/.ferb for the first run, then the owner's own install"
+request = "First run: go through Meet, then sign in with Google (cancel once first, then finish). Quit; reopen. Settings → Account: check the email and provider, Sign out, sign in with Apple, then Delete account and sign in again. With Wi-Fi off, reopen FERB.app after an hour (the token is old): it keeps working; Settings → Account says it couldn't check. On an install from before this build: open it once."
+pass = "The account step comes right after Meet, has no Skip, says why after a cancel and moves on only once signed in; reopening asks nothing; Sign out and Delete bring the account step back at once and nothing else in FERB.app is usable until signed in; offline keeps working with the plain line; the older install gets only the short account step, not the whole tour; ferb trace / logs show no token."
+decisions = ["APP-1127", "APP-1128", "REL-440", "REL-441"]
+sitting = "app sign-in check after deployment"
+
+[LIVE-1203]
+title = "Phones: sign-in at first launch, the phone-first screen, Send me the link"
+area = "phone"
+surface = "The Android release APK the owner sideloads and the iPhone build, after the site is deployed with the app sign-in set up; a Mac without FERB paired to that phone"
+request = "Open the phone app fresh: unlock, sign in with Google (Android) and with Apple (iPhone). With no Mac paired, read the screen, press Send me the link twice in a row, then I've installed it — pair now. Sign out from Settings."
+pass = "Sign-in comes first and nothing else is reachable before it; the FERB runs on your Mac screen names the signed-in email; one email with the download link arrives and the second press says it was just sent; pair now opens the scanner; Sign out returns to the sign-in screen and the phone is unpaired."
+decisions = ["PHN-827", "PHN-829", "REL-440"]
+sitting = "phone sign-in check after deployment"
+
+[LIVE-1204]
+title = "Pairing needs the same FERB account on the phone and the Mac"
+area = "phone"
+surface = "FERB.app and a phone, each with this change, the assertion key set in Vercel and pinned in the build (T-1306); two Google accounts"
+request = "Sign the Mac in as account A. Pair a phone signed in as B; then sign the phone in as A and pair again. Then sign the Mac out and in as B. Then sign the phone out."
+pass = "B is refused with the message naming both emails and the Mac never asks; A pairs after the Mac's Yes as before; signing the Mac in as B removes the phone with one notice naming it; a phone signing out is gone from Settings → Phone."
+decisions = ["PHN-828", "PHN-830", "PHN-102"]
+sitting = "phone sign-in check after deployment"

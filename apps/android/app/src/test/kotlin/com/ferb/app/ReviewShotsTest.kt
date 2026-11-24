@@ -58,7 +58,7 @@ class ReviewShotsTest {
     private val phone = FakePhone().also { it.memoryReview = ReviewData.review }
     private val vm by lazy {
         FerbViewModel(phone, Session { 0L }, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-review-shots").toFile()) { null })
+            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-review-shots").toFile()) { null }, account = testAccount())
     }
     private val host = object : Host {
         override fun stayConnected(on: Boolean) {}

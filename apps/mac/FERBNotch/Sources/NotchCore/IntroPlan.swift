@@ -1,22 +1,34 @@
 import Foundation
 
-/// FERB.app's first-run intro: its beats, in the spec's order (kb area app).
-public enum IntroBeat: Int, CaseIterable, Equatable {
-    case meet, signIn, permissions, browsers, identity, tryIt, control, home
+/// FERB.app's first-run intro: its beats, in the spec's order (kb area app). The raw values are what a quit tour
+/// keeps (`IntroProgress`), so they never change: the FERB account step came later as 8 and runs right after Meet
+/// (APP-1128). Order is `order`, never the raw value.
+public enum IntroBeat: Int, CaseIterable, Equatable, Comparable {
+    case meet = 0, account = 8, signIn = 1, permissions, browsers, identity, tryIt, control, home
+
+    /// Where the beat comes in the tour.
+    public var order: Int { Self.allCases.firstIndex(of: self) ?? 0 }
+
+    public static func < (a: IntroBeat, b: IntroBeat) -> Bool { a.order < b.order }
 }
 
 /// What this install still needs, read by the launch decision.
 public struct IntroNeeds: Equatable {
     public var setupDone: Bool
+    /// The model service FERB thinks with is connected (the tour's Sign in beat).
     public var signedIn: Bool
+    /// The owner is signed in to their FERB account (APP-1127); false only when FERB knows they aren't.
+    public var account: Bool
     public var missingPermissions: [String]
     public var unpairedBrowsers: Bool
     /// This is the install's first run (set by the launch wiring), not inferred from the other needs.
     public var firstRun: Bool
 
-    public init(setupDone: Bool, signedIn: Bool, missingPermissions: [String], unpairedBrowsers: Bool, firstRun: Bool) {
+    public init(setupDone: Bool, signedIn: Bool, missingPermissions: [String], unpairedBrowsers: Bool, firstRun: Bool,
+                account: Bool = true) {
         self.setupDone = setupDone
         self.signedIn = signedIn
+        self.account = account
         self.missingPermissions = missingPermissions
         self.unpairedBrowsers = unpairedBrowsers
         self.firstRun = firstRun
@@ -26,22 +38,24 @@ public struct IntroNeeds: Equatable {
 public enum IntroPlan {
     /// The beats this install gets. A finished setup gets none unless replayed (replay is the whole tour). A first run gets
     /// every beat; an upgrade gets only the beats for what is missing, then home.
-    /// FERB's own email (identity) is offered whenever browsers are.
+    /// FERB's own email (identity) is offered whenever browsers are. Signed out of the FERB account: the account step
+    /// comes first whatever else is planned, on a finished setup too, as a short step and not the whole tour (APP-1128).
     public static func beats(_ needs: IntroNeeds, replay: Bool) -> [IntroBeat] {
         if replay { return IntroBeat.allCases }
         if needs.firstRun { return IntroBeat.allCases }
-        if needs.setupDone { return [] }
+        let account: [IntroBeat] = needs.account ? [] : [.account]
+        if needs.setupDone { return account }
         var plan: [IntroBeat] = []
         if !needs.signedIn { plan.append(.signIn) }
         if !needs.missingPermissions.isEmpty { plan.append(.permissions) }
         if needs.unpairedBrowsers { plan += [.browsers, .identity] }
         if !plan.isEmpty { plan.append(.home) }
-        return plan
+        return account + plan
     }
 
     /// Plans are in beat order.
     public static func next(after beat: IntroBeat, in plan: [IntroBeat]) -> IntroBeat? {
-        plan.first { $0.rawValue > beat.rawValue }
+        plan.first { $0 > beat }
     }
 }
 

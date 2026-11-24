@@ -70,6 +70,11 @@ const fn m(name: &'static str, roles: &'static [Role], app_only: bool) -> Method
 pub const METHODS: &[Method] = &[
     m("about.get", &[Role::Cli], false),
     m("about.guide", &[Role::Cli], true),
+    // PHN-828, APP-1128: FERB.app's own sign-in to the owner's FERB account, kept in the Keychain through FERB's signed
+    // helper; the account a phone must share to pair. Not Python's: ACCOUNT_ADDITIONS.
+    m("account.clear", &[Role::Cli], true),
+    m("account.get", &[Role::Cli], true),
+    m("account.save", &[Role::Cli], true),
     m("attention.ack", &[Role::Cli], false),
     m("automation.request", &[Role::Cli], false),
     m("browser.show_handoff", &[Role::Cli], false),
@@ -171,6 +176,9 @@ pub const METHODS: &[Method] = &[
     // stage 3 (T-1202): FERB.app's Settings → Phone (PHONE_ADDITIONS, FERB.app's own), and a phone session's own calls
     // (PHONE_SESSION: no local role; the phone gate answers them with the proof each carries)
     m("phone.audit", &[Role::Cli], true),
+    // PHN-828: a paired phone binds itself to its FERB account (a phone paired before accounts, as it signs in);
+    // PHONE_ACCOUNT: no local role
+    m("phone.bind_account", &[], false),
     m("phone.challenge", &[], false),
     // T-1214: the phone's own record (time, zone, city, battery) and the Mac's files it may find (PHONE_OWN)
     m("phone.device_report", &[], false),
@@ -293,6 +301,11 @@ pub const STAGE2_ADDITIONS: [&str; 6] = [
 /// ORCH-699: the temporary chat's two calls, FERB.app's own (`app_only`); a phone reaches them by class. Not Python's.
 pub const TEMPORARY_ADDITIONS: [&str; 2] = ["chat.temporary.get", "chat.temporary.set"];
 
+/// PHN-828, APP-1128: FERB.app's sign-in to the owner's FERB account (the account, its tokens), kept by the daemon in
+/// the Keychain through FERB's signed helper; a phone pairs only with a Mac signed in to the same account. FERB.app's
+/// own (`app_only`): never a tool's, the extension's, a command line's or a phone's.
+pub const ACCOUNT_ADDITIONS: [&str; 3] = ["account.clear", "account.get", "account.save"];
+
 /// The methods the owner's identifier choices added to Python's table (GATE-601, GATE-602): FERB.app's own
 /// (`app_only`), never a tool's or the phone's.
 pub const IDENTIFIER_ADDITIONS: [&str; 2] = ["secrets.mask", "secrets.unmask"];
@@ -385,6 +398,11 @@ pub const PHONE_SESSION: [&str; 8] = [
     "phone.unlock",
     "phone.unlock_statement",
 ];
+
+/// PHN-828: a paired phone's own statement of its FERB account (the site's signed assertion for its own endpoint),
+/// which binds a phone paired before accounts to the Mac's account, or removes it when the accounts differ. No local
+/// role may call it; the phone gate admits it by its row (plain, allowed while locked: the site's signature proves it).
+pub const PHONE_ACCOUNT: [&str; 1] = ["phone.bind_account"];
 
 /// Stage 3 S3b (T-1203): a phone session's file calls: browse, fetch (a stream) and upload. No local role may call
 /// them; on a phone session the phone gate leaves each to the daemon's file area, which checks the unlock window, a
@@ -818,6 +836,20 @@ mod tests {
         }
     }
 
+    /// The owner's FERB account and its tokens are FERB.app's alone: no model's tools, extension or command line.
+    // decision: APP-1128
+    #[test]
+    fn the_account_is_ferb_app_s_own() {
+        for name in ACCOUNT_ADDITIONS {
+            assert!(app_only(name), "{name}");
+            assert!(allowed(Role::Cli, name), "{name}");
+            assert!(!allowed(Role::McpShim, name), "{name}");
+            assert!(!allowed(Role::NativeHost, name), "{name}");
+            assert!(!allowed(Role::Link, name), "{name}");
+            assert!(!allowed(Role::Phone, name), "{name}");
+        }
+    }
+
     /// Where FERB thinks the Mac is comes only from FERB.app: no model's tools, extension or command line.
     // decision: APP-925
     #[test]
@@ -867,7 +899,7 @@ mod tests {
                 assert!(!allowed(role, name), "{name}");
             }
         }
-        for name in PHONE_SESSION.iter().chain(&PHONE_OWN) {
+        for name in PHONE_SESSION.iter().chain(&PHONE_OWN).chain(&PHONE_ACCOUNT) {
             assert!(method(name).is_some_and(|m| m.roles.is_empty()), "{name}");
             for role in [Role::Cli, Role::McpShim, Role::NativeHost, Role::Link] {
                 assert!(!allowed(role, name), "{name}");

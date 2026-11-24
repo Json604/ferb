@@ -461,4 +461,46 @@
     <string name="temporary_end_failed">Couldn\'t end the temporary chat. Try again.</string>
     <!-- the top bar folded into one menu button when there's no room (owner 2026-11-23, PHN-820) -->
     <string name="top_bar_more">More</string>
+
+    <!-- FERB's account (kb PHN-827, PHN-829): the shared sign-in spec's words, plus a few new ones marked "new" -->
+    <string name="signin_title">Welcome to FERB</string>
+    <string name="signin_text">Sign in to use FERB on your phone. Use the same account as on your Mac.</string>
+    <string name="signin_google">Continue with Google</string>
+    <string name="signin_apple">Continue with Apple</string>
+    <string name="signin_footnote">Signing in means FERB may email you about important updates. Every email has a one-click unsubscribe.</string>
+    <string name="signin_finishing">Finishing sign-in in your browser…</string>
+    <string name="signin_cancelled">Sign-in was cancelled. Try again when you\'re ready.</string>
+    <string name="signin_unreachable">FERB can\'t reach its sign-in right now. Check your internet connection and try again.</string>
+    <string name="signin_not_answering">FERB\'s sign-in isn\'t answering right now. Try again in a minute.</string>
+    <!-- new: the server's other errors, and an account that gave no confirmed email -->
+    <string name="signin_failed">FERB couldn\'t finish signing you in. Try again.</string>
+    <string name="signin_no_email">FERB needs a confirmed email address to sign you in. Try again and choose to share your email.</string>
+    <string name="signin_signed_in_as">You\'re signed in as %1$s.</string>
+    <!-- new: the account page's title -->
+    <string name="account_title">Your account</string>
+    <string name="account_signed_in_as">Signed in as %1$s</string>
+    <string name="account_with_google">with Google</string>
+    <string name="account_with_apple">with Apple</string>
+    <string name="account_with_both">with Google and Apple</string>
+    <string name="account_sign_out">Sign out</string>
+    <string name="account_delete">Delete account…</string>
+    <string name="account_check_failed">FERB couldn\'t check your sign-in just now. It keeps working and tries again later.</string>
+    <!-- the spec's sign-out and delete questions, each split into the sheet's title and its text -->
+    <string name="signout_title">Sign out of FERB on this phone?</string>
+    <string name="signout_text">It\'s unpaired from your Mac, and you\'ll sign in and pair again to use it.</string>
+    <string name="signout_yes">Sign out</string>
+    <string name="delete_title">Delete your FERB account?</string>
+    <string name="delete_text">This deletes %1$s\'s account and signs FERB out on all your devices. It can\'t be undone.</string>
+    <string name="delete_yes">Delete account</string>
+    <string name="account_delete_failed">FERB couldn\'t delete your account just now. Check your connection and try again.</string>
+    <!-- the phone came first (kb PHN-829) -->
+    <string name="macfirst_title">FERB runs on your Mac</string>
+    <string name="macfirst_text">Your phone works with FERB on your Mac. Install FERB on your Mac, sign in there as %1$s, then pair this phone.</string>
+    <string name="macfirst_site">ferb.kartikey.xyz</string>
+    <string name="macfirst_send">Send me the link</string>
+    <string name="macfirst_pair">I\'ve installed it — pair now</string>
+    <string name="macfirst_sent">Sent. Check %1$s on your Mac.</string>
+    <string name="macfirst_sent_recently">The link was sent a moment ago. Check your inbox, or try again in a few minutes.</string>
+    <string name="macfirst_send_failed">FERB couldn\'t send the link just now. You can also open ferb.kartikey.xyz on your Mac.</string>
+    <string name="pair_needs_internet">Pairing needs the internet to confirm your account.</string>
 </resources>

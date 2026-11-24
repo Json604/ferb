@@ -38,6 +38,8 @@ pub struct Parts {
     pub native: bool,
     /// FERB's settings: the owner's choice of upload folder (`[phone] upload_folder`, PHN-581).
     pub config: Arc<ferb_core::config::Config>,
+    /// PHN-828: the site's pinned keys and the Mac's own FERB account, for the pairing's account check.
+    pub account: ferb_daemon::phone::account::AccountCheck,
 }
 
 /// PHN-581: where a phone's uploads land by default.
@@ -231,6 +233,7 @@ pub fn register(server: &Server, p: Parts) -> Phones {
             publish: Arc::new(move |topic: &str, data: Map<String, Value>| {
                 events.publish(topic, data)
             }),
+            account: p.account,
         },
         Limits::default(),
     );

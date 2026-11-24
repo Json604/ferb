@@ -56,7 +56,7 @@ class TopBarFoldTest {
     private val session = Session { 0L }
     private val vm by lazy {
         FerbViewModel(phone, session, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-fold").toFile()) { null })
+            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-fold").toFile()) { null }, account = testAccount())
     }
     private val host = object : Host {
         override fun stayConnected(on: Boolean) {}

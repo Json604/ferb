@@ -19,6 +19,8 @@ fn reads() -> Vec<(&'static str, Value)> {
     vec![
         ("ping", json!({})),
         ("about.get", json!({})),
+        // APP-1128: the Keychain is off for a test daemon: signed out
+        ("account.get", json!({})),
         ("chat.status", json!({})),
         ("chat.attach", json!({})),
         ("chat.entries.days", json!({})),

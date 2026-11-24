@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#fafafa">
-<meta name="description" content="How FERB, the Mac app and its browser extension, handles your data.">
+<meta name="description" content="How FERB, its Mac and phone apps, its browser extension and its website handle your data.">
 <title>FERB Privacy Policy</title>
 <link rel="stylesheet" href="/styles.css">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
@@ -19,8 +19,9 @@
 <h1>FERB Privacy Policy</h1>
 <p class="muted">Last updated: 24 November 2026</p>
 
-<p>FERB is a personal assistant for macOS. It is made of the FERB app, which runs on your Mac, and the
-FERB browser extension. This policy covers both, and the FERB website you download it from.</p>
+<p>FERB is a personal assistant for macOS. It is made of the FERB app, which runs on your Mac, the FERB browser
+extension, and the FERB apps for iPhone and Android, which work with FERB on your Mac. This policy covers all of them,
+your FERB account, and the FERB website you download FERB from.</p>
 
 <h2>What the extension does with your data</h2>
 <p>The extension connects only to the FERB app on the same Mac, through the browser's native messaging. It has no
@@ -49,22 +50,27 @@ In those profiles it does three things:</p>
 <h2>What the FERB app does with your data</h2>
 <ul>
   <li><strong>Stored on your Mac.</strong> FERB keeps its records in a local database on your Mac: your tasks and
-    what it did, its memory, and the activity it notices (the apps and windows you use, tab addresses and titles, text
-    you type in ordinary fields, text you copy, notifications, apps you install or remove, and changes in folders you
-    asked it to watch). Typed and copied text is kept for 7 days, other
-    activity for 30 days. The app uploads none of this to a FERB server.</li>
-  <li><strong>Sent to the AI provider you connect.</strong> FERB sends context to the AI model service you set up in
-    FERB (for example OpenAI through Codex, or Anthropic), under that provider's own terms: to carry out the tasks you
-    ask for, and also to decide whether something it noticed is worth telling you, to write your daily summary and to
-    organize its memory. This can include page text, a redacted screenshot of the window you have in front when you
-    send a message, transcripts of sound FERB listens to during a task, and the parts of your recent activity that
-    relate to your message.</li>
-  <li><strong>Optional triage service.</strong> If you add a Jev key, FERB also sends batches of redacted activity
-    (app and window names, tab addresses and titles, typed and copied text, notifications, apps installed or removed,
-    and file paths in folders you asked it to watch) to Jev, a triage service
-    run by typesafe.ai (api.typesafe.ai), which answers whether a moment may be worth telling you about. Without a Jev
-    key nothing is sent there. When Jev says yes, the decision and the message to you are made by your AI provider
-    (above).</li>
+    what it did, your chats with it, its memory, and the activity it notices (the apps and windows you use, tab
+    addresses and titles, text you type in ordinary fields, text you copy, notifications, apps you install or remove,
+    and changes in folders you asked it to watch). It also keeps the screenshots it took, copies of files before it
+    changed them, and a record of every action it took and every question it asked you. The app uploads none of this to
+    a FERB server.</li>
+  <li><strong>How long.</strong> Text FERB read from apps on screen, screenshots and other evidence, and copies of
+    files kept for undo: 7 days. Typed and copied text: 7 days. Other activity: 30 days. The detailed record of how a
+    task ran: 30 days after it ends. Action and safety records: 90 days. Your tasks, chats, daily summaries and
+    memory stay until you delete them. You can change most of these times in Settings → Privacy.</li>
+  <li><strong>Sent to the model service you connect.</strong> FERB thinks with the service you choose in Settings →
+    Thinking: ChatGPT (through Codex), Claude (through Claude Code), or an Anthropic, OpenAI or Google Gemini API key.
+    FERB sends it context, under that service's own terms, to carry out the tasks you ask for, to look over your apps
+    once when you set FERB up, and to organize its memory. This can include page text, a redacted screenshot of the
+    window you have in front when you send a message, transcripts of sound FERB listens to during a task, the parts of
+    your recent activity that relate to your message, and the city your Mac is in (see Location). Your daily summary is
+    written on your Mac without it. Claude Code adds its own text to each request, which includes the email of the
+    Claude account it is signed in with.</li>
+  <li><strong>Location.</strong> FERB asks for Location so it knows where your Mac is. It tells the model service your
+    city with each message, never your exact position. Your Wi-Fi network's name is kept on your Mac; FERB can look it up during a
+    task, and it then goes to the model service with that task. Your exact position goes to the model service only for a task that needs it, after you
+    say Yes, once per task. To turn coordinates into a city name, macOS asks Apple's map service.</li>
   <li><strong>Speech stays on your Mac.</strong> Dictation in the FERB app, push-to-talk and the sound FERB listens to
     during a task are turned into text by Apple's speech recognition on your Mac only. Where your Mac can't recognize
     a language on-device, FERB says so instead of sending your voice anywhere. Recorded sound is deleted once it has
@@ -72,12 +78,54 @@ In those profiles it does three things:</p>
   <li><strong>Secrets are removed first.</strong> Before anything is stored or leaves your Mac, FERB removes known
     kinds of secrets: password fields (also while "show password" is on), one-time codes with a word like "code",
     "OTP" or "verification" near them, values written right after words like "password", "PIN", "API key" or
-    "token", recognizable API keys and tokens, and card numbers. It works by recognizing these patterns, so a secret
-    written some other way can get through. Passwords and one-time codes you give FERB are filled into pages through a
-    sealed path and are never shown to the AI model.</li>
+    "token", recognizable API keys and tokens, card numbers, and government, tax, bank and health ID numbers it can
+    recognize by their label or check digit. It works by recognizing these patterns, so a secret written some other
+    way can get through. Passwords and one-time codes you give FERB are filled into pages through a sealed path and are
+    never shown to the model service: it gets a stand-in, never the secret.</li>
+  <li><strong>Memory import (off until you turn it on).</strong> If you turn it on, FERB reads your last month of
+    conversations with other assistants you choose (ChatGPT, Claude, Gemini, Claude Code, Codex) to learn your
+    preferences. For the websites, FERB asks for your export in your own browser, waits for its email, downloads only
+    the parts it needs, and deletes the file when the import is done. What it reads goes to your model service to be
+    summarized; what it learns is kept in its memory on your Mac, where you can review and remove it.</li>
+  <li><strong>Temporary chat.</strong> A temporary chat isn't saved in your chat history and FERB doesn't learn or
+    remember anything from it. The records FERB always keeps for safety (what its tasks did, the questions it asked
+    you, its screenshots) are kept for their usual time.</li>
+  <li><strong>FERB's own email account (optional).</strong> If you give FERB its own Google account, the extension
+    reads that account's inbox, in the browser profile you set up for it, when a task needs it.</li>
+  <li><strong>Updates.</strong> Once a day FERB asks this website whether there is a newer version; the files come
+    from FERB's public releases on GitHub. The check sends nothing about you beyond what any download sends (the
+    app's version and your network address).</li>
+  <li><strong>Send to developer (only when you press it).</strong> When something goes wrong, FERB can show you a
+    report of what happened. Only if you press Send does it go to FERB's maker, as a private report, with secrets
+    removed again first. Nothing is sent by itself, and FERB has no crash reporting or analytics.</li>
   <li><strong>Not sold or shared.</strong> Your data is never sold, never used for advertising, never used to judge
     creditworthiness, and never used for anything except running FERB's features for you: your tasks, the things it
     tells you about, your daily summary and its memory.</li>
+</ul>
+
+<h2>The FERB phone apps</h2>
+<ul>
+  <li><strong>Your phone talks to your Mac directly.</strong> The phone app works with FERB on your Mac; it has no
+    model service of its own. Everything between them is end-to-end encrypted. When they can't reach each other
+    directly, a relay passes the encrypted traffic along: your own relay if you set one up, otherwise a public relay
+    run by n0 (the makers of the connection software), which carries only messages, questions and Stop, never files or
+    the live view. A relay can't read what passes through it; it can see the network addresses of your devices.</li>
+  <li><strong>What the phone keeps.</strong> Your chat as it fetched it from your Mac, its own keys, and your FERB
+    sign-in, in the phone's secure storage. Your Mac keeps a record of what each paired phone did, for 90 days.</li>
+  <li><strong>The live view and the camera.</strong> When you watch FERB work from your phone, or use Show me to look through your Mac's camera while FERB keeps a closed Mac
+    awake, the pictures go straight to your phone and are kept nowhere: not on disk, not in a
+    log, never sent to the model service. They travel only directly or through your own relay. The phone keeps them out
+    of screenshots.</li>
+  <li><strong>Notifications.</strong> FERB's notifications come from your Mac over the same encrypted connection; no
+    Apple or Google push service is used. Your lock screen never shows the words of a question about money, deleting
+    something or your account's security.</li>
+  <li><strong>Speaking.</strong> When you hold the microphone, your phone turns speech into text on the phone where it
+    can. Where it can't, it says so first and then uses the phone's own speech service (Apple's on iPhone, usually
+    Google's on Android), which may receive your voice. Nothing you say is sent to your Mac as sound.</li>
+  <li><strong>Location (if you turn it on).</strong> The phone can tell FERB its city; on Android, turning a position
+    into a city name uses the phone's own map service.</li>
+  <li><strong>Same account to pair.</strong> A phone pairs only with a Mac signed in to the same FERB account (see
+    below), and only after you say Yes on your Mac.</li>
 </ul>
 
 <h2>What the FERB website keeps</h2>
@@ -87,6 +135,36 @@ Google email and name, when you signed in and last downloaded, and whether you u
 for Vercel, only to email you about important FERB updates, each with a one-click unsubscribe; emails are sent through
 Resend. It is never sold, shared or used for advertising. To have your record deleted, reply to any FERB email or ask
 through the contact below. Analytics cookies are set only if you say OK to analytics (below).</p>
+
+<h2 id="account">Your FERB account</h2>
+<p>The FERB apps on your Mac and phone ask you to sign in with Google or Apple, so your Mac and your phone know they
+belong to the same person. Google and Apple never share your password with FERB. For your account, the website keeps:</p>
+<ul>
+  <li>an account number FERB makes, the email address and name Google or Apple shares (with Apple's Hide My Email
+    this is a private relay address), and whether you signed in with Google, Apple or both;</li>
+  <li>when you first and last signed in;</li>
+  <li>for each device you sign in on: whether it's a Mac, an iPhone or an Android phone, the FERB version, and when
+    it was first and last seen;</li>
+  <li>the sign-in tokens your devices use and the one-time codes that finish a sign-in (they stop working after two
+    minutes), each kept only in a scrambled (hashed) form that can't be turned back into the token or code. Expired
+    ones are removed.</li>
+</ul>
+<p>Your account is kept in the website's database, run by Neon for Vercel. Signing in means FERB may email you about
+important updates, each with a one-click unsubscribe; emails are sent through Resend. It is never sold, shared or used
+for advertising. The website sets one short-lived cookie of its own, for the few minutes a sign-in from a FERB app
+takes.</p>
+<p>On your devices, the sign-in tokens are kept only in secure storage: your Mac's Keychain, the iPhone's Keychain, or
+storage on Android encrypted with a key the phone keeps. FERB never writes them to a file or a log and never shows them
+to the model service.</p>
+<p>When you pair your phone, the website signs a short note naming your account (its number and email) and that
+phone, valid for five minutes; your Mac checks it and pairs only if both are signed in to the same account. If you ask
+the phone app to send you the download link, it's emailed to your account's address. To protect sign-in from abuse,
+the website counts requests for a few minutes; network addresses are kept only in a scrambled form, and old counts are
+removed.</p>
+<p><strong>Sign out</strong> ends that device's sign-in; on a phone it also unpairs the phone from your Mac.
+<strong>Delete account</strong> in any FERB app deletes all of it at once: your account, its devices, its sign-ins and
+your place on the email list. Phones paired with your Mac under an account that is no longer the Mac's are unpaired.</p>
+
 
 <h2 id="analytics">Analytics on this website</h2>
 <p>This website uses PostHog (posthog.com), an analytics service, to see how people use the website and to fix what
@@ -124,9 +202,12 @@ count goes on. To have what was already collected deleted, ask through the conta
   <button type="button" data-analytics-choice>Change your choice</button></p>
 
 <h2>Your control</h2>
-<p>You choose which browser profiles to pair, and you can remove the extension at any time. You can see everything
-FERB did with <code>ferb trace</code> and <code>ferb timeline</code>, and you can delete FERB's local data by
-uninstalling it with <code>ferb uninstall --purge</code> (plain <code>ferb uninstall</code> stops FERB but keeps its data).</p>
+<p>You choose which browser profiles to pair and which phones to pair, and you can remove the extension or a phone at
+any time. In the FERB app on your Mac, Settings → Stored data shows everything FERB keeps in its database, as stored,
+and lets you delete a turn of a chat or make FERB forget a memory; Settings → Privacy sets how long records are kept and
+which apps and websites FERB never records. Settings → Advanced has <strong>Uninstall FERB…</strong>, which keeps your
+data, and <strong>Uninstall FERB and delete all its data…</strong>, which deletes FERB's folder and every FERB item in
+your Keychain. Settings → Account has Sign out and Delete account.</p>
 
 <h2>Contact</h2>
 <p>Questions: open an issue at <a href="https://github.com/Json604/ferb-update/issues">github.com/Json604/ferb-update/issues</a></p>

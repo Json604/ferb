@@ -83,7 +83,7 @@ class FrameWorkTest {
         }
         shown = true
         val vm = FerbViewModel(FakePhone(), Session { 0L }, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-frames").toFile()) { null })
+            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-frames").toFile()) { null }, account = testAccount())
         compose.setContent {
             val moment = remember { labMoment(12.5) }
             val insets = remember { PhoneInsets.live(Phone.statusBar) { bottom } }
@@ -137,7 +137,7 @@ class FrameWorkTest {
         ui = UiState(gate = Gate.MAIN, link = FakePhone.status(), keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.OK),
             conversation = "c1", rows = rows(5_000, "The very last reply"))
         val vm = FerbViewModel(FakePhone(), Session { 0L }, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-frames").toFile()) { null })
+            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-frames").toFile()) { null }, account = testAccount())
         Runs.install()
         compose.setContent {
             val moment = remember { labMoment(12.5) }
@@ -168,7 +168,7 @@ class FrameWorkTest {
         var tab by mutableStateOf(PhoneTab.FILES)
         ui = UiState(gate = Gate.MAIN, link = FakePhone.status(), keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.OK), conversation = "c1")
         val vm = FerbViewModel(FakePhone(), Session { 0L }, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-frames").toFile()) { null })
+            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-frames").toFile()) { null }, account = testAccount())
         compose.setContent {
             val moment = remember { labMoment(12.5) }
             Box(Modifier.size(Phone.frameWidth, Phone.frameHeight)) {

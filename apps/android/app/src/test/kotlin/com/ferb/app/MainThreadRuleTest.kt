@@ -89,7 +89,8 @@ class MainThreadRuleTest {
                 mobile.connectTransport(mac)
                 mobile.linkEvent("""{"type":"state","phase":"online","tier":"direct"}""")
             }
-            override fun pair(code: String) {}
+            override fun pair(code: String, account: String) {}
+            override fun endpointId(): String = ""
             override fun status() = LinkStatus(LinkPhase.ONLINE, LinkPath.DIRECT, "a direct connection", null, true, true, false, null, false, null, null, null, false, false)
             override fun setActive(on: Boolean) { said += "active=$on" }
             override fun setOpen(on: Boolean) { said += "open=$on" }
@@ -118,7 +119,7 @@ class MainThreadRuleTest {
         try {
             Notifier(context, api, prefs, session).start(scope)
             tellMacOnLock(scope, session, api, LocalFiles(java.io.File(root, "files")) { null })
-            val vm = FerbViewModel(api, session, prefs, { true }, null, SavedStateHandle(), LocalFiles(java.io.File(root, "files")) { null })
+            val vm = FerbViewModel(api, session, prefs, { true }, null, SavedStateHandle(), LocalFiles(java.io.File(root, "files")) { null }, account = testAccount())
             vm.prompts = object : Prompts {
                 override fun signer(kind: KeyKind, why: Why) = object : Signer {
                     override fun sign(payload: String): String? = keys.sign(KeyKind.LOCK, payload)

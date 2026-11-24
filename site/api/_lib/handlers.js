@@ -138,7 +138,7 @@ function readyPage(link, cookies) {
 <p class="note">Apple Silicon (M1 or later) · macOS 14.2 or later</p>
 <ol class="steps">
 <li>Open the DMG and drag FERB to Applications.</li>
-<li>Connect your AI and allow its permissions.</li>
+<li>Open FERB, sign in with Google or Apple, connect the service it thinks with and allow its permissions.</li>
 <li>Start with one thing: ask FERB to lend a hand.</li>
 </ol>
 <details>

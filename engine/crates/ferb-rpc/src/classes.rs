@@ -148,6 +148,8 @@ const PHONE_SESSION_WHY: &str =
     "the phone session's own call: the daemon's phone gate answers it and checks the proof it carries (PHN-124)";
 const LINK_CONTROL_WHY: &str =
     "is FERB.app's control of the phone link (the pairing code, the owner's relay, the switch), the Mac owner's side (PHN-106)";
+const ACCOUNT_WHY: &str =
+    "is FERB.app's own sign-in to your FERB account; the phone signs in to the same account on the phone (PHN-828)";
 const LINK_WHY: &str =
     "is the phone link helper's own call about pairing and the device list, the Mac owner's side (PHN-106)";
 
@@ -299,6 +301,10 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
         "insomnia.camera_frame",
         "is FERB.app's own picture from the Mac's camera; a phone only watches it",
     ),
+    // decision: APP-1128 — FERB.app's own sign-in: a phone signs in to the same account on the phone (PHN-828)
+    never("account.clear", ACCOUNT_WHY),
+    never("account.get", ACCOUNT_WHY),
+    never("account.save", ACCOUNT_WHY),
     // ---- settings, keys and model runtimes
     private("settings.get", "the owner's settings (PHN-404)"),
     sensitive("settings.set", "changes FERB's settings (PHN-404)"),
@@ -415,6 +421,14 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
     plain("phone.put_chunk", "carries an upload its unlocked begin started (PHN-127)").locked(Locked::Allowed),
     plain("phone.put_end", "finishes, pauses or drops an upload its unlocked begin started (PHN-127)")
         .locked(Locked::Allowed),
+    // decision: PHN-828 — a paired phone binds itself to its FERB account; the site's signed statement for its own
+    //           endpoint is the proof, so the app's lock doesn't matter (`auth::PHONE_ACCOUNT`)
+    plain(
+        "phone.bind_account",
+        "binds this phone to its FERB account with the site's signed statement; a phone of another account than the \
+         Mac's is removed (PHN-828)",
+    )
+    .locked(Locked::Allowed),
     // ---- stage 3 (T-1214, T-1211): the phone's own record and finding the Mac's files (`auth::PHONE_OWN`)
     // decision: PHN-467
     plain(

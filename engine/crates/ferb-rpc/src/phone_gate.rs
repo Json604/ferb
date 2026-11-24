@@ -66,6 +66,13 @@ pub const DEVICE_LIMIT: i64 = -32023;
 /// A file that changed while it was being sent to the phone (its size, time or identity moved since it was opened):
 /// the transfer stops, nothing more is sent (stage 3 S3b, T-1203). New: ferb-link's `daemon::REFUSALS` gains it in S4.
 pub const FILE_CHANGED: i64 = -32024;
+/// PHN-828: a pairing refused before the owner is asked, because the phone's FERB account isn't the Mac's: the phone is
+/// signed in to another account (`account_mismatch`), FERB on the Mac isn't signed in (`mac_signed_out`), or the
+/// server's signed statement of the phone's account is missing, forged, expired, for another phone or under a key this
+/// build doesn't know (`account_unconfirmed`). ferb-link's `daemon::REFUSALS` reads each.
+pub const ACCOUNT_MISMATCH: i64 = -32025;
+pub const MAC_SIGNED_OUT: i64 = -32026;
+pub const ACCOUNT_UNCONFIRMED: i64 = -32027;
 /// A malformed call (JSON-RPC's invalid request, which the lab used for its `bad_request`).
 pub const BAD_REQUEST: i64 = crate::wire::INVALID_REQUEST;
 
@@ -85,6 +92,9 @@ pub const CODES: &[(&str, i64)] = &[
     ("needs_the_mac", NEEDS_THE_MAC),
     ("device_limit", DEVICE_LIMIT),
     ("file_changed", FILE_CHANGED),
+    ("account_mismatch", ACCOUNT_MISMATCH),
+    ("mac_signed_out", MAC_SIGNED_OUT),
+    ("account_unconfirmed", ACCOUNT_UNCONFIRMED),
     ("bad_request", BAD_REQUEST),
 ];
 

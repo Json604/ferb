@@ -1,0 +1,23 @@
+{
+  "_comment": "TEST KEY ONLY, invented: its private scalar is SHA-256 of `test_key_label` (UTF-8), so tests derive it and no key text is stored. Never a FERB key. The site's tests and the daemon's (engine/crates/ferb-daemon/tests) both check this vector.",
+  "kid": "test-2026-11",
+  "test_key_label": "ferb-pair test key, invented for tests, never a FERB key",
+  "test_public_key_sec1_uncompressed_b64": "BK08EzIsxd+781Ko6MHFl1GDiGfjXxN2pJ0xfNeWT0JLTd390YpixGbSz4U+2pTp94Zp8KWN6HNG9uvPn3UB/6k=",
+  "test_public_key_spki_der_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAErTwTMizF37vzUqjowcWXUYOIZ+NfE3aknTF815ZPQktN3f3RimLEZtLPhT7alOn3hmnwpY3oc0b268+fdQH/qQ==",
+  "payload": {
+    "v": 1,
+    "kid": "test-2026-11",
+    "aud": "ferb-pair",
+    "sub": "0b5f3c1e-7d2a-4e8b-9c61-2f4a8d3e5b70",
+    "email": "ada@example.com",
+    "dev": "test-phone-endpoint-7f3a9c",
+    "iat": 1800000000,
+    "exp": 1800000300
+  },
+  "payload_json": "{\"v\":1,\"kid\":\"test-2026-11\",\"aud\":\"ferb-pair\",\"sub\":\"0b5f3c1e-7d2a-4e8b-9c61-2f4a8d3e5b70\",\"email\":\"ada@example.com\",\"dev\":\"test-phone-endpoint-7f3a9c\",\"iat\":1800000000,\"exp\":1800000300}",
+  "payload_b64url": "eyJ2IjoxLCJraWQiOiJ0ZXN0LTIwMjYtMTEiLCJhdWQiOiJmZXJiLXBhaXIiLCJzdWIiOiIwYjVmM2MxZS03ZDJhLTRlOGItOWM2MS0yZjRhOGQzZTViNzAiLCJlbWFpbCI6ImFkYUBleGFtcGxlLmNvbSIsImRldiI6InRlc3QtcGhvbmUtZW5kcG9pbnQtN2YzYTljIiwiaWF0IjoxODAwMDAwMDAwLCJleHAiOjE4MDAwMDAzMDB9",
+  "signing_input": "ferb-pair/v1.eyJ2IjoxLCJraWQiOiJ0ZXN0LTIwMjYtMTEiLCJhdWQiOiJmZXJiLXBhaXIiLCJzdWIiOiIwYjVmM2MxZS03ZDJhLTRlOGItOWM2MS0yZjRhOGQzZTViNzAiLCJlbWFpbCI6ImFkYUBleGFtcGxlLmNvbSIsImRldiI6InRlc3QtcGhvbmUtZW5kcG9pbnQtN2YzYTljIiwiaWF0IjoxODAwMDAwMDAwLCJleHAiOjE4MDAwMDAzMDB9",
+  "signature_b64url": "CMJ8XjyCQLf-WLZdo5IJPHysh9x79_DyS-iEezn9-8IhRrOxQyk_bUV7mOLk-c_5PAGWPA4hmF9QzNiMPkN9sQ",
+  "assertion": "fpa1.eyJ2IjoxLCJraWQiOiJ0ZXN0LTIwMjYtMTEiLCJhdWQiOiJmZXJiLXBhaXIiLCJzdWIiOiIwYjVmM2MxZS03ZDJhLTRlOGItOWM2MS0yZjRhOGQzZTViNzAiLCJlbWFpbCI6ImFkYUBleGFtcGxlLmNvbSIsImRldiI6InRlc3QtcGhvbmUtZW5kcG9pbnQtN2YzYTljIiwiaWF0IjoxODAwMDAwMDAwLCJleHAiOjE4MDAwMDAzMDB9.CMJ8XjyCQLf-WLZdo5IJPHysh9x79_DyS-iEezn9-8IhRrOxQyk_bUV7mOLk-c_5PAGWPA4hmF9QzNiMPkN9sQ",
+  "now": 1800000000
+}

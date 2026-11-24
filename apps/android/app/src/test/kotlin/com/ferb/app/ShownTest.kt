@@ -275,7 +275,7 @@ class ShownTest {
     }
 
     private fun vm(phone: FakePhone) = FerbViewModel(phone, Session { 0L }, Prefs(androidx.test.core.app.ApplicationProvider.getApplicationContext()), { true }, null,
-        androidx.lifecycle.SavedStateHandle(), com.ferb.app.model.LocalFiles(java.nio.file.Files.createTempDirectory("ferb-shown").toFile()) { null })
+        androidx.lifecycle.SavedStateHandle(), com.ferb.app.model.LocalFiles(java.nio.file.Files.createTempDirectory("ferb-shown").toFile()) { null }, account = testAccount())
 
     /** Every live picture follows his switch, the small circles and the short view alike (owner 2026-11-23). */
     // decision: PHN-810

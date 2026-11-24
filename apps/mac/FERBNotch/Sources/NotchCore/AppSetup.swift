@@ -135,7 +135,9 @@ public enum AppSetupPlan {
     /// back Allow all and home, and nothing else, at every launch as after an update (APP-686).
     private static func settled(_ needs: IntroNeeds, tour: [IntroBeat]?) -> SetupLaunch {
         if let tour, !tour.isEmpty { return .intro(tour) }
-        if needs.setupDone && !needs.firstRun && !needs.missingPermissions.isEmpty { return .intro([.permissions, .home]) }
+        if needs.setupDone && !needs.firstRun && !needs.missingPermissions.isEmpty {
+            return .intro((needs.account ? [] : [.account]) + [.permissions, .home])
+        }
         let beats = IntroPlan.beats(needs, replay: false)
         return beats.isEmpty ? .nothing : .intro(beats)
     }

@@ -92,7 +92,7 @@ class ConnectionTest {
     }
 
     private fun vm() = FerbViewModel(phone, session, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-        LocalFiles(root) { null })
+        LocalFiles(root) { null }, account = testAccount())
 
     private fun open() {
         session.foreground(true)

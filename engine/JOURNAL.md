@@ -11655,6 +11655,96 @@ never had the arrival handling:
   the normal chat.
 - Android's separate composable (above).
 
+## 2026-11-24 · 200 · A FERB account is required in every app; a phone pairs only with a Mac on the same account
+
+**What the owner decided.** Asked for "a proper in app login - see and tell how to do it securely and save in some db
+too", then, on required or optional, which providers and where: "required. google and apple. a setup step and first
+launch on the mac, but how are we gonna do those cases where its phone download first???" (REL-440, APP-1127,
+PHN-827). On the proposal that a phone and a Mac on different accounts only get a warning: "why this??? cant we enforce
+matching emails??? it might help in future too" (PHN-828). The account store is the site's existing Neon list
+(`ferb_users`, journal 167): already built, no new service; the download sign-in's rows stay (REL-442) (his "mongodb or
+anything you say" left it open). Agent rulings: REL-441 (server), APP-1128 (Mac), PHN-829 (phones), PHN-830 (the
+pairing check). His privacy page request ("https://ferb.kartikey.xyz/privacy to be updated too and all the info
+wherever whats written") is in the same change.
+
+**Server (site/api/app).** `start` (provider, platform, the app's PKCE S256 challenge and state, a redirect from an
+exact allowlist: `ferb-auth://callback` for the Mac and iPhone, `https://ferb.kartikey.xyz/app/callback` as Android's
+verified App Link) → Google through openid-client (its own PKCE, state, nonce, verified email) or Apple by form_post
+(an ES256 client secret from the .p8; the id_token checked against Apple's JWKS: issuer, audience, expiry, nonce,
+verified email; private-relay addresses accepted) → `callback` makes a 120 s one-time code bound to the app's challenge
+(only its SHA-256 stored) → `token` burns it, then issues an opaque 1 h access token and a 90-day rotating refresh token
+(SHA-256 only; a refresh token used twice revokes its whole family). Also `me`, `signout`, `delete` (the row and,
+by cascade, devices, codes and tokens), `assertion` (below), `send-link` (the download link to the account's email,
+one per 10 minutes and five a day), `ready` (whether a provider's sign-in is set up, so an app never opens a browser on
+an error page), `/.well-known/assetlinks.json` (fingerprints from `ANDROID_CERT_SHA256`) and the App Link's fallback
+page. Rate limits are rows in the database, IPs only as an HMAC. Accounts match by provider subject, then by verified
+email. Schema made on first use and given to the owner as `site/sql/2026-11-24-app-accounts.sql`. No new npm
+dependency.
+
+**FERB.app.** `IntroBeat.account` right after Meet (raw value 8: a quit tour's saved beats keep their meaning; order is
+`order` now, never the raw value). Continue with Google / Continue with Apple; no Skip; the step repeats with the reason
+until signed in. An install with no account gets that step alone at its next launch, on a finished setup too (APP-635's
+whole tour is unchanged). The browser step is ASWebAuthenticationSession, not ephemeral, catching `ferb-auth://`
+itself (no scheme in Info.plist: no page can open FERB.app with one; a universal link needs associated domains the
+self-signed build can't carry). Tokens and the account go only to the daemon's `account.save` (FERB.app's own call):
+one Keychain item through the signed helper, values given to the redactor. A refresh that can't reach the server keeps
+the owner signed in (launch and every 6 h); only the server's 401/invalid_grant signs out, and signed out brings the
+step back at once. Settings → Account: who, Sign out, Delete account…
+
+**Phones.** Both: the sign-in after the app lock (PHN-8) and before anything else; tokens in the Keychain (iPhone, this
+device only) or sealed with a Keystore key (Android); the phone-first page (FERB runs on your Mac, Send me the link,
+I've installed it — pair now); pairing fetches the assertion and calls `pair(code, account)`; Sign out, Delete account
+and a sign-out by the server unpair the phone; a phone paired before this build binds itself once signed in
+(`phone.bind_account`). Apple goes through the same web flow on iPhone (native Sign in with Apple needs a second
+audience on the server).
+
+**The same-account rule.** The site signs `fpa1.<payload>.<sig>`: ECDSA P-256 over `ferb-pair/v1.` + the payload
+{v, kid, aud ferb-pair, sub = account id, email, dev = the phone's link endpoint, iat, exp = iat + 300}. The hello
+carries it; the link only forwards it (PHN-124). The daemon checks kid against keys pinned in its source (the list is
+empty until the owner makes the key, T-1306: until then every new pairing is refused as `account_unconfirmed`),
+signature, aud, expiry and dev, then compares sub with its own account before asking the owner: `account_mismatch`
+(both emails), `mac_signed_out`, `account_unconfirmed`. Phone rows keep the account id (migration 0068). A Mac account
+change removes only phones bound to another account; a phone with none (paired before this build) keeps working and
+binds itself, or is removed with the notice if its account differs.
+
+**Public text.** privacy.html: the phone apps, the account (what's kept, hashed tokens, the pairing note, Sign out and
+Delete), retention as the code has it, Location, ID-number redaction, the memory import (last month, off by default),
+the temporary chat, updates, Send to developer, no crash reporting; the Jev paragraph and the `ferb trace`/`ferb
+uninstall --purge` lines (stale) replaced; "AI" replaced by "the model service" (the owner's wording rule); the
+analytics section as journal 202 left it and the website section as REL-442 left it. index.html and README.md the same way; the download page's step.
+
+**Evidence.** All on this tree (rebased on 588df1bc):
+- site `node --test`: 99 passed (the apps' sign-in: PKCE, state, nonce, Apple's id_token with a test RSA key, the
+  redirect allowlist, rotation and reuse revoking the family, sign-out, delete, rate limits, send-link, the assertion
+  against `site/tests/fixtures/assertion-vector.json`, `ready`; the vector's key is SHA-256 of its label, no key text
+  stored, as the gate refuses PEM text). The PostHog build test needs `npm ci` in site/ first.
+- engine: `gate.sh fmt` and `gate.sh lint` clean; ferb-rpc 66, ferb-store 62, ferb-daemon 223 (`phone_account` 13: the
+  site's vector byte for byte, same account pairs, another refused with both emails and the owner never asked, expired,
+  forged, wrong kid, dev or aud refused, the Mac signed out, a phone of no account kept and bound, one of another removed,
+  a paired phone's calls unchanged with no key pinned), ferbd 176, ferb-link 74 (the refusal through the real bridge),
+  ferb-mobile 105, ferb-mobile-ffi 22 (`bind_account`), all through ferb-test-guard. `gate.sh portable` not run (ferb-rpc
+  and the ferb-mobile-ffi library checked for aarch64-apple-ios only). Once, in the engine agent's full run, ferb-link
+  `real_daemon` `a_phone_opens_on_its_pairing_unlocks_by_statement_and_forgets_itself` got `link_closed` on its forget;
+  4 runs alone and this run passed (I infer a race under load).
+- FERB.app `swift test`: 963 tests, 8 skipped, 0 failures (`AccountTests` 13: the RFC 7636 vector, the callback's
+  state, tokens only to `account.save` and never in preferences or a description, a site not set up or unreachable
+  opens no browser, refresh trouble keeps the owner signed in, the server's No signs out, one refresh at a time,
+  sign-out and delete; the tour's account step blocks until signed in; the plan's account rules).
+- Android `:app:testDebugUnitTest` 350 and `:design:test` 112, 0 failures (sign-in first, a wrong-state callback
+  ignored, tokens sealed, refresh rules, the server's sign-out unpairs, the phone-first page, the assertion passed to
+  pair, binding an older pairing); goldens `app/src/test/screenshots/account/{sign-in,phone-first}-{360,412}.png`. A
+  first run under heavy load failed two `SendWithFilesTest` cases on their 5 s waits; alone and in this run they pass.
+- iPhone `tools/build.sh test`: TEST SUCCEEDED (FerbAppTests 220, FERBUITests 8, FerbDesignTests 75, FerbCoreTests 15
+  with 1 skipped, FerbMobileTests 4); goldens `Packages/FerbApp/Tests/FerbAppTests/Screenshots/app/{sign-in,
+  sign-in-cancelled,sign-in-browser,mac-first,mac-first-sent}-*.png`.
+
+**Open.** Live checks LIVE-1202..1204 after the owner's setup (`~/Desktop/FERB-app-signin-setup.md`, outside the repo);
+T-1305 (his numbers for token lifetimes and limits); T-1306 (pin his pairing key). Unverified: the SQL on a real
+Postgres; Apple's and Google's real answers; the SameSite=None cookie on Apple's cross-site POST; App Link verification;
+ASWebAuthenticationSession, Custom Tabs, the Keychain and the Keystore on real devices; the daemon taking an assertion
+end to end. A refresh whose answer is lost on the network and retried with the old token ends that sign-in (reuse
+detection); the person signs in again.
+
 ## 2026-11-24 · 201 · The website gets PostHog, asked first: recordings, heatmaps, vitals, errors after OK; nothing before
 
 **What the owner decided (REL-435, superseding REL-407).** "to be added in website: posthog", and, offered a minimal

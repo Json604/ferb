@@ -6,6 +6,29 @@ private typealias Pick = IntroCopy.Pick
 /// The tour's setup beats (kb area app steps 2–5), through SetupModel's own actions: the same sign-in,
 /// grants, pairing and identity paths as the setup window.
 extension IntroController {
+    // MARK: 1b. Your FERB account
+
+    /// Signing in to FERB is required (APP-1127): Google or Apple in the browser (ASWebAuthenticationSession); the
+    /// step has no skip and waits until the owner is signed in, saying plainly what went wrong each time (cancelled,
+    /// offline, the server down). Already signed in (a replay, a resume): one line and on.
+    func accountStep() async {
+        guard let account else { return }
+        if account.state == .unknown { await account.load() }
+        guard live else { return }
+        var line = IntroCopy.account
+        while live && !account.signedIn {
+            guard case .choice(let id)? = await ask(line) else { return }
+            let provider: AccountProvider = id == Pick.accountApple ? .apple : .google
+            let done = await working(IntroCopy.accountWaiting) { await account.signIn(provider) }
+            line = done ? IntroCopy.account : IntroCopy.accountFailed(account.line)
+        }
+        guard live, let info = account.account else { return }
+        let removed = account.removedPhones
+        say(removed.isEmpty ? IntroCopy.accountSignedIn(info.email)
+                            : IntroCopy.accountPhonesRemoved(info.email, names: removed))
+        await dwell(removed.isEmpty ? Timing.line : Timing.line * 4)
+    }
+
     // MARK: 2. Sign in
 
     /// Codex or Claude first, an API key under "Other ways to connect". Once connected, the Mac scan starts in the

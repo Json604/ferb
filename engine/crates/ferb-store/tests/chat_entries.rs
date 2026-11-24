@@ -153,7 +153,7 @@ fn a_store_at_0062_upgrades_with_its_history_carried_in_order_and_its_bytes_kept
     let tmp = TempDir::new().unwrap();
     let db = upgraded(&tmp);
     let before = dump(db.conn(), "SELECT * FROM chat_history ORDER BY rowid");
-    // 0064 (ORCH-651), 0065 (T-1202, the paired phones), 0066 (APP-979) and 0067 (MEM-436) follow 0063
+    // 0064 (ORCH-651), 0065 (T-1202, the paired phones), 0066 (APP-979), 0067 (MEM-436) and 0068 (PHN-828) follow 0063
     assert_eq!(
         db.migrate().unwrap(),
         vec![
@@ -161,7 +161,8 @@ fn a_store_at_0062_upgrades_with_its_history_carried_in_order_and_its_bytes_kept
             ce::SCHEMA_VERSION + 1,
             ce::SCHEMA_VERSION + 2,
             ce::SCHEMA_VERSION + 3,
-            ce::SCHEMA_VERSION + 4
+            ce::SCHEMA_VERSION + 4,
+            ce::SCHEMA_VERSION + 5
         ]
     );
     let conn = db.conn();

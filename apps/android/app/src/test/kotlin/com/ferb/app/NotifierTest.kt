@@ -353,7 +353,7 @@ class NotifierTest {
     fun after_a_send_he_is_told_once_what_keeps_questions_from_reaching_him() {
         val root = Files.createTempDirectory("ferb-notify").toFile()
         session.unlocked()
-        val vm = FerbViewModel(phone, session, prefs, { true }, null, SavedStateHandle(), LocalFiles(root) { null })
+        val vm = FerbViewModel(phone, session, prefs, { true }, null, SavedStateHandle(), LocalFiles(root) { null }, account = testAccount())
         vm.notifyBlocker = { NotifyBlocker.STAY_CONNECTED_OFF }
         vm.typed("draft the mail")
         vm.send(); idle()
@@ -372,7 +372,7 @@ class NotifierTest {
         session.unlocked()
         session.foreground(true)
         phone.status = PhoneStatus(false, true, false, listOf(clarify, routine), emptyList(), emptyList(), null)
-        val vm = FerbViewModel(phone, session, prefs, { true }, null, SavedStateHandle(), LocalFiles(root) { null })
+        val vm = FerbViewModel(phone, session, prefs, { true }, null, SavedStateHandle(), LocalFiles(root) { null }, account = testAccount())
         vm.refresh(); idle()
         assertEquals(listOf("ap-routine"), vm.ui.value.questions.map { it.approvalId })
         assertTrue(vm.ui.value.work.waiting.none { it.approvalId == "clarify:r1" })

@@ -57,7 +57,7 @@ class ChatStateShotsTest {
     private val phone = FakePhone()
     private val vm by lazy {
         FerbViewModel(phone, Session { 0L }, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-chat-shots").toFile()) { null })
+            LocalFiles(java.nio.file.Files.createTempDirectory("ferb-chat-shots").toFile()) { null }, account = testAccount())
     }
     private val host = object : Host {
         override fun stayConnected(on: Boolean) {}

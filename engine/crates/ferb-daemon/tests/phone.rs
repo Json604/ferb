@@ -612,7 +612,11 @@ async fn pairing_waits_for_the_owner_s_yes_and_stops_at_five() {
     );
     // a No
     let r = link
-        .ok("link.pair_request", json!({"endpoint": "e0", "name": "Pixel\u{0}", "code": "111 222", "unlock_pub": "junk"}))
+        .ok(
+            "link.pair_request",
+            json!({"endpoint": "e0", "name": "Pixel\u{0}", "code": "111 222", "unlock_pub": "junk",
+                                        "account": assertion(&w, "e0")}),
+        )
         .await;
     let id = r["request_id"].as_str().unwrap().to_owned();
     let listed = w.phones.list(&app_session()).unwrap();
@@ -635,7 +639,7 @@ async fn pairing_waits_for_the_owner_s_yes_and_stops_at_five() {
     let r = link
         .ok(
             "link.pair_request",
-            json!({"endpoint": "e0", "code": "111 222"}),
+            json!({"endpoint": "e0", "code": "111 222", "account": assertion(&w, "e0")}),
         )
         .await;
     let id = r["request_id"].as_str().unwrap().to_owned();
@@ -657,7 +661,7 @@ async fn pairing_waits_for_the_owner_s_yes_and_stops_at_five() {
     let (n, _) = link
         .call(
             "link.pair_request",
-            json!({"endpoint": "p5", "code": "111 222"}),
+            json!({"endpoint": "p5", "code": "111 222", "account": assertion(&w, "p5")}),
             None,
         )
         .await

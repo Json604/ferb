@@ -343,7 +343,8 @@ async fn the_phones_own_statements_open_through_the_real_gate() {
                 .ok(
                     "link.pair_request",
                     json!({"endpoint": endpoint, "name": "Phone", "app": "FERB", "code": "123 456",
-                           "unlock_pub": v["key"], "device_pub": spki(&device.device)}),
+                           "unlock_pub": v["key"], "device_pub": spki(&device.device),
+                           "account": assertion(&w, &endpoint)}),
                 )
                 .await;
             let mut yes = ferb_rpc::Params::new();

@@ -295,6 +295,7 @@ struct PlaygroundPanel: View {
         guard let beat else { return "—" }
         switch beat {
         case .meet: return "Meet"
+        case .account: return "Account"
         case .signIn: return "Sign in"
         case .permissions: return "Permissions"
         case .browsers: return "Browsers"

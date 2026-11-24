@@ -50,7 +50,7 @@ class MainThreadTest {
         val session = Session { 0L }
         session.unlocked()
         val vm = FerbViewModel(phone, session, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-            LocalFiles(root) { null }, wait = {}, io = Dispatchers.Main, steady = { 0L })
+            LocalFiles(root) { null }, wait = {}, io = Dispatchers.Main, steady = { 0L }, account = testAccount())
         vm.prompts = object : Prompts {
             override fun signer(kind: KeyKind, why: Why) = FakeSigner(kind, false)
             override suspend fun local() = true

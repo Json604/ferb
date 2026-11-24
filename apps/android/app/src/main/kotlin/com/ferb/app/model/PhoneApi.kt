@@ -71,7 +71,21 @@ interface PhoneApi {
     suspend fun stop(taskIds: List<String>): Outcome<Unit>
     suspend fun loadOlder(conversation: String): Outcome<OlderState>
     suspend fun unlock(signer: Signer): Outcome<Unit>
-    suspend fun pair(code: String): Outcome<Unit>
+    /**
+     * Pairs from a code, carrying [account]: the server's signed statement of this phone's FERB account for
+     * [endpointId] (kb PHN-828); the Mac's daemon refuses a phone of another account before it asks.
+     */
+    suspend fun pair(code: String, account: String): Outcome<Unit>
+
+    /** This phone's link id, which the account statement names; null before the link started. */
+    suspend fun endpointId(): String?
+
+    /**
+     * A phone paired before FERB's account existed binds its pairing to the account it is signed in to now
+     * (`phone.bind_account` with the server's statement, kb PHN-828): Ok(true) when the Mac bound it. The Mac refuses
+     * another account with the link code `account_mismatch` (and removes this phone).
+     */
+    suspend fun bindAccount(assertion: String): Outcome<Boolean>
     /** "Forget this Mac": Ok(true) when the Mac removed this phone too, Ok(false) when it couldn't be told (PHN-646). */
     suspend fun forget(): Outcome<Boolean>
 
@@ -219,7 +233,9 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun stop(taskIds: List<String>) = phone.call { it.stop(taskIds) }
     override suspend fun loadOlder(conversation: String) = phone.call { it.loadOlder(conversation) }
     override suspend fun unlock(signer: Signer) = phone.unlock(signer)
-    override suspend fun pair(code: String) = phone.pair(code)
+    override suspend fun pair(code: String, account: String) = phone.pair(code, account)
+    override suspend fun endpointId() = phone.endpointId()
+    override suspend fun bindAccount(assertion: String) = phone.call { it.bindAccount(assertion) }
     override suspend fun forget() = phone.forgetThisMac()
     override suspend fun statementReady() = phone.statementReady()
     override suspend fun unlockWithStatement(payload: String, sig: String, ageMs: Long) = phone.unlockWithStatement(payload, sig, ageMs)

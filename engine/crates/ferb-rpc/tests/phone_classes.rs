@@ -7,7 +7,9 @@ mod common;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use ferb_rpc::auth::{allowed, Role, METHODS, PHONE_FILES, PHONE_OWN, PHONE_SESSION};
+use ferb_rpc::auth::{
+    allowed, Role, METHODS, PHONE_ACCOUNT, PHONE_FILES, PHONE_OWN, PHONE_SESSION,
+};
 use ferb_rpc::classes::{class, locked, phone_method, Class, Locked, PHONE_METHODS};
 use ferb_rpc::wire;
 use serde_json::{json, Value};
@@ -75,6 +77,7 @@ fn every_method_of_the_engine_has_exactly_one_phone_class() {
 // decision: PHN-117
 // decision: PHN-466
 // decision: PHN-581
+// decision: APP-1128
 #[test]
 fn the_phone_reaches_everything_but_the_never_rows() {
     let never = names(|row| row.class == Class::Never);
@@ -82,6 +85,10 @@ fn the_phone_reaches_everything_but_the_never_rows() {
         never,
         set(&[
             "about.guide",
+            // APP-1128: FERB.app's own sign-in to the owner's FERB account (PHN-828)
+            "account.clear",
+            "account.get",
+            "account.save",
             "chat.history.import",
             "chat.history.put",
             "device.report",
@@ -134,6 +141,7 @@ fn the_phone_reaches_everything_but_the_never_rows() {
             && !PHONE_SESSION.contains(&m.name)
             && !PHONE_FILES.contains(&m.name)
             && !PHONE_OWN.contains(&m.name)
+            && !PHONE_ACCOUNT.contains(&m.name)
     }) {
         assert_eq!(class(m.name), Class::Never, "{}", m.name);
     }
@@ -189,6 +197,8 @@ fn a_locked_phone_reaches_only_status_stop_and_self_proving_answers() {
     // and the phone's own device record, which gives the phone nothing of FERB's; the daemon takes it while locked only
     // from a connection that proved the phone's device key (T-1214, PHN-126)
     allowed_locked.extend(["phone.device_report"]);
+    // and the phone's own statement of its FERB account, which the site's signature proves (PHN-828)
+    allowed_locked.extend(PHONE_ACCOUNT);
     // and "until I'm back at my Mac": what is in force and its end, which only takes something away (GATE-615)
     allowed_locked.extend(["screen_use.end", "screen_use.status"]);
     // and insomnia mode's end, Lock my Mac and It's fine, from the notification: each only takes something away

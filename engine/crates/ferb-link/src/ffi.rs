@@ -24,7 +24,7 @@
 //! config: {"state": <saved state or null>, "name", "app", "unlock_pub", "device_pub", "strong_pub",
 //!          "segmentation_offload": bool (default true; upstream iroh #4647),
 //!          "dev": {"shared_relays": [..], "force_relay": bool}}
-//! commands: pair {qr} · call {id, method, params, proof?} · get {id, params, save_to?, append?}
+//! commands: pair {qr, account?} · call {id, method, params, proof?} · get {id, params, save_to?, append?}
 //!           put {id, name, path, resume?, group?, rel?} (an `accepted` event carries the upload's id)
 //!           cancel {target} · active {on} · network_changed {kind?} · retry · forget · phase
 //!           proof {id, sig?} (the answer to a `prove` event: the device key's signature over its `payload`)
@@ -219,7 +219,9 @@ impl LinkClient {
         };
         match c["cmd"].as_str().unwrap_or_default() {
             "pair" => {
-                return match phone.pair(c["qr"].as_str().unwrap_or_default()) {
+                return match phone
+                    .pair_with_account(c["qr"].as_str().unwrap_or_default(), c["account"].as_str())
+                {
                     Ok(()) => json!({"ok": true}).to_string(),
                     Err(e) => err(e),
                 };

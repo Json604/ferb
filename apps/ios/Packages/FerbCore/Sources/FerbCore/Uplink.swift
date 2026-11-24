@@ -5,7 +5,11 @@ import FerbMobile
 public protocol Uplink: AnyObject, Sendable {
     /// Makes this the core's way to the Mac.
     func attach(_ mobile: Mobile) throws
-    func pair(_ code: String) throws
+    /// Pairs from a code, carrying `account`: the server's signed word of this phone's FERB account for this link's
+    /// endpoint id, which the Mac's daemon checks against its own account before it asks the owner (PHN-828).
+    func pair(_ code: String, account: String) throws
+    /// This phone's link id (its endpoint id): what the account's assertion names.
+    func endpointId() -> String
     func status() -> LinkStatus?
     func setActive(_ on: Bool)
     /// The app is unlocked and in front (kb PHN-648).
@@ -56,7 +60,8 @@ private final class LinkUplink: Uplink, @unchecked Sendable {
     private let link: Link
     init(_ link: Link) { self.link = link }
     func attach(_ mobile: Mobile) throws { try mobile.connect(link: link) }
-    func pair(_ code: String) throws { try link.pair(code: code) }
+    func pair(_ code: String, account: String) throws { try link.pair(code: code, account: account) }
+    func endpointId() -> String { link.endpointId() }
     func status() -> LinkStatus? { link.status() }
     func setActive(_ on: Bool) { try? link.setActive(on: on) }
     func setOpen(_ on: Bool) { link.setOpen(on: on) }

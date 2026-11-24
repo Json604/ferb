@@ -45,7 +45,8 @@ class MainActivity : ComponentActivity() {
                 val corpus = a.corpus() // read on a background thread since the Application began (PHN-633)
                 FerbViewModel(a.api, a.session, a.prefs, a::screenLockSet, corpus, createSavedStateHandle(), a.local,
                     locator = AndroidLocator(a), coarse = a.sensors.coarse, say = a::getString, locationAnswered = a.notifier::locationAnswered,
-                    voice = AndroidSpeech(a), micAllowed = { a.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED })
+                    voice = AndroidSpeech(a), micAllowed = { a.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED },
+                    account = a.account)
             }
         }
     }
@@ -93,6 +94,8 @@ class MainActivity : ComponentActivity() {
             combine(blockScreenshots, vm.mustSecure, ScreenGuard::secure).collect { ScreenGuard.apply(window, it) }
         }
         vm.prompts = ActivityPrompts()
+        // kb PHN-827: the sign-in opens in a Custom Tab (or the default browser); its answer comes back as an App Link
+        vm.openBrowser = { url -> SignInBrowser.open(this, url) }
         // kb PHN-765: what keeps FERB's questions from reaching this phone, said in the app with its fix
         vm.notifyBlocker = { NotifyHealth.blocker(app, app.prefs.stayConnected) }
         handle(intent)
@@ -147,6 +150,8 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         vm.windowReady(hasWindowFocus() && launchSettled)
+        // back from the browser without its answer (an answer arrives by onNewIntent, before this)
+        vm.browserLeft()
     }
 
     override fun onPause() {
@@ -161,11 +166,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         if (vm.prompts is ActivityPrompts) vm.prompts = null
+        vm.openBrowser = null
         super.onDestroy()
     }
 
     private fun handle(intent: Intent?) {
         val i = intent ?: return
+        // kb PHN-827: the sign-in's return (the verified App Link /app/callback); the account uses it only when its
+        // state is the sign-in this phone began. Used once: a rebuilt activity doesn't hand it in again.
+        if (i.action == Intent.ACTION_VIEW) {
+            i.dataString?.let { vm.signInReturned(it) }
+            i.data = null
+        }
         i.getStringExtra(EXTRA_QUESTION)?.let { vm.openQuestion(it) }
         // FERB's own question (a clarify) is answered by a message: the box takes the cursor (FERB.app's needs-you)
         i.getStringExtra(EXTRA_ENTRY)?.let { vm.openChat(focus = it == Notifier.CHAT) }

@@ -84,6 +84,34 @@ final class AppSetupController: NSObject {
         return model
     }()
 
+    /// The owner's FERB account (APP-1127, APP-1128): required. Its tokens live in the Keychain through the daemon
+    /// (`account.save`, FERB's signed secret helper). Signed out, FERB.app shows the account step, which has no skip.
+    lazy var account: AccountSession = {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        let session = AccountSession(vault: DaemonAccountVault(rpc: model.rpc), server: HTTPAccountServer(),
+                                     web: AccountWebSignIn(), device: AccountDevice.current(defaults, version: version))
+        session.onSignedOut = { [weak self] in self?.requireAccount() }
+        return session
+    }()
+    private var accountChecks: Timer?
+
+    /// Signed out while FERB.app runs (Sign out, a deleted account, the server's No to a refresh): the account step
+    /// alone, now. A running tour has the step already or gets it at its end.
+    func requireAccount() {
+        guard intro == nil else { return }
+        startTour([.account], action: .none, firstRun: false)
+    }
+
+    /// Once settled: the account's tokens are refreshed at launch and every few hours. Trouble reaching the server
+    /// keeps the owner signed in; only the server's No signs out (APP-1128).
+    private func checkAccount() {
+        Task { @MainActor [account] in await account.refresh() }
+        guard accountChecks == nil else { return }
+        accountChecks = Timer.scheduledTimer(withTimeInterval: 6 * 60 * 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.account.refresh() }
+        }
+    }
+
     /// The packaged app's two programs: the `ferb` launcher (a script running the app's Python, or the Rust build's
     /// `ferb` program) and the agent that runs the daemon.
     var isPackaged: Bool {
@@ -200,6 +228,7 @@ final class AppSetupController: NSObject {
         switch decision {
         case .nothing:
             if !needs.setupDone && progress.done && model.permissions != nil { await model.recordFinished() }
+            checkAccount()
             onSettled?()
         case .quietUpdate: quietUpdate()
         case .intro(let beats):
@@ -221,6 +250,7 @@ final class AppSetupController: NSObject {
         let controller = IntroController(setup: model, orb: orb, sound: sound, notch: notch, progress: progress,
                                          controls: introControls, sleeper: introSleeper,
                                          arrival: firstRun || startup ? makeArrival() : nil)
+        controller.account = account
         controller.onFinished = { [weak self, weak controller] in
             self?.tourEnded(left: controller?.remainingRequired ?? [])
         }
@@ -240,6 +270,8 @@ final class AppSetupController: NSObject {
         var progress = self.progress
         progress.plan = nil
         let serviceSetUp = model.serviceAction == .none && !model.serviceRunning
+        if account.state == .signedOut { requireAccount(); return }      // the account is never left behind (APP-1128)
+        if account.signedIn { checkAccount() }
         if left.isEmpty && serviceSetUp { onSettled?() }
     }
 
@@ -249,6 +281,7 @@ final class AppSetupController: NSObject {
     /// shared model (the daemon may only be slow to start).
     private func readNeeds(_ action: AppSetupAction) async -> IntroNeeds {
         let done = await model.setupDone()
+        await account.load()
         let progress = self.progress
         let firstRun = AppSetupPlan.firstRun(action, setupDone: done, introDone: progress.done,
                                              resuming: progress.resumeBeat != nil, tourSeen: progress.tourSeen)
@@ -271,7 +304,8 @@ final class AppSetupController: NSObject {
         let profiles = model.browsers?.browsers.flatMap(\.profiles) ?? []
         let unpaired = !profiles.isEmpty && !profiles.contains { $0.state == .paired }
         return IntroNeeds(setupDone: setupDone, signedIn: model.ai == nil || IntroController.connected(model.ai),
-                          missingPermissions: missing, unpairedBrowsers: unpaired, firstRun: firstRun)
+                          missingPermissions: missing, unpairedBrowsers: unpaired, firstRun: firstRun,
+                          account: account.state != .signedOut)
     }
 
     /// A new install's needs (nothing set up yet): the whole tour.

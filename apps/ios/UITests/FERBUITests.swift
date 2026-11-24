@@ -8,11 +8,37 @@ final class FERBUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// A fresh install signed in to an invented account (`-FERBUITestSignedIn`: in memory, a stand-in site; nothing
+    /// leaves the simulator).
     private func launch(_ more: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-FERBUITestUnlock", "YES", "-FERBUITestFresh", "YES", "-FERBUITestFirstRunDone", "YES"] + more
+        app.launchArguments = ["-FERBUITestUnlock", "YES", "-FERBUITestFresh", "YES", "-FERBUITestFirstRunDone", "YES",
+                               "-FERBUITestSignedIn", "YES"] + more
         app.launch()
         return app
+    }
+
+    /// Phone first (kb PHN-829): "FERB runs on your Mac", then on to the pairing page.
+    private func toPairing(_ app: XCUIApplication, timeout: Double = 30) {
+        XCTAssertTrue(app.staticTexts["FERB runs on your Mac"].waitForExistence(timeout: timeout), "phone first, signed in")
+        app.buttons["I've installed it — pair now"].tap()
+        XCTAssertTrue(app.staticTexts["Use FERB from your phone"].waitForExistence(timeout: 10))
+    }
+
+    /// A fresh install shows the sign-in after the unlock and nothing of FERB's before it (kb PHN-827); the sheet's
+    /// stand-in closes at once and the page says so.
+    // decision: PHN-827, PHN-8
+    func testAFreshInstallSignsInFirst() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-FERBUITestUnlock", "YES", "-FERBUITestFresh", "YES", "-FERBUITestFirstRunDone", "YES"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Welcome to FERB"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.buttons["Continue with Google"].exists)
+        XCTAssertTrue(app.buttons["Continue with Apple"].exists)
+        XCTAssertFalse(app.staticTexts["Use FERB from your phone"].exists)
+        XCTAssertFalse(app.staticTexts["FERB runs on your Mac"].exists)
+        app.buttons["Continue with Google"].tap()
+        XCTAssertTrue(app.staticTexts["Sign-in was cancelled. Try again when you're ready."].waitForExistence(timeout: 10))
     }
 
     /// A fresh install asks for what FERB needs once, after the unlock (kb PHN-636); Not now still leads to pairing
@@ -20,11 +46,11 @@ final class FERBUITests: XCTestCase {
     // decision: PHN-635, PHN-636, PHN-639
     func testTheFirstRunAsksOnceAndNotNowStillPairs() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-FERBUITestUnlock", "YES", "-FERBUITestFresh", "YES"]
+        app.launchArguments = ["-FERBUITestUnlock", "YES", "-FERBUITestFresh", "YES", "-FERBUITestSignedIn", "YES"]
         app.launch()
         XCTAssertTrue(app.staticTexts["Before you start"].waitForExistence(timeout: 30), "the first run's asks after the unlock")
         app.buttons["Not now"].tap()
-        XCTAssertTrue(app.staticTexts["Use FERB from your phone"].waitForExistence(timeout: 10), "pairing with everything declined")
+        toPairing(app, timeout: 10)   // pairing with everything declined
         // never again on a relaunch: FirstRunTests (a relaunch here would meet the simulator's own passcode sheet)
     }
 
@@ -49,7 +75,7 @@ final class FERBUITests: XCTestCase {
     // decision: PHN-8, PHN-794, PHN-615
     func testLaunchAsksByItselfAndOpensThePairingPage() throws {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["Use FERB from your phone"].waitForExistence(timeout: 30), "a fresh install pairs first")
+        toPairing(app)   // a fresh install signed in pairs first
     }
 
     /// A cancelled prompt leaves the lock page with its button and does not come back by itself; the button asks.
@@ -58,18 +84,19 @@ final class FERBUITests: XCTestCase {
         let app = launch(["-FERBUITestCancelPrompts", "1"])
         XCTAssertTrue(app.staticTexts["FERB is locked"].waitForExistence(timeout: 30), "nothing of FERB's before the lock")
         XCTAssertTrue(app.buttons["unlock"].waitForExistence(timeout: 10))
-        // a second prompt by itself would pass at once and open the pairing page
-        XCTAssertFalse(app.staticTexts["Use FERB from your phone"].waitForExistence(timeout: 4), "no prompt again after a cancel")
+        // a second prompt by itself would pass at once and open the phone-first page
+        XCTAssertFalse(app.staticTexts["FERB runs on your Mac"].waitForExistence(timeout: 4), "no prompt again after a cancel")
         XCUIDevice.shared.orientation = .landscapeLeft
         XCUIDevice.shared.orientation = .portrait
-        XCTAssertFalse(app.staticTexts["Use FERB from your phone"].waitForExistence(timeout: 3), "none after a turn of the phone")
+        XCTAssertFalse(app.staticTexts["FERB runs on your Mac"].waitForExistence(timeout: 3), "none after a turn of the phone")
         app.buttons["unlock"].tap()
-        XCTAssertTrue(app.staticTexts["Use FERB from your phone"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["FERB runs on your Mac"].waitForExistence(timeout: 30))
     }
 
     // decision: PHN-442, PHN-564
     func testATypedCodeTheMacNeverMadeIsRefusedInPlainWords() throws {
         let app = launch()
+        toPairing(app)
         let typeCode = app.buttons["Type code"]
         XCTAssertTrue(typeCode.waitForExistence(timeout: 30))
         typeCode.tap()
@@ -85,6 +112,7 @@ final class FERBUITests: XCTestCase {
     // decision: PHN-564, PHN-619
     func testTheScannerWithoutACameraOffersTheTypedCode() throws {
         let app = launch()
+        toPairing(app)
         let scan = app.buttons["Scan the code"]
         XCTAssertTrue(scan.waitForExistence(timeout: 30))
         scan.tap()
@@ -95,7 +123,7 @@ final class FERBUITests: XCTestCase {
     // decision: PHN-15, PHN-811
     func testComingBackSoonStaysOpen() throws {
         let app = launch()
-        XCTAssertTrue(app.staticTexts["Use FERB from your phone"].waitForExistence(timeout: 30))
+        toPairing(app)
         XCUIDevice.shared.press(.home)
         app.activate()
         XCTAssertTrue(app.staticTexts["Use FERB from your phone"].waitForExistence(timeout: 10))

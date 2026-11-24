@@ -631,6 +631,24 @@ impl Transport for FakeMac {
             "phone.search" => json!({"path": "/Users/o", "query": p["query"], "files": [
                 {"name": "Invoices", "path": "/Users/o/Documents/Invoices", "dir": true, "size": 0, "modified": 3}],
                 "looked": 1200, "skipped": 4, "cut": false, "incomplete": true}),
+            // PHN-828: the fake Mac is signed in to the account "fpa1.same" names; "fpa1.other" is another account's
+            "phone.bind_account" => match p["assertion"].as_str() {
+                Some("fpa1.same") => json!({"bound": true, "changed": true}),
+                Some("fpa1.other") => {
+                    return Err(LinkFailure::new(
+                        "account_mismatch",
+                        "This phone is signed in as bob@example.com, but FERB on this Mac is signed in as \
+                         ada@example.com. Sign in with the same account on both.",
+                    ));
+                }
+                _ => {
+                    return Err(LinkFailure::new(
+                        "account_unconfirmed",
+                        "FERB couldn't confirm which account this phone is signed in to. Check that the phone is \
+                         online, then scan a new code on the Mac.",
+                    ));
+                }
+            },
             "phone.list" => json!({"phones": [
                 {"id": "other", "name": "Old phone", "paired_at": "2026-01-01T00:00:00+00:00"},
                 {"id": "me", "name": "Pixel", "paired_at": "2026-11-10T09:00:00+00:00", "this": true}],

@@ -10,6 +10,8 @@ use crate::{pyjson, Error, Result};
 
 /// The schema version of migration 0065.
 pub const SCHEMA_VERSION: i64 = 65;
+/// The schema version of migration 0068: each pairing's FERB account (PHN-828).
+pub const ACCOUNT_VERSION: i64 = 68;
 /// The tables migration 0065 adds.
 pub const TABLES: [&str; 2] = ["phone_devices", "phone_audit"];
 
@@ -32,6 +34,8 @@ pub struct Phone {
     pub warned_at: Option<String>,
     pub removed_at: Option<String>,
     pub removed_by: Option<String>,
+    /// The FERB account the phone paired under (PHN-828, migration 0068); None for a phone paired before accounts.
+    pub account_id: Option<String>,
 }
 
 /// What a pairing adds.
@@ -43,6 +47,8 @@ pub struct NewPhone {
     pub unlock_pub: Option<String>,
     pub device_pub: Option<String>,
     pub strong_pub: Option<String>,
+    /// The FERB account the server's signed statement named, which the daemon matched with the Mac's (PHN-828).
+    pub account_id: Option<String>,
 }
 
 /// Why a pairing was not added.
@@ -55,7 +61,7 @@ pub enum AddRefused {
 }
 
 const COLUMNS: &str = "id, endpoint, name, app, unlock_pub, device_pub, strong_pub, paired_at, last_seen, warned_at, \
-                       removed_at, removed_by";
+                       removed_at, removed_by, account_id";
 
 fn phone(r: &Row<'_>) -> rusqlite::Result<Phone> {
     Ok(Phone {
@@ -71,6 +77,7 @@ fn phone(r: &Row<'_>) -> rusqlite::Result<Phone> {
         warned_at: r.get(9)?,
         removed_at: r.get(10)?,
         removed_by: r.get(11)?,
+        account_id: r.get(12)?,
     })
 }
 
@@ -124,8 +131,8 @@ pub fn add(
             return Ok(Err(AddRefused::AlreadyPaired));
         }
         conn.execute(
-            "INSERT INTO phone_devices (endpoint, name, app, unlock_pub, device_pub, strong_pub, paired_at, last_seen) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO phone_devices (endpoint, name, app, unlock_pub, device_pub, strong_pub, paired_at, last_seen, \
+             account_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 new.endpoint,
                 new.name,
@@ -134,7 +141,8 @@ pub fn add(
                 new.device_pub,
                 new.strong_pub,
                 now,
-                now
+                now,
+                new.account_id
             ],
         )?;
         let added = by_endpoint(conn, &new.endpoint)?
@@ -161,6 +169,15 @@ pub fn remove(conn: &Connection, endpoint: &str, by: &str, now: &str) -> Result<
         params![now, by, found.id],
     )?;
     Ok(Some(found))
+}
+
+/// PHN-828: the live phone's FERB account, recorded when a phone paired before accounts signs in (or bound again to the
+/// Mac's account); false when there is no such live phone.
+pub fn bind_account(conn: &Connection, endpoint: &str, account_id: &str) -> Result<bool> {
+    Ok(conn.execute(
+        "UPDATE phone_devices SET account_id = ? WHERE endpoint = ? AND removed_at IS NULL",
+        params![account_id, endpoint],
+    )? == 1)
 }
 
 /// The phone was seen now: its last use moves and an unused warning given before is cleared.

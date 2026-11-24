@@ -593,3 +593,35 @@ fn insomnia_and_the_mac_s_camera_through_the_bindings() {
         m.watch_camera(Arc::new(Camera::default())).map(|_| ())
     ));
 }
+
+/// PHN-828: `bind_account` sends the site's statement to the Mac (`phone.bind_account {assertion}`) and gives back its
+/// `bound`; the Mac's refusals come back as `Refused` with the link's code and the Mac's words.
+// decision: PHN-828
+#[test]
+fn bind_account_carries_the_statement_and_the_mac_s_refusals() {
+    let mac = FakeMac::new("C1");
+    let dir = tempfile::tempdir().unwrap();
+    let (m, _) = connected(&mac, dir.path(), "shared_relay");
+    assert!(m.bind_account("fpa1.same".into()).unwrap());
+    assert_eq!(
+        mac.calls_of("phone.bind_account"),
+        vec![json!({"assertion": "fpa1.same"})]
+    );
+    for (assertion, code, words) in [
+        ("fpa1.other", "account_mismatch", "bob@example.com"),
+        ("fpa1.junk", "account_unconfirmed", "couldn't confirm"),
+    ] {
+        match m.bind_account(assertion.into()) {
+            Err(FerbError::Refused { detail, link_code }) => {
+                assert_eq!(link_code.as_deref(), Some(code));
+                assert!(detail.contains(words), "{detail}");
+            }
+            other => panic!("{assertion}: {other:?}"),
+        }
+    }
+    m.shutdown();
+    assert!(matches!(
+        m.bind_account("fpa1.same".into()),
+        Err(FerbError::Closed { .. })
+    ));
+}

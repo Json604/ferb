@@ -1,6 +1,116 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "account_check_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB couldn't check your sign-in just now. It keeps working and tries again later."
+          }
+        }
+      }
+    },
+    "account_delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete account…"
+          }
+        }
+      }
+    },
+    "account_delete_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB couldn't delete your account just now. Check your connection and try again."
+          }
+        }
+      }
+    },
+    "account_other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use another account"
+          }
+        }
+      }
+    },
+    "account_sign_out": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign out"
+          }
+        }
+      }
+    },
+    "account_signed_in_as": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signed in as %1$@"
+          }
+        }
+      }
+    },
+    "account_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your account"
+          }
+        }
+      }
+    },
+    "account_with_apple": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "with Apple"
+          }
+        }
+      }
+    },
+    "account_with_both": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "with Google and Apple"
+          }
+        }
+      }
+    },
+    "account_with_google": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "with Google"
+          }
+        }
+      }
+    },
     "alert_dismiss": {
       "extractionState": "manual",
       "localizations": {
@@ -514,6 +624,39 @@
           "stringUnit": {
             "state": "translated",
             "value": "Yesterday"
+          }
+        }
+      }
+    },
+    "delete_text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This deletes %1$@'s account and signs FERB out on all your devices. It can't be undone."
+          }
+        }
+      }
+    },
+    "delete_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete your FERB account?"
+          }
+        }
+      }
+    },
+    "delete_yes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete account"
           }
         }
       }
@@ -1707,6 +1850,94 @@
         }
       }
     },
+    "macfirst_pair": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I've installed it — pair now"
+          }
+        }
+      }
+    },
+    "macfirst_send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send me the link"
+          }
+        }
+      }
+    },
+    "macfirst_send_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB couldn't send the link just now. You can also open ferb.kartikey.xyz on your Mac."
+          }
+        }
+      }
+    },
+    "macfirst_sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent. Check %1$@ on your Mac."
+          }
+        }
+      }
+    },
+    "macfirst_sent_recently": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link was sent a moment ago. Check your inbox, or try again in a few minutes."
+          }
+        }
+      }
+    },
+    "macfirst_site": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ferb.kartikey.xyz"
+          }
+        }
+      }
+    },
+    "macfirst_text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your phone works with FERB on your Mac. Install FERB on your Mac, sign in there as %1$@, then pair this phone."
+          }
+        }
+      }
+    },
+    "macfirst_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB runs on your Mac"
+          }
+        }
+      }
+    },
     "n_answer": {
       "extractionState": "manual",
       "localizations": {
@@ -2286,6 +2517,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Your Mac already has 5 phones. Remove one in FERB on your Mac (Settings, Phone), then try again."
+          }
+        }
+      }
+    },
+    "pair_needs_internet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing needs the internet to confirm your account."
           }
         }
       }
@@ -3465,6 +3707,171 @@
           "stringUnit": {
             "state": "translated",
             "value": "Show more"
+          }
+        }
+      }
+    },
+    "signin_apple": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue with Apple"
+          }
+        }
+      }
+    },
+    "signin_cancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in was cancelled. Try again when you're ready."
+          }
+        }
+      }
+    },
+    "signin_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB couldn't finish signing you in. Try again."
+          }
+        }
+      }
+    },
+    "signin_finishing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finishing sign-in in your browser…"
+          }
+        }
+      }
+    },
+    "signin_footnote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signing in means FERB may email you about important updates. Every email has a one-click unsubscribe."
+          }
+        }
+      }
+    },
+    "signin_google": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue with Google"
+          }
+        }
+      }
+    },
+    "signin_no_email": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB needs a confirmed email address to sign you in. Try again and choose to share your email."
+          }
+        }
+      }
+    },
+    "signin_not_answering": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB's sign-in isn't answering right now. Try again in a minute."
+          }
+        }
+      }
+    },
+    "signin_signed_in_as": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You're signed in as %1$@."
+          }
+        }
+      }
+    },
+    "signin_text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use FERB on your phone. Use the same account as on your Mac."
+          }
+        }
+      }
+    },
+    "signin_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welcome to FERB"
+          }
+        }
+      }
+    },
+    "signin_unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB can't reach its sign-in right now. Check your internet connection and try again."
+          }
+        }
+      }
+    },
+    "signout_text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It's unpaired from your Mac, and you'll sign in and pair again to use it."
+          }
+        }
+      }
+    },
+    "signout_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign out of FERB on this phone?"
+          }
+        }
+      }
+    },
+    "signout_yes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign out"
           }
         }
       }

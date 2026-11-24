@@ -68,7 +68,7 @@ interface PreviewSink { fun frame(frame: PreviewFrame); fun ended(code: String?,
 // Android only: the one JNI export, com.ferb.core.NativeInit.init(context): ndk_context for iroh's DNS (PHN-514)
 // the link
 Link.start(config: LinkConfig, listener: LinkListener, deviceSigner: DeviceSigner?): Link
-l.endpointId(): String; l.pair(code: String); l.status(): LinkStatus; l.setActive(on: Boolean)
+l.endpointId(): String; l.pair(code: String, account: String); l.status(): LinkStatus; l.setActive(on: Boolean)
 l.networkChanged(kind: String?); l.retry(); l.forget(); l.shutdown(); l.isClosed(): Boolean
 // what the app implements
 interface Clock { fun nowIso(): String }                 interface Ids { fun newId(): String }
@@ -142,7 +142,10 @@ to the core (the current state at once). A `relay_state` reaches the core as the
 relay is down and the public one is used (`own_fallback`: the link's own words, else a plain sentence); the full relay
 state is `LinkStatus.relay`.
 
-- **Pairing:** `pair(code)` takes a scanned QR's text or a typed `FERB-` code. `LinkStatus` then shows `Pairing`,
+- **Pairing:** `pair(code, account)` takes a scanned QR's text or a typed `FERB-` code, and the site's signed statement
+  of the phone's FERB account (`POST /api/app/assertion {endpoint: endpointId()}`): the Mac's daemon pairs only a phone
+  of its own account (PHN-828) and refuses others before the owner is asked (link codes `account_mismatch`,
+  `mac_signed_out`, `account_unconfirmed`, with the words to show). `LinkStatus` then shows `Pairing`,
   `PairingWaitForMac` with `pairingCode` (the six digits both screens show, `123 456`), and `Online` with `paired`
   once the owner said Yes on the Mac. `forget()` forgets the Mac on the phone (the phone's link key stays).
 - **Status:** `phase`, `path` (Direct, OwnRelay, PublicRelay, Offline), `tierWords`, `bulkAllowed` (PHN-444),

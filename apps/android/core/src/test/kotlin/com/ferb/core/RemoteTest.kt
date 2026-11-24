@@ -292,7 +292,7 @@ class RemoteTest {
         val k = SoftwareKeys(fingerprint = false)
         val p = phone(k)
         p.start()
-        assertTrue(p.pair("FERB-INVENTED") is Outcome.Ok)
+        assertTrue(p.pair("FERB-INVENTED", "fpa1.invented.statement") is Outcome.Ok)
         assertNull("nothing to register right after pairing", p.unregisteredKeys())
         k.fingerprint = true
         val fresh = p.unregisteredKeys()
