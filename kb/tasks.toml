@@ -821,3 +821,19 @@ status = "open"
 why = "MEM-478 (owner 2026-11-24): use the import/session mechanism for proactiveness; paused behind `memory_import::PAUSED` until the current work is done. One design with T-1280 (proactive check-ins from his activity)."
 ask = "How should FERB use what it knows of his sessions and other assistants to be proactive: which moments, how often at most, where, and what of the paused import and session tracking comes back (and how)?"
 decisions = ["MEM-478"]
+
+[T-1326]
+title = "Before Google Play: add Play's app-signing key fingerprint to the site's Android App Link"
+area = "release"
+kind = "chore"
+status = "open"
+why = "Owner asked 2026-11-24. assetlinks.json trusts only ANDROID_CERT_SHA256, today the debug key. Play re-signs the app, so its sign-in return won't open it until Play's app-signing (and upload) SHA-256 is added in Vercel and the site redeployed; check with pm get-app-links."
+decisions = ["REL-452", "PHN-841"]
+
+[T-1327]
+title = "Stage 5: the push server for closed-app notifications on Android (FCM) and iPhone (APNs)"
+area = "phone"
+kind = "build"
+status = "open"
+why = "Owner asked 2026-11-24. PHN-421/614: a small sender he runs; the Mac calls it when the phone's app is closed; no words, only the question encrypted for that phone. Needs: where it runs, FCM and APNs keys, each phone's push token at pairing, the Mac's authenticated call. T-1247 is the iPhone half."
+decisions = ["PHN-421", "PHN-614", "PHN-566"]
