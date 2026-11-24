@@ -149,7 +149,7 @@ async fn real(devices_max: usize) -> Real {
                     v["kid"].as_str().unwrap(),
                     v["test_public_key_sec1_uncompressed_b64"].as_str().unwrap(),
                 )],
-                Arc::new(|| Some(mac_account())),
+                Arc::new(|| Ok(Some(mac_account()))),
             )
         },
         publish: {
