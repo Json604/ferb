@@ -63,6 +63,7 @@ import com.ferb.design.components.LocalSkyInk
 import com.ferb.design.components.PhoneTab
 import com.ferb.design.components.PhoneText
 import com.ferb.design.components.Pill
+import com.ferb.design.components.PillKind
 import com.ferb.design.screens.CodesPage
 import com.ferb.design.screens.PairPage
 import com.ferb.design.screens.AskRow
@@ -193,9 +194,10 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
                     MacFirstScreen -> MacFirst(vm, ui, insets)
                     ScanScreen -> Scanner(vm, insets) { vm.show(null) }
                     AsksScreen -> Asks(asks, insets)
-                    Gate.PAIR -> Pair(vm, ui.pairing, ui.pairReason, ui.pairError?.let { noteText(it) }, insets)
+                    Gate.PAIR -> Pair(vm, ui.pairing, ui.pairReason, ui.pairError?.let { noteText(it) }, insets,
+                        other = ui.pairAccountRefused && !ui.pairing, signingOut = ui.signingOut)
                     Gate.CODES -> CodesPage(ui.link?.pairingCode.orEmpty(), insets, onCancel = { vm.cancelPairing() })
-                    Gate.REMOVED -> Removed(vm, ui.pairReason, ui.removedNote?.let { noteText(it) }, insets)
+                    Gate.REMOVED -> Removed(vm, ui.pairReason, ui.removedNote?.let { noteText(it) }, insets, ui.signingOut)
                     // the connection control in every page's top bar (kb PHN-751)
                     Gate.MAIN -> androidx.compose.runtime.CompositionLocalProvider(com.ferb.design.components.LocalConnection provides rememberConnection(vm, ui)) {
                         Main(vm, ui, tab, home, insets, moment, host)
@@ -293,8 +295,14 @@ private fun permissionOf(a: FirstRun.Ask): String = when (a) {
     FirstRun.Ask.MICROPHONE -> Manifest.permission.RECORD_AUDIO
 }
 
+/**
+ * The pairing page, and over it the line saying why it shows or what went wrong. [other]: the Mac refused this phone's
+ * account (kb PHN-828): "Use another account" under its words signs out at once (owner kb PHN-842); [signingOut] its
+ * pending state.
+ */
 @Composable
-internal fun Pair(vm: FerbViewModel, pairing: Boolean, reason: PairReason?, error: String?, insets: PhoneInsets) {
+internal fun Pair(vm: FerbViewModel, pairing: Boolean, reason: PairReason?, error: String?, insets: PhoneInsets,
+                  other: Boolean = false, signingOut: Boolean = false) {
     val context = LocalContext.current
     val url = stringResource(R.string.mac_app_url)
     Box(Modifier.fillMaxSize()) {
@@ -316,13 +324,21 @@ internal fun Pair(vm: FerbViewModel, pairing: Boolean, reason: PairReason?, erro
         if (line != null) {
             Card(Modifier.align(Alignment.TopCenter).padding(start = 16.dp, end = 16.dp, top = 70.dp), padding = 16.dp) {
                 PhoneText(line, 15.5f, color = Ink.black, modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite })
+                if (other) OtherAccountPill(vm, signingOut, Modifier.padding(top = 12.dp))
             }
         }
     }
 }
 
+/** "Use another account" under the Mac's refusal of this phone's account (kb PHN-842): Signing out… while it works. */
 @Composable
-private fun Removed(vm: FerbViewModel, reason: PairReason?, words: String?, insets: PhoneInsets) {
+private fun OtherAccountPill(vm: FerbViewModel, signingOut: Boolean, modifier: Modifier = Modifier) {
+    Pill(stringResource(if (signingOut) R.string.account_signing_out else R.string.account_other), modifier, PillKind.GREY, height = 44.dp,
+        onClick = if (signingOut) null else ({ vm.signOut() }))
+}
+
+@Composable
+private fun Removed(vm: FerbViewModel, reason: PairReason?, words: String?, insets: PhoneInsets, signingOut: Boolean) {
     Message(
         title = stringResource(R.string.removed_title),
         // the Mac's own words when it removed this phone for another account (kb PHN-828)
@@ -333,6 +349,8 @@ private fun Removed(vm: FerbViewModel, reason: PairReason?, words: String?, inse
         }),
         action = stringResource(R.string.pair_again),
         insets = insets,
+        // removed over its account: another account is the other way on (kb PHN-842)
+        other = if (words != null) ({ OtherAccountPill(vm, signingOut, Modifier.padding(top = 4.dp)) }) else null,
     ) { vm.forget() }
 }
 
@@ -354,7 +372,7 @@ private fun NoScreenLock(insets: PhoneInsets) {
 
 /** UnlockPage's layout (the mark, a title, a card with one button) for the gate's other plain messages. */
 @Composable
-fun Message(title: String, text: String, action: String, insets: PhoneInsets, onAction: () -> Unit) {
+fun Message(title: String, text: String, action: String, insets: PhoneInsets, other: (@Composable () -> Unit)? = null, onAction: () -> Unit) {
     val ink = LocalSkyInk.current
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Spacer(Modifier.height(150.dp))
@@ -364,6 +382,7 @@ fun Message(title: String, text: String, action: String, insets: PhoneInsets, on
         Card(Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp), padding = 16.dp) {
             PhoneText(text, 15.5f, color = Ink.detail, lineSpacing = 2f, modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp, start = 4.dp, end = 4.dp))
             Pill(action, onClick = onAction)
+            other?.invoke()
         }
     }
 }

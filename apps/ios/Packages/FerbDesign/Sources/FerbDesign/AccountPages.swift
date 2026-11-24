@@ -66,30 +66,40 @@ public struct SignInPage: View {
 
 /// Phone first (the owner: "how are we gonna do those cases where its phone download first???"): signed in, no Mac
 /// paired yet. The phone and the Mac as the pairing page draws them; in the card why, where to get FERB for the Mac
-/// (the address can be selected and copied), the way on to pairing, and another account.
+/// (the address can be selected and copied), the way on to pairing, who is signed in (a tap opens the account) and
+/// another account (the owner, kb PHN-842: the phone may be on another account than the Mac's). `signingOut`: the
+/// pending state's words while signing out; the page's taps wait meanwhile.
 public struct MacFirstPage: View {
     let title: String
     let text: String
     let address: String
     let pairTitle: String
+    let signedInAs: String?
     let otherTitle: String
+    let signingOut: String?
     var insets: PhoneInsets
     var onPair: (() -> Void)?
+    var onAccount: (() -> Void)?
     var onOther: (() -> Void)?
 
-    public init(title: String, text: String, address: String, pairTitle: String, otherTitle: String,
-                insets: PhoneInsets = .lab, onPair: (() -> Void)? = nil, onOther: (() -> Void)? = nil) {
+    public init(title: String, text: String, address: String, pairTitle: String, signedInAs: String? = nil, otherTitle: String,
+                signingOut: String? = nil, insets: PhoneInsets = .lab, onPair: (() -> Void)? = nil,
+                onAccount: (() -> Void)? = nil, onOther: (() -> Void)? = nil) {
         self.title = title
         self.text = text
         self.address = address
         self.pairTitle = pairTitle
+        self.signedInAs = signedInAs
         self.otherTitle = otherTitle
+        self.signingOut = signingOut
         self.insets = insets
         self.onPair = onPair
+        self.onAccount = onAccount
         self.onOther = onOther
     }
 
     public var body: some View {
+        let waiting = signingOut != nil
         VStack(spacing: 0) {
             Spacer(minLength: 8)
             LinkPicture(kind: .search)
@@ -105,15 +115,55 @@ public struct MacFirstPage: View {
                     .padding(.horizontal, 16).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                     .background(Ink.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .accessibilityElement(children: .combine)
-                    Pill(title: pairTitle, kind: .black, onClick: onPair).padding(.top, 2)
-                    Text(otherTitle).type(15, .medium, Ink.detail)
-                        .padding(.horizontal, 16).padding(.vertical, 4)
-                        .pressable(onOther, label: otherTitle)
-                        .frame(maxWidth: .infinity)
+                    Pill(title: pairTitle, kind: .black, onClick: waiting ? nil : onPair).padding(.top, 2)
+                    AccountLines(signedInAs: signedInAs, other: otherTitle, signingOut: signingOut,
+                                 onAccount: waiting ? nil : onAccount, onOther: waiting ? nil : onOther)
                 }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, insets.bottom + 8)
         }
+    }
+}
+
+/// Who is signed in and, under it, "Use another account" (kb PHN-842), centred; while signing out the second line is
+/// its pending state (FERB's running mark and `signingOut`). Android's AccountLines.
+public struct AccountLines: View {
+    let signedInAs: String?
+    let other: String
+    let signingOut: String?
+    var onAccount: (() -> Void)?
+    var onOther: (() -> Void)?
+
+    public init(signedInAs: String?, other: String, signingOut: String?, onAccount: (() -> Void)?, onOther: (() -> Void)?) {
+        self.signedInAs = signedInAs
+        self.other = other
+        self.signingOut = signingOut
+        self.onAccount = onAccount
+        self.onOther = onOther
+    }
+
+    public var body: some View {
+        VStack(spacing: 2) {
+            if let signedInAs {
+                Text(signedInAs).type(14, .medium, Ink.detail).multilineTextAlignment(.center)
+                    .padding(.horizontal, 12).padding(.vertical, 4)
+                    .pressable(onAccount, label: signedInAs)
+            }
+            if let signingOut {
+                HStack(spacing: 8) {
+                    Mark(kind: .running, size: 16)
+                    Text(signingOut).type(15, .semibold, Ink.detail)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.updatesFrequently)
+            } else {
+                Text(other).type(15, .semibold, Ink.black).multilineTextAlignment(.center)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .pressable(onOther, label: other)
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 }

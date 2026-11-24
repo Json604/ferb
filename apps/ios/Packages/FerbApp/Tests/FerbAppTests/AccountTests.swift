@@ -483,6 +483,125 @@ final class AccountTests: XCTestCase {
         await eventually("the other account's Mac forgotten") { phone.calls.contains("forget") }
     }
 
+    // ---- another account where the phone can be on the wrong one (owner kb PHN-842) -------------------------------
+
+    // decision: PHN-842, PHN-843
+    func testUseAnotherAccountOnThePhoneFirstPageSignsOutAtOnceWithItsPendingState() async {
+        phone.link = FakePhone.status(.idle, paired: false)
+        let vm = rig.model()
+        rig.session.unlocked()
+        await eventually("phone first") { vm.ui.gate == .pair && vm.ui.macFirst }
+
+        // the site holds its answer: the tap's pending state shows at once, on the same page, nothing cleared yet
+        http.script("/api/app/signout", (200, #"{"ok":true}"#))
+        http.held = true
+        let out = vm.signOut()
+        await eventually("the site asked") { self.http.paths().contains("/api/app/signout") }
+        XCTAssertTrue(vm.signingOut)
+        XCTAssertEqual(vm.ui.gate, .pair)
+        XCTAssertTrue(vm.ui.macFirst)
+        XCTAssertNotNil(rig.account.account, "the site is told first, with the tokens still kept")
+        XCTAssertNotNil(rig.accountStore.get("account"))
+        // a second tap meanwhile is never a silent no-op
+        await vm.signOut().value
+        XCTAssertEqual(vm.ui.note?.text, "FERB is still working on that. One moment.")
+
+        http.held = false
+        await out.value
+        XCTAssertFalse(vm.signingOut)
+        XCTAssertEqual(http.sent.first { $0.path == "/api/app/signout" }?.body["refresh_token"] as? String, "fr1_first")
+        XCTAssertNil(rig.account.account)
+        XCTAssertNil(rig.accountStore.get("account"))
+        XCTAssertFalse(phone.calls.contains("forget"), "nothing paired: the link's identity stays")
+        await eventually("the sign-in") { vm.ui.gate == .signIn }
+        XCTAssertNil(rig.account.line, "the site was told: nothing to say")
+
+        // signed in again (another account): the phone-first page comes first, not the pairing page
+        rig.web.finishes(code: "c2")
+        http.script("/api/app/token", (200, FakeHttp.tokens("fa1_b", "fr1_b", id: "22222222-2222-4222-8222-222222222222", email: "other@example.com")))
+        await rig.account.signIn(.google).value
+        XCTAssertTrue(rig.web.opened.last?.absoluteString.contains("provider=google") ?? false)
+        await eventually("phone first again") { vm.ui.gate == .pair && vm.ui.macFirst }
+    }
+
+    // decision: PHN-842, PHN-843
+    func testUseAnotherAccountWithTheSiteUnreachableStillSignsOutHereAndSaysSo() async {
+        phone.link = FakePhone.status(.idle, paired: false)
+        let vm = rig.model()
+        rig.session.unlocked()
+        await eventually("phone first") { vm.ui.gate == .pair && vm.ui.macFirst }
+        http.offline = true
+        await vm.signOut().value
+        XCTAssertEqual(http.paths().filter { $0 == "/api/app/signout" }.count, 1, "tried")
+        XCTAssertNil(rig.account.account, "signed out here all the same: never stuck")
+        XCTAssertNil(rig.accountStore.get("account"))
+        await eventually("the sign-in") { vm.ui.gate == .signIn }
+        let unheard = "You're signed out on this phone. FERB couldn't reach its sign-in to tell it, but nothing on this phone can use your account anymore."
+        XCTAssertEqual(rig.account.line, unheard)
+
+        // the site failing answers the same
+        http.offline = false
+        let other = Rig()
+        defer { other.tearDown() }
+        other.phone.link = FakePhone.status(.idle, paired: false)
+        other.http.script("/api/app/signout", (503, #"{"error":"unavailable"}"#))
+        let vm2 = other.model()
+        other.session.unlocked()
+        await eventually("phone first") { vm2.ui.gate == .pair }
+        await vm2.signOut().value
+        XCTAssertNil(other.account.account)
+        XCTAssertEqual(other.account.line, unheard)
+    }
+
+    // decision: PHN-842, PHN-828
+    func testTheMacsRefusalOfThisAccountOffersAnotherAccountAndSigningOutClearsIt() async {
+        phone.link = FakePhone.status(.idle, paired: false)
+        let vm = rig.model()
+        rig.session.unlocked()
+        await eventually("pair") { vm.ui.gate == .pair }
+        vm.choosePair()
+        let words = "This phone is signed in as someone@example.com, but FERB on this Mac is signed in as other@example.com. Sign in with the same account on both."
+        phone.pairResult = .failed(.Refused(detail: words, linkCode: "account_mismatch"))
+        await vm.pair("FERB-ABC").value
+        XCTAssertEqual(vm.ui.pairError?.text, words)
+        XCTAssertTrue(vm.pairAccountRefused)
+        // a wrong code is no account's matter
+        phone.pairResult = .failed(.Refused(detail: "The code is wrong.", linkCode: "pair_secret_wrong"))
+        await vm.pair("FERB-ABC").value
+        XCTAssertFalse(vm.pairAccountRefused)
+        phone.pairResult = .failed(.Refused(detail: words, linkCode: "account_mismatch"))
+        await vm.pair("FERB-ABC").value
+        XCTAssertTrue(vm.pairAccountRefused)
+
+        http.script("/api/app/signout", (200, #"{"ok":true}"#))
+        await vm.signOut().value
+        await eventually("the sign-in") { vm.ui.gate == .signIn }
+        XCTAssertNil(vm.ui.pairError, "the refusal goes with the account")
+        XCTAssertFalse(vm.pairAccountRefused)
+        rig.web.finishes(code: "c3")
+        http.script("/api/app/token", (200, FakeHttp.tokens("fa1_c", "fr1_c")))
+        await rig.account.signIn(.google).value
+        await eventually("phone first") { vm.ui.gate == .pair && vm.ui.macFirst }
+    }
+
+    // decision: PHN-842, PHN-828
+    func testAPhoneTheMacRemovedOverItsAccountCanUseAnotherAccount() async {
+        rig.prefs.pairedSince = 1_700_000_000_000
+        let words = "This phone is signed in as someone@example.com, but FERB on this Mac is signed in as other@example.com. Sign in with the same account on both."
+        phone.bindResult = .failed(.Refused(detail: words, linkCode: "account_mismatch"))
+        let vm = rig.model()
+        rig.session.unlocked()
+        await eventually("removed") { vm.ui.gate == .removed }
+        XCTAssertEqual(vm.ui.removedWords, words)
+        http.script("/api/app/signout", (200, #"{"ok":true}"#))
+        await vm.signOut().value
+        XCTAssertTrue(phone.calls.contains("forget"), "the Mac is forgotten here")
+        XCTAssertTrue(http.paths().contains("/api/app/signout"))
+        XCTAssertNil(rig.account.account)
+        XCTAssertNil(vm.ui.removedWords)
+        await eventually("the sign-in") { vm.ui.gate == .signIn }
+    }
+
     // ---- a pairing made before sign-in existed (kb PHN-828) --------------------------------------------------------
 
     private func binds() -> Int { phone.calls.filter { $0 == "bind" }.count }

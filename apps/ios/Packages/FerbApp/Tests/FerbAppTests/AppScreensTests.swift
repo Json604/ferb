@@ -124,6 +124,33 @@ final class AppScreensTests: XCTestCase {
                            size: PhoneInsets.labSize, path: "app/sign-in-browser-402-noon.png")
     }
 
+    /// Another account (owner kb PHN-842) at the lab's size: phone first while signing out, the Mac's refusal of this
+    /// phone's account and its removal over it with "Use another account", and the sign-in after a sign-out the site
+    /// didn't hear (PHN-843).
+    // decision: PHN-842, PHN-843, PHN-416
+    func testAnotherAccountWhereverThePhoneCanBeOnTheWrongOne() async {
+        let words = "This phone is signed in as someone@example.com, but FERB on this Mac is signed in as other@example.com. Sign in with the same account on both."
+        rig.phone.link = FakePhone.status(.idle, paired: false)
+        let vm = rig.model()
+        rig.session.unlocked()
+        await eventually("phone first") { vm.ui.gate == .pair && vm.ui.macFirst }
+        shot(MacFirstPage(title: L.s("macfirst_title"), text: L.s("macfirst_text", "someone@example.com"), address: L.s("macfirst_site"),
+                          pairTitle: L.s("macfirst_pair"), signedInAs: L.s("signin_signed_in_as", "someone@example.com"),
+                          otherTitle: L.s("account_other"), signingOut: L.s("account_signing_out"), insets: .lab),
+             app: "mac-first-signing-out-noon")
+        vm.choosePair()
+        rig.phone.pairResult = .failed(.Refused(detail: words, linkCode: "account_mismatch"))
+        await vm.pair("FERB-ABC").value
+        XCTAssertTrue(vm.pairAccountRefused)
+        shot(PairView(model: vm, insets: .lab), app: "pair-account-refused-noon")
+        shot(MessagePage(title: L.s("removed_title"), text: words, action: L.s("pair_again"), insets: .lab,
+                         other: AnyView(OtherAccountPill(model: vm).padding(.top, 4))), app: "removed-account-noon")
+        rig.http.offline = true
+        await vm.signOut().value
+        await eventually("sign-in") { vm.ui.gate == .signIn }
+        shot(SignInView(account: rig.account, insets: .lab), app: "sign-in-signed-out-unheard-noon")
+    }
+
     // decision: PHN-416, PHN-8
     func testTheLockIsTheLabsUnlockPage() {
         same(UnlockPage(insets: .lab, bio: "Face ID", symbol: "faceid"), asDesign: "unlock-noon")

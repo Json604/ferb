@@ -67,6 +67,17 @@
         }
       }
     },
+    "account_signing_out": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signing out…"
+          }
+        }
+      }
+    },
     "account_title": {
       "extractionState": "manual",
       "localizations": {
@@ -3828,6 +3839,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sign out of FERB on this phone?"
+          }
+        }
+      }
+    },
+    "signout_unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You're signed out on this phone. FERB couldn't reach its sign-in to tell it, but nothing on this phone can use your account anymore."
           }
         }
       }

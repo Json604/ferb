@@ -83,20 +83,25 @@ fun SignInPage(
     }
 }
 
-/** What the phone-first page says (its text already names the account's e-mail). */
-class MacFirstWords(val title: String, val text: String, val site: String, val pair: String, val signedInAs: String)
+/** What the phone-first page says (its text already names the account's e-mail); [other]: "Use another account". */
+class MacFirstWords(val title: String, val text: String, val site: String, val pair: String, val signedInAs: String, val other: String)
 
 /**
  * Signed in with no Mac paired yet (the phone came first, kb PHN-841): FERB runs on the Mac. The download address, the
- * way on to pairing, and who is signed in (a tap opens the account).
+ * way on to pairing, who is signed in (a tap opens the account) and another account (kb PHN-842: the phone may be
+ * signed in to another account than the Mac's). [signingOut]: the pending state's words while signing out; the page's
+ * taps wait meanwhile.
  */
 @Composable
 fun MacFirstPage(
     words: MacFirstWords,
     insets: PhoneInsets = PhoneInsets.Lab,
+    signingOut: String? = null,
     onPair: (() -> Unit)? = {},
     onAccount: (() -> Unit)? = {},
+    onOther: (() -> Unit)? = {},
 ) {
+    val waiting = signingOut != null
     Column(Modifier.fillMaxSize()) {
         Spacer(Modifier.weight(1f))
         LinkPicture(LinkKind.SEARCH)
@@ -109,11 +114,34 @@ fun MacFirstPage(
                     FerbIcon(FerbIcons.laptop, 18f, Ink.black)
                     PhoneText(words.site, 16.5f, FerbType.Semibold)
                 }
-                Pill(words.pair, onClick = onPair)
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    PhoneText(words.signedInAs, 14f, FerbType.Medium, Ink.detail,
-                        Modifier.pressable(onAccount, label = words.signedInAs).padding(horizontal = 12.dp, vertical = 4.dp), align = TextAlign.Center)
+                Pill(words.pair, onClick = if (waiting) null else onPair)
+                AccountLines(words.signedInAs, words.other, signingOut, if (waiting) null else onAccount, if (waiting) null else onOther)
+            }
+        }
+    }
+}
+
+/**
+ * Who is signed in and, under it, "Use another account" (kb PHN-842), centred; while signing out the second line is
+ * its pending state (FERB's running mark and [signingOut]), said to TalkBack as it changes.
+ */
+@Composable
+fun AccountLines(signedInAs: String?, other: String, signingOut: String?, onAccount: (() -> Unit)?, onOther: (() -> Unit)?) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (signedInAs != null) {
+            PhoneText(signedInAs, 14f, FerbType.Medium, Ink.detail,
+                Modifier.pressable(onAccount, label = signedInAs).padding(horizontal = 12.dp, vertical = 4.dp), align = TextAlign.Center)
+        }
+        Box(Modifier.semantics { liveRegion = LiveRegionMode.Polite }, contentAlignment = Alignment.Center) {
+            if (signingOut != null) {
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp).semantics(mergeDescendants = true) {},
+                    horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Mark(MarkKind.RUNNING, 16.dp)
+                    PhoneText(signingOut, 15f, FerbType.Semibold, Ink.detail)
                 }
+            } else {
+                PhoneText(other, 15f, FerbType.Semibold, Ink.black,
+                    Modifier.pressable(onOther, label = other).padding(horizontal = 12.dp, vertical = 6.dp), align = TextAlign.Center)
             }
         }
     }

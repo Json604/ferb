@@ -116,16 +116,19 @@ struct SignInView: View {
     }
 }
 
-/// "FERB runs on your Mac" with the app's words (kb PHN-841): phone first, signed in, no Mac paired yet.
+/// "FERB runs on your Mac" with the app's words (kb PHN-841): phone first, signed in, no Mac paired yet. "Use another
+/// account" signs out at once, nothing being paired to lose (owner kb PHN-842), with its pending state.
 struct MacFirstView: View {
     @Bindable var model: AppModel
     let insets: PhoneInsets
 
     var body: some View {
-        let a = model.account
-        MacFirstPage(title: L.s("macfirst_title"), text: L.s("macfirst_text", a.account?.email ?? ""),
-                     address: L.s("macfirst_site"), pairTitle: L.s("macfirst_pair"), otherTitle: L.s("account_other"),
-                     insets: insets, onPair: { model.choosePair() }, onOther: { model.show(.signOut) })
+        let email = model.account.account?.email ?? ""
+        MacFirstPage(title: L.s("macfirst_title"), text: L.s("macfirst_text", email),
+                     address: L.s("macfirst_site"), pairTitle: L.s("macfirst_pair"),
+                     signedInAs: L.s("signin_signed_in_as", email), otherTitle: L.s("account_other"),
+                     signingOut: model.signingOut ? L.s("account_signing_out") : nil, insets: insets,
+                     onPair: { model.choosePair() }, onAccount: { model.show(.account) }, onOther: { model.signOut() })
     }
 }
 

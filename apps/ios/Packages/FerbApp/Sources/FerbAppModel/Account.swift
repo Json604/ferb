@@ -457,12 +457,16 @@ public final class AccountModel {
         }
     }
 
-    /// Sign out: the refresh token's family revoked on the site (best effort), everything here cleared.
+    /// Sign out (kb PHN-843): the site is told first, so this sign-in's refresh token family is revoked there (bounded
+    /// by the request's timeout), then everything here is cleared whatever it answered, so nobody is ever left signed
+    /// in. When the site couldn't be told, the sign-in page says so.
     public func signOut() async {
         guard let s = saved else { return }
+        let reply = await post("api/app/signout", ["refresh_token": s.refreshToken],
+                               bearer: s.accessExpiresAt > now().timeIntervalSince1970 ? s.accessToken : nil)
         clearLocal()
-        _ = await post("api/app/signout", ["refresh_token": s.refreshToken],
-                       bearer: s.accessExpiresAt > now().timeIntervalSince1970 ? s.accessToken : nil)
+        if case .answered(200, _) = reply { return }
+        problem = Note("signout_unreachable")
     }
 
     /// Delete account: true once the site deleted it (then everything here is cleared); false leaves all as it was.

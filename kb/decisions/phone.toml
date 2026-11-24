@@ -4407,3 +4407,26 @@ why = "The owner's iPhone choice (APP-1137): the sheet that shows his signed-in 
 rejected = ["SFSafariViewController: in the app with no alert, but it hasn't shared Safari's sign-ins since iOS 11, so no accounts show", "The ephemeral sheet (prefersEphemeralWebBrowserSession = true): no alert, but a fresh browser with no accounts signed in, which the owner's second message ruled out", "Google's iOS sign-in SDK: a dependency that opens the same system sheet, alert included"]
 paths = ["apps/ios/Packages/FerbApp/Sources/FerbAppModel/Account.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/AccountViews.swift", "apps/ios/App/FERB.entitlements", "apps/ios/tools/make_project.py", "apps/android/app/src/main/kotlin/com/ferb/app/SignInBrowser.kt", "apps/android", "apps/ios"]
 live = ["LIVE-1203"]
+
+[PHN-842]
+title = "On a phone the account can always be changed before pairing: Use another account"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "in phone when ive signedin witha n id, theres no option to change it so theres no way i can move forward cause i selected the id thats not the same as mac's, didnt you think of it?"
+words_source = "Owner 2026-11-24, relayed verbatim by the coordinator, from his Android phone on the \"FERB runs on your Mac\" page, signed in with another account than the Mac's."
+rule = "On both phones, wherever the phone can be stuck on the wrong FERB account before or during pairing (the phone-first page, the Mac's refusal of its account at pairing, the removed page when the Mac removed it over its account), it offers \"Use another account\". It signs out at once with Settings' sign-out (Mac forgotten, site tokens revoked, phone tokens cleared), shows a pending state at once and returns to the sign-in, where Google shows its account chooser; if the site can't be reached it still signs out and says so."
+why = "He signed the phone in with another account than the Mac's and could neither go on (pairing needs the same account) nor change it (Settings opens only after pairing)."
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/ui/Account.kt", "apps/android/app/src/main/kotlin/com/ferb/app/ui/Root.kt", "apps/android/design/src/main/kotlin/com/ferb/design/screens/Account.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/AccountViews.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Root.swift", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/AccountPages.swift"]
+live = ["LIVE-1203", "LIVE-1204"]
+
+[PHN-843]
+title = "How a phone signs out: the site told first, then everything here cleared whatever it said"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For PHN-842; refines PHN-841's Sign out. Sign out (Settings, after its question) and Use another account (at once) are one path: the Mac forgotten (phone.forget_self, best effort), then POST /api/app/signout with the refresh token, bounded by the request timeouts, then everything on the phone cleared whatever the site answered; not 200: the sign-in page says FERB couldn't reach its sign-in. Pending state: busy \"account\" (\"Signing out…\"). The pairing's refusal and the removal go with the account. The site keeps ferb_app_devices."
+why = "PHN-840's order (cleared first, the site told in the background) showed the sign-in page at once and could only say a failed sign-out later, maybe over a new sign-in; told first, the one pending state ends with the result, and the phone is cleared whatever happens."
+rejected = ["Clearing first and telling the site in the background (PHN-840's order): the failure line would arrive late, on another page, perhaps while a new sign-in had started", "Asking before Use another account: nothing is paired where it shows, so nothing is lost", "Only the account sheet from the signed-in line (Android's hidden tap): the owner didn't find it, and the iPhone had no such tap"]
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Account.kt", "apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Account.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppModel.swift"]
+live = ["LIVE-1203"]

@@ -113,9 +113,6 @@ NEW = {
     "profile_lock": "%@ to open",
     "pick_photos": "Photos",
     "pick_files": "Files",
-    # FERB's account (kb PHN-839, PHN-841): Android's words under its names; only iOS offers another account where the Mac
-    # refused this phone's account or before pairing
-    "account_other": "Use another account",
     # only the iPhone signs in with the system's own Sign in with Apple (kb PHN-841): no browser then
     "signin_finishing_apple": "Finishing sign-in with Apple…",
 }

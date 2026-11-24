@@ -52,16 +52,21 @@ internal fun SignIn(vm: FerbViewModel, ui: UiState, insets: PhoneInsets) {
     )
 }
 
-/** Signed in, no Mac paired yet (kb PHN-841): FERB runs on the Mac, its download address; then pair. */
+/**
+ * Signed in, no Mac paired yet (kb PHN-841): FERB runs on the Mac, its download address; then pair. "Use another
+ * account" signs out at once, nothing being paired to lose (owner kb PHN-842), with its pending state.
+ */
 @Composable
 internal fun MacFirst(vm: FerbViewModel, ui: UiState, insets: PhoneInsets) {
     val email = ui.account.account?.email.orEmpty()
     MacFirstPage(
         MacFirstWords(stringResource(R.string.macfirst_title), stringResource(R.string.macfirst_text, email), stringResource(R.string.macfirst_site),
-            stringResource(R.string.macfirst_pair), stringResource(R.string.signin_signed_in_as, email)),
+            stringResource(R.string.macfirst_pair), stringResource(R.string.signin_signed_in_as, email), stringResource(R.string.account_other)),
         insets,
+        signingOut = if (ui.signingOut) stringResource(R.string.account_signing_out) else null,
         onPair = { vm.pairNow(true) },
         onAccount = { vm.show(Sheet.Account) },
+        onOther = { vm.signOut() },
     )
 }
 

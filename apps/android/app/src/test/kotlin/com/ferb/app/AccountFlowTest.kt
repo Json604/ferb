@@ -17,6 +17,7 @@ import java.io.File
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestCoroutineScheduler
@@ -182,6 +183,7 @@ class AccountFlowTest {
         val vm = vm(signedIn(store))
         session.unlocked(); idle()
         assertEquals(Gate.MAIN, vm.ui.value.gate)
+        http.reply("/api/app/signout", 200, """{"ok":true}""")
         vm.show(Sheet.Account)
         vm.signOut()
         eventually { "account" !in vm.ui.value.busy }
@@ -350,5 +352,126 @@ class AccountFlowTest {
         eventually { prefs().pairedAccount != null }
         assertEquals(2, phone.binds.size)
         assertEquals("acct-0001", prefs().pairedAccount)
+    }
+
+    // ---- another account where the phone can be on the wrong one (owner kb PHN-842) ------------------------------
+
+    private fun keptAccount() = MemoryAccountStore(SignedIn(INVENTED_ACCOUNT, Tokens("fa1_invented-access", 3_600_000L, "fr1_invented-refresh")))
+
+    // decision: PHN-842, PHN-843
+    @Test
+    fun use_another_account_on_the_phone_first_page_signs_out_at_once_with_its_pending_state() {
+        phone.link.value = FakePhone.status(LinkPhase.IDLE, paired = false)
+        val store = keptAccount()
+        http.reply("/api/app/signout", 200, """{"ok":true}""")
+        val vm = vm(testAccount(http, store, { now }, io = Dispatchers.IO))
+        session.unlocked(); idle()
+        assertEquals("signed in, no Mac: the phone-first page", Gate.PAIR, vm.ui.value.gate)
+        assertFalse(vm.pairNow.value)
+
+        // the site holds its answer: the tap's pending state shows at once, on the same page, nothing cleared yet
+        val held = CountDownLatch(1)
+        http.gate = held
+        vm.signOut()
+        eventually { http.requests.isNotEmpty() }
+        assertTrue(vm.ui.value.signingOut)
+        assertEquals(Gate.PAIR, vm.ui.value.gate)
+        assertNotNull("the site is told first, with the tokens still kept", store.kept)
+        // a second tap meanwhile is never a silent no-op
+        vm.signOut(); idle()
+        assertEquals(Note(R.string.still_working), vm.ui.value.note)
+
+        held.countDown()
+        eventually { !vm.ui.value.signingOut }
+        assertEquals(listOf("/api/app/signout"), http.paths())
+        assertTrue("the site revokes this sign-in", http.requests.single().body!!.contains("fr1_invented-refresh"))
+        assertNull(store.kept)
+        assertEquals(Gate.SIGN_IN, vm.ui.value.gate)
+        assertNull("the site was told: nothing to say", vm.ui.value.account.note)
+
+        // the sign-in page again: Continue with Google opens the site's Google start (the site asks Google for its
+        // account chooser, prompt=select_account)
+        vm.signIn(Provider.GOOGLE)
+        eventually { opened.isNotEmpty() }
+        assertTrue(opened.single().startsWith("${Site.URL}/api/app/start?provider=google&platform=android"))
+    }
+
+    // decision: PHN-842, PHN-843
+    @Test
+    fun use_another_account_with_the_site_unreachable_still_signs_out_here_and_says_so() {
+        phone.link.value = FakePhone.status(LinkPhase.IDLE, paired = false)
+        val store = keptAccount()
+        val vm = vm(signedIn(store))
+        session.unlocked(); idle()
+        assertEquals(Gate.PAIR, vm.ui.value.gate)
+        http.offline = true
+        vm.signOut()
+        eventually { !vm.ui.value.signingOut }
+        assertEquals("tried", listOf("/api/app/signout"), http.paths())
+        assertNull("signed out here all the same: never stuck", store.kept)
+        assertEquals(Gate.SIGN_IN, vm.ui.value.gate)
+        assertEquals(Note(R.string.signout_unreachable), vm.ui.value.account.note)
+        // the next sign-in starts afresh
+        http.offline = false
+        vm.signIn(Provider.GOOGLE); idle()
+        assertNull(vm.ui.value.account.note)
+        assertEquals(1, opened.size)
+    }
+
+    // decision: PHN-842, PHN-828
+    @Test
+    fun the_macs_refusal_of_this_account_offers_another_account_and_signing_out_clears_it() {
+        phone.link.value = FakePhone.status(LinkPhase.IDLE, paired = false)
+        http.reply("/api/app/assertion", 200, """{"assertion":"fpa1.invented-payload.invented-signature","expires_in":300}""")
+        http.reply("/api/app/signout", 200, """{"ok":true}""")
+        val vm = vm(signedIn())
+        session.unlocked(); idle()
+        vm.pairNow(true)
+        vm.pair("FERB-INVENTED"); idle()
+        assertFalse(vm.ui.value.pairAccountRefused)
+        val words = "This phone is signed in as someone@example.com, but FERB on this Mac is signed in as other@example.com. Sign in with the same account on both."
+        phone.link.value = FakePhone.status(LinkPhase.STOPPED, paired = false, problem = LinkProblem("account_mismatch", words, null))
+        assertEquals(Note(R.string.err_mac_said, words), vm.ui.value.pairError)
+        assertTrue("its words come with another account", vm.ui.value.pairAccountRefused)
+        // a wrong code is no account's matter
+        vm.clearPairError()
+        assertFalse(vm.ui.value.pairAccountRefused)
+        phone.link.value = FakePhone.status(LinkPhase.IDLE, paired = false)
+        vm.pair("FERB-INVENTED"); idle()
+        phone.link.value = FakePhone.status(LinkPhase.WAITING, paired = false, problem = LinkProblem("pair_secret_wrong", "The code is wrong.", null))
+        assertEquals(Note(R.string.pair_wrong_code), vm.ui.value.pairError)
+        assertFalse(vm.ui.value.pairAccountRefused)
+        // the Mac signed out: the same way out (as on the iPhone)
+        phone.link.value = FakePhone.status(LinkPhase.IDLE, paired = false)
+        vm.pair("FERB-INVENTED"); idle()
+        phone.link.value = FakePhone.status(LinkPhase.STOPPED, paired = false,
+            problem = LinkProblem("mac_signed_out", "FERB on this Mac isn't signed in yet. Sign in on the Mac, then scan a new code.", null))
+        assertTrue(vm.ui.value.pairAccountRefused)
+
+        vm.signOut()
+        eventually { !vm.ui.value.signingOut }
+        assertEquals(Gate.SIGN_IN, vm.ui.value.gate)
+        assertNull("the refusal goes with the account", vm.ui.value.pairError)
+        assertFalse(vm.ui.value.pairAccountRefused)
+        assertFalse("signed in again, the phone-first page comes first", vm.pairNow.value)
+    }
+
+    // decision: PHN-842, PHN-828
+    @Test
+    fun a_phone_the_mac_removed_over_its_account_can_use_another_account() {
+        legacyPairing()
+        val words = "This phone is signed in as someone@example.com, but FERB on this Mac is signed in as other@example.com. Sign in with the same account on both."
+        phone.bindScript.add(com.ferb.core.Outcome.Failed(com.ferb.mobile.FerbException.Refused(words, "account_mismatch")))
+        http.reply("/api/app/signout", 200, """{"ok":true}""")
+        val vm = vm(signedIn())
+        session.unlocked()
+        eventually { vm.ui.value.gate == Gate.REMOVED }
+        assertEquals(Note(R.string.err_mac_said, words), vm.ui.value.removedNote)
+        vm.signOut()
+        eventually { !vm.ui.value.signingOut }
+        assertTrue("the Mac is forgotten here", "forget" in phone.calls)
+        assertTrue(http.paths().contains("/api/app/signout"))
+        assertEquals(Gate.SIGN_IN, vm.ui.value.gate)
+        assertNull(vm.ui.value.removedNote)
     }
 }

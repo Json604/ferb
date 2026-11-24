@@ -285,13 +285,17 @@ public struct MessagePage: View {
     let text: String
     let action: String
     var insets: PhoneInsets
+    /// Not from the lab: a second way on under the action (the removed page's "Use another account", kb PHN-842).
+    var other: AnyView?
     var onAction: (() -> Void)?
 
-    public init(title: String, text: String, action: String, insets: PhoneInsets = .lab, onAction: (() -> Void)? = nil) {
+    public init(title: String, text: String, action: String, insets: PhoneInsets = .lab, other: AnyView? = nil,
+                onAction: (() -> Void)? = nil) {
         self.title = title
         self.text = text
         self.action = action
         self.insets = insets
+        self.other = other
         self.onAction = onAction
     }
 
@@ -306,6 +310,7 @@ public struct MessagePage: View {
                 Text(text).type(15.5, .regular, Ink.detail).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4).padding(.bottom, 14)
                 Pill(title: action, onClick: onAction)
+                if let other { other }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, insets.bottom + 8)

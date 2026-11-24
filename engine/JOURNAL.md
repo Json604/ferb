@@ -12687,3 +12687,88 @@ device or in the simulator's UI; a device build needs Sign in with Apple turned 
 owner's step in Apple's developer site, with T-1243/T-1247's signing), and the same Apple ID gets the same account only if
 Apple gives the app and the Services ID com.ferb.signin the same `sub` (they must be grouped under one primary App ID);
 otherwise it links by the verified email.
+
+## 2026-11-24 · 219 · A phone on the wrong account can always change it: Use another account
+
+**The owner (PHN-842).** On Android, signed in with another account than the Mac's: "in phone when ive signedin witha n
+id, theres no option to change it so theres no way i can move forward cause i selected the id thats not the same as
+mac's, didnt you think of it?" The "FERB runs on your Mac" page had the address, "I've installed it — pair now" and
+"You're signed in as …"; Settings opens only after pairing, and pairing needs the same account (PHN-828). On Android the
+signed-in line did open the account sheet when tapped, but nothing said so; the iPhone had "Use another account" there
+and under the pairing refusal (journal 200), through the Sign out question, whose words ("It's unpaired from your
+Mac…") don't fit a phone that isn't paired.
+
+**What changed, both phones alike.**
+- The phone-first page: "You're signed in as {email}." (now on the iPhone too; a tap still opens the account sheet with
+  Sign out and Delete account…, on the iPhone too) and under it "Use another account". The pairing page under the Mac's
+  refusal of this phone's account (`account_mismatch`, `mac_signed_out`, `account_unconfirmed`, the iPhone's set; Android
+  now keeps the link's code as `pairErrorCode`) and the removed page when the Mac removed the phone over its account
+  (Android's `removedNote`, the iPhone's `removedWords`) get "Use another account" as a grey pill.
+- "Use another account" is Settings' Sign out without its question (nothing is paired on those pages, so nothing is
+  lost): `FerbViewModel.signOut` / `AppModel.signOut`. Its pending state shows at once: `busy` "account" turns the link
+  into FERB's running mark and "Signing out…" (the pill's words become "Signing out…") and the page's taps wait; a
+  second tap says "FERB is still working on that. One moment." (PHN-656).
+- The sign-out itself (PHN-843, refining PHN-841): the Mac forgotten as before (Android always; the iPhone only when
+  something was paired, as before), then the site is told first (`POST /api/app/signout` with the refresh token and the
+  access token while good), bounded by the requests' own timeouts (Android 15 s connect, 20 s read; iPhone 20 s), then
+  the account and tokens on the phone are cleared whatever it answered. Any answer but 200 (offline, 503) leaves the
+  line "You're signed out on this phone. FERB couldn't reach its sign-in to tell it, but nothing on this phone can use
+  your account anymore." on the sign-in page; the next sign-in clears it. Before, the phone cleared first and told the
+  site in the background, so a failure could only show later. The pairing's refusal (`pairError`, its code) and the
+  removal's words now go with the account, so after signing in again the phone-first page comes, not the old refusal
+  (both phones kept the refusal before: a stale line on the next pairing page).
+- The sign-in page after it is the same page: Google's start sends `prompt=select_account` (site/api/_lib/deps.js:84,
+  read, unchanged), so Google shows its account chooser in Android's Custom Tab and the iPhone's shared sheet. Apple on
+  the web lets the person pick an Apple ID; the iPhone's system Sign in with Apple uses the phone's own Apple ID.
+- `account_other` is now Android's string (strings.py no longer adds it for iOS only); the catalog is rewritten.
+
+**Sweep for other dead ends** (phone flows where the account can't be changed before or during pairing):
+- Sign-in page states: the browser closed without an answer brings the buttons back (Android `browserLeft`, the iPhone's
+  sheet cancel); "finishing" is bounded by the request timeouts. No dead end.
+- Phone-first page: fixed (above).
+- Pairing page reached with "pair now" or for a phone paired before (wiped, removed, keys): no account shown, but a
+  pairing on the wrong account is refused with "Use another account" under it. Android's back returns to the
+  phone-first page; the iPhone has no way back from the pairing page to it (not an account dead end; left as is).
+- Scanner and typed code: their refusals land on the pairing page's line (above).
+- The codes page: the daemon refuses another account before it asks the owner, so it never shows for one; Cancel stays.
+- Removed page: "Pair again" led back to pairing and its refusal; when the Mac removed the phone over its account it now
+  offers "Use another account" directly. A removal after the Mac changed accounts arrives as `device_revoked` with no
+  account words, so only "Pair again" shows; the next pairing's refusal offers another account.
+- The unlock gate (and no screen lock): comes before the sign-in and involves no account. No dead end.
+- The site's sign-out revokes the token family; the install's `ferb_app_devices` row stays (as Settings' Sign out
+  always did; only Delete account removes it).
+
+**Words** (owner-facing, new or changed): "Use another account" (new on Android; already on the iPhone); "Signing out…"
+(new); "You're signed out on this phone. FERB couldn't reach its sign-in to tell it, but nothing on this phone can use
+your account anymore." (new); on the iPhone the phone-first page now also shows "You're signed in as {email}." (Android's
+existing words).
+
+**kb.** PHN-842 (owner, his words), PHN-843 (agent). LIVE-1203 presses Use another account on the phone-first page,
+online and offline; LIVE-1204 presses it under the refusal. STATUS's account row names journal 219.
+
+**Evidence.**
+- Android `:app:testDebugUnitTest :design:test`: app 369, design 112, 0 failures, after `:app:recordRoborazziDebug --tests
+  com.ferb.app.AccountShotsTest` (re-recorded `account/phone-first-{360,412}.png`; new `phone-first-signing-out-412`,
+  `sign-in-signed-out-unheard-412`, `pair-account-refused-412`; each looked at). New: `AccountFlowTest` (the phone-first
+  page's sign-out with the site holding its answer: pending state at once on the same page, tokens kept until the site
+  answered, a second tap said, then the sign-in with no line and Google's start; offline: signed out here with the line;
+  the refusal's account codes offer another account, a wrong code doesn't, signing out clears the refusal and the next
+  sign-in starts at the phone-first page; a phone removed over its account signs out and forgets the Mac),
+  `AccountModelTest` (200: no line; offline and 503: cleared all the same, with the line; the tokens stay until the site
+  was asked). Two of five full runs had two `SendWithFilesTest` cases fail in their tearDown with "Dispatchers.Main is
+  used concurrently with setting it" (a different pair each time, its own work on another thread); the focused run
+  with the account tests and three more full runs passed, and two full runs at HEAD passed. I infer it is that test's
+  own timing race under load (journal 200 saw it too), not this change, but didn't prove it.
+- iPhone: `TEST_RUNNER_FERB_RECORD_SNAPSHOTS=1` for `AppScreensTests/testTheSignInAndPhoneFirstPagesAtBothWidths` and the
+  new `testAnotherAccountWhereverThePhoneCanBeOnTheWrongOne` (re-recorded `app/mac-first-{375,402}-noon.png`; new
+  `mac-first-signing-out-noon`, `pair-account-refused-noon`, `removed-account-noon`, `sign-in-signed-out-unheard-noon`;
+  each looked at), then `tools/build.sh test` on its own simulator ("FERB iOS acct-wt", deleted after): TEST SUCCEEDED
+  (FerbAppTests 233, FERBUITests 8, FerbDesignTests 75, FerbCoreTests 15 with 1 skipped, FerbMobileTests 4). New
+  `AccountTests`: the same four cases as Android's flow tests (the site held, offline and 503, the refusal, the
+  removal). `strings.py --check` and `make_project.py --check` clean (in build.sh).
+- `tools/kb/run kb lock`, `kb gen`, `kb check`: ok. `git diff --check` clean. Engine, site and FERB.app unchanged.
+
+**Unverified.** No device, no real sign-in or sign-out against the site, nothing installed. Not checked: that Google's
+chooser shows in Android's Custom Tab and the iPhone's sheet after a sign-out (the site sends `prompt=select_account`;
+no test guards that line); that Apple's web page lets another Apple ID be chosen when the browser remembers one; the
+pending state's look on a real phone (the goldens show a still frame of the running mark).

@@ -211,17 +211,55 @@ class AccountModelTest {
         assertEquals("fa1_new-access", http.requests.last().bearer)
     }
 
-    // decision: PHN-839
+    // decision: PHN-839, PHN-843
     @Test
-    fun sign_out_forgets_the_account_here_at_once_and_tells_the_server() = runBlocking {
+    fun sign_out_tells_the_server_first_then_forgets_the_account_here_whatever_it_said() = runBlocking {
+        // the server answers: its tokens revoked there, everything here gone, nothing to say
         val store = signedIn(expiresAt = now + 3_600_000)
         val m = model(store)
-        http.offline = true
+        http.reply("/api/app/signout", 200, """{"ok":true}""")
         m.signOut()
         assertNull(m.state.value.account)
         assertNull(store.kept)
         assertEquals(listOf("/api/app/signout"), http.paths())
-        assertTrue(http.requests.single().body!!.contains("fr1_old-refresh"))
+        val sent = http.requests.single()
+        assertTrue(sent.body!!.contains("fr1_old-refresh"))
+        assertEquals("fa1_old-access", sent.bearer)
+        assertNull(m.state.value.note)
+
+        // unreachable, or the server failing: signed out here all the same, and the sign-in page says so
+        for (offline in listOf(true, false)) {
+            http.requests.clear()
+            http.replies.clear()
+            http.offline = offline
+            if (!offline) http.reply("/api/app/signout", 503, """{"error":"unavailable"}""")
+            val kept = signedIn(expiresAt = now + 3_600_000)
+            val m2 = model(kept)
+            m2.signOut()
+            assertEquals(listOf("/api/app/signout"), http.paths())
+            assertNull(m2.state.value.account)
+            assertNull(kept.kept)
+            assertEquals(Note(R.string.signout_unreachable), m2.state.value.note)
+        }
+    }
+
+    // decision: PHN-843
+    @Test
+    fun the_tokens_stay_until_the_server_was_asked() = runBlocking {
+        val store = signedIn(expiresAt = now + 3_600_000)
+        val m = AccountModel(store, AccountServer(http, Device("invented-device-0001", "0.1.0-test")) { now }, Dispatchers.IO, { now })
+            .also { it.load() }
+        http.reply("/api/app/signout", 200, """{"ok":true}""")
+        val held = CountDownLatch(1)
+        http.gate = held
+        val out = async(Dispatchers.Default) { m.signOut() }
+        while (http.requests.isEmpty()) Thread.sleep(5)
+        assertNotNull("kept while the server is asked", store.kept)
+        assertNotNull(m.state.value.account)
+        held.countDown()
+        out.await()
+        assertNull(store.kept)
+        assertNull(m.state.value.account)
     }
 
     // decision: PHN-839

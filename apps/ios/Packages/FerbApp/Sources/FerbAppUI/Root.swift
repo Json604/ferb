@@ -145,11 +145,15 @@ struct RootView: View {
         case .codes:
             CodesPage(code: model.ui.link?.pairingCode ?? "", insets: insets) { model.cancelPairing() }
         case .removed:
-            // the Mac's own words when it removed this phone over its account (kb PHN-828)
+            // the Mac's own words when it removed this phone over its account (kb PHN-828), and then another account as
+            // the other way on (kb PHN-842)
             MessagePage(title: L.s("removed_title"),
                         text: model.ui.removedWords ?? L.bio(model.ui.pairReason == .keys ? "pair_reason_keys"
                                     : model.ui.pairReason == .unknown ? "pair_reason_unknown" : "pair_reason_removed"),
-                        action: L.s("pair_again"), insets: insets) { model.forget() }
+                        action: L.s("pair_again"), insets: insets,
+                        other: model.ui.removedWords == nil ? nil : AnyView(OtherAccountPill(model: model).padding(.top, 4))) {
+                model.forget()
+            }
         case .main:
             // the connection control in every page's top bar (kb PHN-751)
             MainView(model: model, shell: shell, insets: insets, moment: moment).environment(\.connection, connection(model))
@@ -188,10 +192,11 @@ struct PairView: View {
         }
     }
 
-    /// The Mac refused this phone's account (kb PHN-828): its words, and the way to another account under them.
+    /// The Mac refused this phone's account (kb PHN-828): its words, and under them another account, which signs out at
+    /// once (owner kb PHN-842).
     @ViewBuilder private var other: some View {
-        if model.pairAccountRefused {
-            Pill(title: L.s("account_other"), kind: .grey, height: 44) { model.show(.signOut) }.padding(.top, 12)
+        if model.pairAccountRefused && !model.ui.pairing {
+            OtherAccountPill(model: model).padding(.top, 12)
         }
     }
 
@@ -205,6 +210,18 @@ struct PairView: View {
         case .unknown: return L.s("pair_reason_unknown")
         case nil: return nil
         }
+    }
+}
+
+/// "Use another account" under the Mac's refusal of this phone's account or its removal over it (kb PHN-842): signs
+/// out at once; "Signing out…" while it works (Android's OtherAccountPill).
+struct OtherAccountPill: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        let busy = model.signingOut
+        Pill(title: L.s(busy ? "account_signing_out" : "account_other"), kind: .grey, height: 44,
+             onClick: busy ? nil : { model.signOut() })
     }
 }
 

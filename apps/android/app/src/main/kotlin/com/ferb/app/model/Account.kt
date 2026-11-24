@@ -243,11 +243,16 @@ class AccountModel(
     /** The server's signed statement of this account for the phone whose link id is [endpoint] (kb PHN-828). */
     suspend fun assertion(endpoint: String): Answer<String> = authed { server.assertion(it, endpoint) }
 
-    /** Signs out here: what is kept goes at once, then the server is told (best effort). */
+    /**
+     * Signs out (kb PHN-843): the server is told first, so this sign-in's tokens are revoked there (bounded by the
+     * HTTP waits), then what is kept here goes whatever it answered, so nobody is ever left signed in. When the server
+     * couldn't be told, the sign-in page says so.
+     */
     suspend fun signOut() {
         val s = saved
+        val told = s == null || withContext(io) { runCatching { server.signOut(s.tokens) }.getOrNull() } is Answer.Ok
         clearLocal()
-        if (s != null) withContext(io) { runCatching { server.signOut(s.tokens) } }
+        if (!told) _state.update { it.copy(note = Note(R.string.signout_unreachable)) }
     }
 
     /** Deletes the account on the server; only when that succeeded, everything here goes too. */

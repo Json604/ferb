@@ -207,6 +207,8 @@ data class UiState(
     val pairReason: PairReason? = null,
     val pairing: Boolean = false,
     val pairError: Note? = null,
+    /** The link's code for [pairError], when the Mac refused the pairing (its account refusals offer another account). */
+    val pairErrorCode: String? = null,
     val link: LinkStatus? = null,
     val keys: KeyHealth? = null,
     val conversation: String? = null,
@@ -270,7 +272,13 @@ data class UiState(
     val accountNote: Note? = null,
     /** The Mac's own words for why it removed this phone (an account that isn't its own, kb PHN-828), or null. */
     val removedNote: Note? = null,
-)
+) {
+    /** The pairing's error is the Mac's refusal of this phone's account (kb PHN-828): another account fixes it (PHN-842). */
+    val pairAccountRefused: Boolean get() = pairErrorCode in FerbViewModel.ACCOUNT_REFUSALS
+
+    /** Signing out is under way (Sign out, Use another account): the pages show its pending state (kb PHN-842). */
+    val signingOut: Boolean get() = "account" in busy
+}
 
 /**
  * The app's state over [PhoneApi]'s flows: the gate, the chat, tasks and questions, files, Watch live and FERB's
@@ -645,13 +653,14 @@ class FerbViewModel(
         }
         var pairing = u.pairing
         var pairError = u.pairError
+        var pairErrorCode = u.pairErrorCode
         if (pairing && l != null) {
             if (l.paired && l.phase == LinkPhase.ONLINE) pairing = false
             else if (l.phase == LinkPhase.STOPPED || l.phase == LinkPhase.WAITING || l.phase == LinkPhase.IDLE) {
-                l.problem?.let { pairing = false; pairError = pairNote(it.code, it.detail) }
+                l.problem?.let { pairing = false; pairError = pairNote(it.code, it.detail); pairErrorCode = it.code }
             }
         }
-        return u.copy(gate = gate, pairReason = reason, pairing = pairing, pairError = pairError,
+        return u.copy(gate = gate, pairReason = reason, pairing = pairing, pairError = pairError, pairErrorCode = pairErrorCode,
             failure = (s as? PhoneState.Failed)?.error?.let { "${it.javaClass.simpleName}: ${it.message}" })
     }
 
@@ -1210,7 +1219,7 @@ class FerbViewModel(
     fun pair(code: String) = busy("pair") {
         val text = code.trim()
         if (text.isEmpty()) return@busy
-        _ui.update { it.copy(pairing = true, pairError = null) }
+        _ui.update { it.copy(pairing = true, pairError = null, pairErrorCode = null) }
         _sheet.value = null
         // kb PHN-828: the server's signed statement of this phone's account, for this link's own id; the Mac's daemon
         // refuses a phone of another account (or of none) before it asks the owner
@@ -1229,7 +1238,7 @@ class FerbViewModel(
         when (val r = api.pair(text, statement)) {
             is Outcome.Ok -> Unit
             is Outcome.Failed -> _ui.update {
-                it.copy(pairing = false, pairError = pairNote(r.error.linkCode ?: r.code, r.detail))
+                it.copy(pairing = false, pairError = pairNote(r.error.linkCode ?: r.code, r.detail), pairErrorCode = r.error.linkCode ?: r.code)
             }
         }
     }
@@ -1240,7 +1249,7 @@ class FerbViewModel(
         api.forget()
     }
 
-    fun clearPairError() = _ui.update { it.copy(pairError = null) }
+    fun clearPairError() = _ui.update { it.copy(pairError = null, pairErrorCode = null) }
 
     // ---- FERB's account (kb PHN-827, PHN-829) -----------------------------------------------------------------------
 
@@ -1296,15 +1305,18 @@ class FerbViewModel(
     }
 
     /**
-     * Sign out (after its question): the Mac is asked to remove this phone and everything of it here goes (as Forget
-     * this Mac), then the account: kept tokens at once, the server told (best effort). The sign-in page comes.
+     * Sign out: after its question in Settings, or at once from "Use another account" where the phone isn't paired
+     * (the phone-first page, the Mac's refusal of this account, its removal over it: kb PHN-842). The Mac is asked to
+     * remove this phone and everything of it here goes (as Forget this Mac), then the account: the server told first,
+     * what is kept here cleared whatever it said (PHN-843). The pending state is `busy` "account"; the sign-in page
+     * comes, with a line when the server couldn't be told.
      */
     fun signOut() = busy("account", tap = true) {
         _sheet.value = null
         forgetMac()
         account.signOut()
         saved["pair_now"] = false
-        _ui.update { it.copy(accountNote = null) }
+        _ui.update { it.copy(accountNote = null, pairError = null, pairErrorCode = null, removedNote = null, macForgotPhone = false) }
     }
 
     /** Delete account (after its question): only when the server deleted it, the Mac and everything here go too. */
@@ -2253,6 +2265,9 @@ class FerbViewModel(
 
         /** The lab's three places (PhoneFilesPage), as the Mac's paths. */
         val PLACES = listOf("~/Desktop", "~/Documents", "~/Downloads")
+
+        /** The Mac's refusals of this phone's account at pairing (the link's codes, kb PHN-828). */
+        val ACCOUNT_REFUSALS = setOf("account_mismatch", "mac_signed_out", "account_unconfirmed")
 
         /** The Mac no longer knows this phone: pair again. */
         val REMOVED_CODES = setOf("device_revoked", "not_paired", "unknown_phone")

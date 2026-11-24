@@ -1394,8 +1394,11 @@ public final class AppModel {
         }
     }
 
-    /// Sign out (confirmed): this phone leaves its Mac first (best effort `phone.forget_self` through the link, then
-    /// forgotten here), then the account (the site's sign-out, best effort) and the sign-in shows.
+    /// Sign out: after its question in Settings, or at once from "Use another account" where the phone isn't paired
+    /// (the phone-first page, the Mac's refusal of this account, its removal over it: kb PHN-842). This phone leaves its
+    /// Mac first (best effort `phone.forget_self` through the link, then forgotten here), then the account: the site
+    /// told first, everything here cleared whatever it said (PHN-843). The pending state is `busy` "account"; the
+    /// sign-in shows, with a line when the site couldn't be told.
     @discardableResult
     public func signOut() -> Task<Void, Never> {
         busy("account", tap: true) { [self] in
@@ -1403,9 +1406,17 @@ public final class AppModel {
             await forgetHere(quiet: true)
             await account.signOut()
             pairChosen = false
+            // the refusal or removal that offered another account is over with this account
+            ui.pairError = nil
+            ui.pairErrorCode = nil
+            ui.removedWords = nil
+            ui.macForgotPhone = false
             recheck()
         }
     }
+
+    /// Signing out is under way (Sign out, Use another account): the pages show its pending state (kb PHN-842).
+    public var signingOut: Bool { ui.busy.contains("account") }
 
     /// Delete account (confirmed): the site must delete it; only then the same clearing as Sign out.
     @discardableResult

@@ -499,4 +499,9 @@
     <string name="macfirst_site">ferb.kartikey.xyz</string>
     <string name="macfirst_pair">I\'ve installed it — pair now</string>
     <string name="pair_needs_internet">Pairing needs the internet to confirm your account.</string>
+    <!-- new (owner kb PHN-842): wherever the phone can be on the wrong account before pairing, another account; its
+         pending state; and the line when the site couldn't be told (signed out here all the same) -->
+    <string name="account_other">Use another account</string>
+    <string name="account_signing_out">Signing out…</string>
+    <string name="signout_unreachable">You\'re signed out on this phone. FERB couldn\'t reach its sign-in to tell it, but nothing on this phone can use your account anymore.</string>
 </resources>
