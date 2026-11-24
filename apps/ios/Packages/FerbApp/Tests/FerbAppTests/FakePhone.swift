@@ -379,6 +379,8 @@ final class FakePhone: PhoneApi {
     @ObservationIgnored var temporaryNow = FakePhone.temporaryOff
     @ObservationIgnored var temporaryRefusal: FerbError?
     @ObservationIgnored var temporaryReply: String?
+    /// A temporary send waits here (its message on its way) until it is let go.
+    @ObservationIgnored var temporaryGate: Latch?
     @ObservationIgnored private var temporaryCount = 0
     static let temporaryOff = TemporaryChat(on: false, id: nil, startedAt: nil, rev: 0,
                                             transcript: TranscriptView(conversation: "", items: [], questions: [], live: [], outbox: [], older: .complete))
@@ -399,6 +401,8 @@ final class FakePhone: PhoneApi {
     }
     func sendTemporary(_ text: String) async -> Outcome<TemporaryChat> {
         calls.append("temporary-send:\(text)")
+        if let g = temporaryGate { await g.wait() }
+        if let e = temporaryRefusal { temporaryRefusal = nil; return .failed(e) }
         guard temporaryNow.on else { return .failed(.Refused(detail: "No temporary chat is on.", linkCode: nil)) }
         var v = temporaryNow.transcript
         let n = v.items.count

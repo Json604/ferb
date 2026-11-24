@@ -374,6 +374,8 @@ class FakePhone : PhoneApi {
     var temporaryView: TranscriptView? = null
     var temporaryRefusal: Outcome.Failed? = null
     val temporarySent = ArrayList<String>()
+    /** A temporary send waits here (its message on its way) until it is let go. */
+    var temporaryGate: CompletableDeferred<Unit>? = null
     fun temporaryNow() = com.ferb.mobile.TemporaryChat(
         temporaryOn, if (temporaryOn) "T1" else null, if (temporaryOn) "2026-01-02T10:05:00+00:00" else null, if (temporaryOn) 1L else 0L,
         temporaryView?.takeIf { temporaryOn }
@@ -389,6 +391,7 @@ class FakePhone : PhoneApi {
     }
     override suspend fun sendTemporary(text: String): Outcome<com.ferb.mobile.TemporaryChat> {
         calls += "send-temporary:$text"
+        temporaryGate?.await()
         temporaryRefusal?.let { return it }
         temporarySent += text
         temporaryOn = true

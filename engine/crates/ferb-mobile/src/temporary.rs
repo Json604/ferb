@@ -15,6 +15,7 @@ use serde_json::{json, Value};
 use crate::api::{lock, Change, Mobile, MobileResult, OlderState, Shared, TranscriptView};
 use crate::entries::EntrySet;
 use crate::entry::ChatEntry;
+use crate::live::LiveState;
 
 /// The temporary chat as the app draws it: whether one is on, which, since when, its change number, and its turns
 /// folded as FERB.app folds a conversation (`transcript.conversation` is "temporary:<id>"; empty while off).
@@ -67,6 +68,10 @@ impl TemporaryChat {
             e
         });
         let t = EntrySet::from_entries(entries).transcript(utc_offset_s);
+        // decision: APP-1126 — what the chat draws live over its turns with no frame yet (the typing dots of a turn that
+        // is working, its card's and checklist's rows): the same view as the normal chat's (`Mobile::transcript`), from
+        // a live state that no watch feeds here, so nothing streams in it
+        let live = LiveState::new().view(&t);
         TemporaryChat {
             on: true,
             id,
@@ -76,7 +81,7 @@ impl TemporaryChat {
                 conversation,
                 items: t.items,
                 questions: t.questions,
-                live: Vec::new(),
+                live,
                 outbox: Vec::new(),
                 older: OlderState::Complete,
             },

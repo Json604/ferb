@@ -1574,6 +1574,12 @@ public final class AppModel {
             if temporary != nil {
                 if text.isEmpty { return }
                 draft = ""
+                // his message shows at once as the chat shows his outbox, until the Mac's chat holds it (APP-1126)
+                temporarySends += 1
+                temporarySending = OutboxItem(id: "temporary-\(temporarySends)", text: text,
+                                              createdAt: ISO8601DateFormatter().string(from: now()), state: "sending",
+                                              waitingFor: nil, reason: nil, tried: false, attachments: [])
+                if let t = lastTemporary { showTemporary(t) }
                 await callTemporary { await self.api.sendTemporary(text) } failed: { e in
                     self.draft = text
                     self.failed(e)
@@ -2273,6 +2279,7 @@ public final class AppModel {
             if !told && !quiet { note(Note("forget_mac_kept")) }
             prefs.forgetPairing()
             temporary = nil
+            lastTemporary = nil
             tab = .chat
             earlier = false
             presented = []
@@ -2377,9 +2384,12 @@ public final class AppModel {
         temporaryReads += 1
         let r = await call()
         temporaryCalling = false
+        temporarySending = nil
         switch r {
         case .ok(let t): showTemporary(t)
-        case .failed(let e): failed(e)
+        case .failed(let e):
+            if let t = lastTemporary { showTemporary(t) }
+            failed(e)
         }
         if temporaryReadAfter {
             temporaryReadAfter = false
@@ -2406,9 +2416,17 @@ public final class AppModel {
         }
     }
 
-    /// The temporary chat as the Mac said it: its rows (FERB's words laid out by the library) while on, nothing off.
+    /// The temporary chat as the Mac said it last (memory only), and his message in it on its way (reads of the chat
+    /// wait while it goes, so none shows it twice).
+    @ObservationIgnored private var lastTemporary: TemporaryChat?
+    @ObservationIgnored private var temporarySending: OutboxItem?
+    @ObservationIgnored private var temporarySends = 0
+
+    /// The temporary chat as the Mac said it: its rows (FERB's words laid out by the library) while on, nothing off;
+    /// his message on its way at its end until the send is answered.
     private func showTemporary(_ t: TemporaryChat) {
-        let shown = t.on ? TemporaryShown(t) : nil
+        lastTemporary = t.on ? t : nil
+        let shown = t.on ? TemporaryShown(t, sending: temporarySending) : nil
         if temporary != shown { temporary = shown }
         runTemporary()
     }

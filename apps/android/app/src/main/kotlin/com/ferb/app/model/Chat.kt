@@ -261,6 +261,10 @@ object ChatModel {
      */
     fun prepare(view: TranscriptView) { rows(view) }
 
+    /** How many of his own messages in [view] say [text]: a message sent now is the Mac's once there is one more. */
+    fun said(view: TranscriptView?, text: String): Int =
+        view?.items?.count { it is Item.Turn && it.turn.from == "owner" && it.turn.words?.text == text } ?: 0
+
     /**
      * The rows of [view] with the outbox at the end. FERB's words come laid out by the phone library, kept per entry by
      * [Present]: after [prepare] for the same view this calls the library for nothing.

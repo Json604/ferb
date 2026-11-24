@@ -11931,3 +11931,103 @@ never passed; they are closed on the owner's word and the fix commits. LIVE-1152
 no verdict; "the insomnia tests all passed" is recorded on LIVE-1157 only. GATE-626 follows the coordinator's reading
 of "yes it does." (the kb question asked the opposite way round: should it count like an address in the request
 instead of approved for good). That 0.19.12 reached the Chrome Web Store was not checked here.
+
+## 2026-11-24 · 204 · The phones' temporary chat is the chat with another data source
+
+**What the owner chose.** "Do now" for "Android's temporary chat on the normal chat screen — The Mac is done; Android
+still has a separate copy without the jump pill." The rule is APP-1126 ("i told you to match normal chat and temp chat
+UI, why are they even diff???"), which journal 199 carried out on FERB.app and read on the phones.
+
+**What differed (read from the code at 56c23154).**
+- Android: the temporary chat was its own composable (Main.kt:497 `TemporaryChat`, 35 lines beside the chat's `Chat`).
+  It had:
+  - no arrival fade-in: its rows were drawn without `motionItem` (the chat's at Main.kt:482);
+  - no `ChatOverlays`: no New message pill, no way back to the latest;
+  - no toast, status line or Mac-unlock card, and no scroll to a question from a notification (`toQuestion`);
+  - `mine = last is ChatRow.Owner` where the chat's is the outbox. His message showed only after the Mac's answer to
+    the send, as a stored row, so the list never went to it the way it goes to his outbox row.
+- iPhone: one `ChatView` and one `FollowingList` for both (Tabs.swift:311), so no second screen. It had the same gap in
+  his own message: shown only after the send's answer, never as the outbox row, and `mine` never true for it.
+- Both phones: the library's temporary transcript carried no live view (`TemporaryChat::read`, `live: Vec::new()`).
+  The normal chat computes `conv.live.view(&t)` (api.rs:744) even before any frame comes. So right after his message
+  the chat shows the typing dots and a working card's rows, and the temporary chat showed nothing until the answer was
+  stored.
+
+**Changes.**
+- Android (Main.kt):
+  - `Chat` (Main.kt:409) is the one screen. It runs `ChatOf` under `key(temporary != null)`, so each chat keeps its own
+    list position, arrivals and follow state, as the iPhone's page key does.
+  - `ChatOf` takes its data from the temporary chat while one is on: its rows, questions and work row.
+  - The rest is the chat's code for both: the list (`chat-list`), `motionItem` arrivals (:510), `rememberChatFollow`
+    with the outbox as `mine` (:448), `ChatOverlays` (:512), the toast, the status line, the Mac-unlock card,
+    `toQuestion` and `chatToEnd`.
+  - Kept apart by decision:
+    - the banner above, the quiet empty line;
+    - no days or earlier days (`ChatModel.Places(rows, [])`, so `ChatModel.shown` gives rows and loose questions as
+      before);
+    - no memory import card, no messages with files.
+  - `TemporaryChat` is removed.
+- Android (FerbViewModel.kt): `sendTemporary` (:851) makes his message a `ChatRow.Outbox` row with state `sending`
+  (the transcript's `outbox`, so `ChatModel.rows` draws it as the chat does). It shows at once and goes:
+  - when the send is answered;
+  - earlier, when a read of the chat (a status rev, `readTemporary`) holds one more of his messages with these words
+    than the chat held at send (`ChatModel.said`, Chat.kt:265), so it never shows twice;
+  - on a failure, which also puts the words back in the box.
+  It is never the phone's outbox (PHN-818).
+- iPhone (AppModel.swift): the same row through `TemporaryShown(t, sending:)` (Temporary.swift:27), from
+  `lastTemporary` and `temporarySending` (:2422). Reads of the chat already wait while a send runs (`callTemporary`),
+  so no count is needed. `forget` drops `lastTemporary`.
+- ferb-mobile (temporary.rs:74): `TemporaryChat::read` gives the fold's live view from a fresh `LiveState`, as
+  `Mobile::transcript` does for the chat with no frame yet. A working turn now shows the typing dots and its card's
+  rows on both phones. Nothing streams into it: no watch feeds that state.
+
+**Streaming to phones (not done: not small).** Today a phone learns of a temporary chat's change from the status:
+- the link polls `chat.status` every 1.5 s (bridge.rs `push_loop`, every third 500 ms tick) and pushes it when it
+  changed;
+- the phone then reads the whole chat again (`chat.temporary.get`).
+- So a stored entry (his message, the plan, the answer) shows about 1.5 s plus one call late.
+- Live frames never reach a phone: no streamed reply words, plan line, progress or step lines. `temporary_feed`
+  (flow/temporary.rs) applies the projector and drops `made.live`; only `chat.temporary` with a new rev is published.
+
+What it would take:
+- Engine: `chat.entries.watch` for a temporary conversation. `entries_rpc::conversation` opens a store stream for any
+  conversation, so a temporary one needs its own branch with nothing stored: `caught_up` at once, then the
+  projector's changes and live frames handed to that conversation's watchers by `temporary_feed`, and the end when the
+  chat ends. A test that nothing of it is stored.
+- ferb-mobile: a second watch beside the chat's one (`st.watch` is a single slot with generations, behind/reset
+  restarts, lock and link-loss handling). Its changes are applied to the in-memory entries and its frames to their own
+  `LiveState`, with `Change::Temporary` per frame; started when the chat is on, stopped off, locked or offline.
+- Both apps: on that change, read `last_temporary_chat` (local) instead of calling `chat.temporary.get` over the link
+  each time.
+- Tests: supervisor, ferb-mobile, both apps.
+- Five parts, a few hundred lines, and a new watch lifecycle. Left for a decision on order.
+
+**Evidence.**
+- Android `BothChatsTest` (new, 7 tests; each case on both chats through the real `Main`):
+  - a row that arrives fades in: Roborazzi pixels two frames in differ from at rest, and a row already there is the
+    same;
+  - scrolled up, a new row brings New message and the `chat-jump` pill;
+  - his message is his outbox row at the end and on screen after he scrolled to the top;
+  - the temporary send: "Sending…" shows, the Mac's chat holding it first leaves one row (the Mac's), and a failed send
+    removes the row and keeps the words.
+- Checked against the old code: with Main.kt and FerbViewModel.kt as at 56c23154 (the old list tag renamed so the
+  tests find it), all 4 temporary-chat tests fail on their assertions and the 3 normal-chat ones pass.
+- Android `TemporaryChatShotsTest` (new): goldens `chat-temporary-sending-360.png` and `-412.png` (the banner, his
+  turn, FERB's reply, his next message dimmed with "Sending…", as `chat-offline-outbox.png` draws the outbox). The
+  existing `chat-temporary-noon` and `chat-temporary-empty-noon` goldens are unchanged.
+- Full Android runs: `:app:testDebugUnitTest` 359 and `:design:test` 112, 0 failures (app run again with `--rerun`
+  after the library change).
+- ferb-mobile `tests/temporary.rs` `a_working_turn_shows_the_chat_s_live_view_and_an_answered_one_none`: it fails
+  with `live` empty as before. All ferb-mobile tests pass; clippy `--all-targets -D warnings` and fmt are clean (its
+  own manifest, `CARGO_TARGET_DIR=engine/target/agents/andtc-mobile`).
+- iPhone `TemporaryChatTests.testHisMessageShowsAtOnceAsHisOutboxRowAsInTheChat`: the outbox row with `sending` at
+  the end while the send waits, never the phone's outbox; after it, one row of his, the Mac's; a failed send leaves no
+  row and the words back. Full `apps/ios/tools/build.sh test`: 323 tests (FerbAppTests 221, FerbDesignTests 75, FerbCoreTests 15 with 1 skipped, FerbMobileTests 4, FERBUITests 8), 0 failures.
+- No iPhone golden: its chat screen didn't change, and the outbox row is the chat's own.
+- `kb check` ok.
+
+**Open / unverified.**
+- No live check (LIVE-1194 now names PHN-831) and no installed build.
+- Android's box still offers + in the temporary chat. A file picked there waits as a chip and is not sent with the
+  words. The iPhone hides + there. Not changed.
+- No streaming (above).

@@ -4311,3 +4311,14 @@ rule = "For PHN-828. The phone gets a 5-minute assertion from /api/app/assertion
 why = "The phone can't be trusted to say which account it has (PHN-124): only a statement the server signed, bound to this phone's link identity and minutes old, proves it. P-256 because the engine already verifies phone proofs with it (no new dependency)."
 paths = ["engine/crates/ferb-daemon/src/phone", "engine/crates/ferb-link/src", "engine/crates/ferb-mobile-ffi/src/link.rs", "engine/runtime/store/migrations", "site/api/app"]
 live = ["LIVE-1204"]
+
+[PHN-831]
+title = "On both phones the temporary chat is the chat with another data source"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For APP-1126 on the phones. The chat tab draws the temporary chat with the chat's own screen (list, fade-in, following the end, New message pill, rows, toast, status line, box) and its fold's live view over a working turn (the typing dots; no frames stream to it). Only the data differs: its rows, questions and work row, its banner, a quiet line while empty; no days or import card. His message shows at once as the chat's outbox row (Sending…) until the Mac's chat holds it; a failed send takes it away and puts the words back. It still goes straight to the Mac (PHN-818)."
+why = "Android drew the temporary chat with a second composable that lacked the fade-in, the pill and the way back, and both phones showed his message only after the Mac answered; one path can't drift (APP-1126)."
+evidence = "Android BothChatsTest (each case on both chats); ferb-mobile tests/temporary.rs a_working_turn_shows_the_chat_s_live_view_and_an_answered_one_none; iPhone TemporaryChatTests testHisMessageShowsAtOnceAsHisOutboxRowAsInTheChat."
+paths = ["engine/crates/ferb-mobile/src/temporary.rs", "apps/android/app/src/main/kotlin/com/ferb/app/ui/Main.kt", "apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppModel.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Temporary.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Tabs.swift"]
+live = ["LIVE-1194"]

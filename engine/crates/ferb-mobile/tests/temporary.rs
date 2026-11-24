@@ -257,3 +257,51 @@ fn a_temporary_chat_s_question_and_task_are_marked_in_the_status() {
         "the status is never stored"
     );
 }
+
+/// The temporary chat is drawn as the chat (APP-1126): a turn still working shows the chat's live view over it, the
+/// typing dots right after his message, as the normal chat shows them before any frame comes; once answered, nothing
+/// live. Before, its transcript carried no live view at all, so nothing showed until FERB's answer was stored.
+// decision: APP-1126, PHN-831
+#[test]
+fn a_working_turn_shows_the_chat_s_live_view_and_an_answered_one_none() {
+    let entry = |id: &str, pos: i64, kind: &str, state: &str, body: serde_json::Value| {
+        json!({"id": id, "conversation_id": "temporary:T1", "pos": pos, "seq": pos, "rev": 1, "kind": kind,
+               "state": state, "open": kind == "message" && state == "working", "request_id": "temporary-r1",
+               "client_id": "phone-1", "answers": if kind == "answer" { json!("e1") } else { json!(null) },
+               "placement": if kind == "answer" { json!("inline") } else { json!(null) },
+               "created_at": "2026-01-02T10:06:00+00:00", "updated_at": "2026-01-02T10:06:00+00:00",
+               "day": "2026-01-02", "body": body, "deleted": false})
+    };
+    let message = entry(
+        "e1",
+        1,
+        "message",
+        "working",
+        json!({"text": "what is 2+2", "attachments": [], "hidden": []}),
+    );
+    let chat = |entries: Vec<serde_json::Value>| {
+        ferb_mobile::TemporaryChat::read(
+            &json!({"on": true, "id": "T1", "conversation": "temporary:T1", "started_at": "2026-01-02T10:05:00+00:00",
+                    "rev": 2, "entries": entries}),
+            0,
+        )
+    };
+    let working = chat(vec![message.clone()]);
+    assert_eq!(working.transcript.live.len(), 1, "{:?}", working.transcript);
+    assert!(
+        working.transcript.live[0].typing,
+        "his message taken, nothing said yet: the typing dots"
+    );
+
+    let mut done = message.clone();
+    done["state"] = json!("done");
+    done["open"] = json!(false);
+    let answered = chat(vec![
+        done,
+        entry("e2", 2, "answer", "done", json!({"text": "4"})),
+    ]);
+    assert!(
+        answered.transcript.live.is_empty(),
+        "answered: nothing live"
+    );
+}

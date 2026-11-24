@@ -766,7 +766,10 @@ class FerbViewModel(
         val normal = status?.let { s -> s.copy(questions = s.questions.filterNot { it.temporary }, running = s.running.filterNot { it.temporary }) }
         val temporary = lastTemporary?.takeIf { it.on }?.let { t ->
             val own = status?.let { s -> s.copy(questions = s.questions.filter { it.temporary }, running = s.running.filter { it.temporary }) }
-            TemporaryUi(t.id, ChatModel.rows(t.transcript), Questions.merged(Questions.open(t.transcript.questions), own),
+            // his message on its way is his outbox row at its end, as in the chat (APP-1126), until the Mac's chat holds it
+            val sending = temporarySending?.takeIf { p -> ChatModel.said(t.transcript, p.item.text) <= p.before }
+            val shown = sending?.let { p -> t.transcript.copy(outbox = listOf(p.item)) } ?: t.transcript
+            TemporaryUi(t.id, ChatModel.rows(shown), Questions.merged(Questions.open(t.transcript.questions), own),
                 com.ferb.app.model.RunningModel.of(t.transcript, own, null))
         }
         // everything made from the whole transcript is made off the main thread: on a long chat it is many
@@ -832,13 +835,34 @@ class FerbViewModel(
         }
     }
 
-    /** A message in the temporary chat: sent now with `fresh: true`, never the outbox; a failure keeps the words. */
+    /**
+     * His message in the temporary chat while it goes to the Mac: drawn as the chat draws his outbox ("Sending…", at the
+     * end, the list going to it) until the Mac's chat holds it. [before]: how many of his messages with these words the
+     * chat held when he sent it.
+     */
+    private class TemporarySending(val item: com.ferb.mobile.OutboxItem, val before: Int)
+    private var temporarySending: TemporarySending? = null
+    private var temporarySends = 0
+
+    /**
+     * A message in the temporary chat: sent now with `fresh: true`, never the outbox; it shows at once as his message on
+     * its way, as in the chat (APP-1126). A failure takes it away and puts the words back in the box.
+     */
     private suspend fun sendTemporary(text: String) {
         if (text.isEmpty()) return
         saved["draft"] = ""
-        when (val r = api.sendTemporary(text)) {
+        temporarySends += 1
+        val at = java.time.Instant.ofEpochMilli(now()).toString()
+        temporarySending = TemporarySending(
+            com.ferb.mobile.OutboxItem("temporary-$temporarySends", text, at, "sending", null, null, false, emptyList()),
+            ChatModel.said(lastTemporary?.transcript, text),
+        )
+        apply(null, statusOnly = true)
+        val r = api.sendTemporary(text)
+        temporarySending = null
+        when (r) {
             is Outcome.Ok -> showTemporary(r.value)
-            is Outcome.Failed -> { saved["draft"] = text; failed(r.error) }
+            is Outcome.Failed -> { saved["draft"] = text; apply(null, statusOnly = true); failed(r.error) }
         }
     }
 

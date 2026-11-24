@@ -219,6 +219,42 @@ final class TemporaryChatTests: XCTestCase {
         XCTAssertNil(vm.temporary)
     }
 
+    /// His message in the temporary chat shows at once as his outbox row at its end, as the chat shows it (APP-1126:
+    /// one chat, another data source), so the list goes to it as for any message of his (the list's `mine`). Once the
+    /// send is answered, the Mac's row is there in its place; a send that fails takes it away and puts the words back.
+    // decision: APP-1126
+    // decision: PHN-818
+    func testHisMessageShowsAtOnceAsHisOutboxRowAsInTheChat() async {
+        let vm = await opened()
+        await vm.toggleTemporary().value
+        let gate = Latch()
+        phone.temporaryGate = gate
+        vm.typed("What is 2+2?")
+        let sent = vm.send()
+        func outbox() -> [OutboxItem] { vm.temporary?.rows.compactMap { if case .outbox(_, let o) = $0 { o } else { nil } } ?? [] }
+        await eventually("on its way") { outbox().map(\.text) == ["What is 2+2?"] }
+        XCTAssertEqual(outbox().first?.state, "sending")
+        XCTAssertTrue(vm.temporary!.rows.last.map { if case .outbox = $0 { true } else { false } } == true, "at the end")
+        XCTAssertTrue(phone.outbox.isEmpty, "never the phone's outbox")
+        XCTAssertEqual(vm.draft, "")
+        // a change of the chat meanwhile shows it once
+        phone.emit(.temporary)
+        gate.release()
+        await sent.value
+        await eventually("the Mac's row in its place") {
+            outbox().isEmpty && vm.temporary?.rows.contains { if case .owner(_, let t, _, _) = $0 { t == "What is 2+2?" } else { false } } == true
+        }
+        XCTAssertEqual(vm.temporary?.rows.filter { if case .owner = $0 { true } else { false } }.count, 1)
+
+        // a send that fails: its row goes, the words come back
+        phone.temporaryGate = nil
+        phone.temporaryRefusal = .Offline(detail: "FERB's Mac can't be reached now.", linkCode: "mac_unreachable")
+        vm.typed("again")
+        await vm.send().value
+        XCTAssertTrue(outbox().isEmpty)
+        XCTAssertEqual(vm.draft, "again")
+    }
+
     // decision: PHN-818
     func testTheStringsAreTheContracts() {
         XCTAssertEqual(L.s("temporary_chat"), "Temporary chat")

@@ -22,11 +22,14 @@ public struct TemporaryShown: Equatable {
         self.taskIds = taskIds
     }
 
-    /// From the library's answer (FERB's words already laid out off the main actor, LibraryPhone.laidOut).
-    public init(_ t: TemporaryChat) {
+    /// From the library's answer (FERB's words already laid out off the main actor, LibraryPhone.laidOut). `sending`:
+    /// his message on its way, drawn as the chat draws his outbox (at the end, "Sending…"; APP-1126).
+    public init(_ t: TemporaryChat, sending: OutboxItem? = nil) {
         var tasks = Set<String>()
         for item in t.transcript.items { if case .turn(let turn) = item, let id = turn.taskId { tasks.insert(id) } }
-        self.init(id: t.id, rev: t.rev, startedAt: t.startedAt, rows: ChatModel.rows(t.transcript), taskIds: tasks, transcript: t.transcript)
+        var shown = t.transcript
+        if let sending { shown.outbox = [sending] }
+        self.init(id: t.id, rev: t.rev, startedAt: t.startedAt, rows: ChatModel.rows(shown), taskIds: tasks, transcript: t.transcript)
     }
 
     /// What the chat tab draws while it is on: its rows, then the open questions its tasks ask that its rows don't
