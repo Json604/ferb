@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { appLanding, appReady, assetLinks } from "../api/_lib/app.js";
 import { appFakes } from "./app-support.mjs";
 import { parseFingerprints, readAppConfig } from "../api/_lib/deps.js";
+import { APP_ROUTES } from "../api/_lib/routes.js";
 
 const site = new URL("../", import.meta.url);
 const read = (name) => readFileSync(new URL(name, site), "utf8");
@@ -58,10 +59,11 @@ test("vercel.json sends /.well-known/assetlinks.json and /app/callback to their 
     landing: ["GET"],
     ready: ["GET"],
   };
-  for (const [name, verbs] of Object.entries(methods)) {
-    const source = read(`api/app/${name}.js`);
-    for (const verb of verbs) assert.match(source, new RegExp(`export (async )?function ${verb}\\(`), `${name} ${verb}`);
-  }
+  for (const [name, verbs] of Object.entries(methods))
+    assert.deepEqual(Object.keys(APP_ROUTES[name] ?? {}).sort(), verbs, name);
+  assert.equal(Object.keys(APP_ROUTES).length, Object.keys(methods).length);
+  const fn = read("api/app/[step].js");
+  for (const verb of ["GET", "POST"]) assert.match(fn, new RegExp(`export const ${verb} =`), verb);
   assert.match(read(".vercelignore"), /^sql$/m, "the SQL for running by hand isn't served");
 });
 

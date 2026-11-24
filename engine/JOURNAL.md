@@ -12559,3 +12559,23 @@ the Send me the link check; it says to skip the old site guide's step 3 (Resend)
 
 **Unverified.** Nothing deployed; whether the owner's Vercel project has `RESEND_API_KEY`/`EMAIL_*` set or the Neon
 table has an `unsubscribed` column was not checked (both are now unused). No device or live check ran.
+
+## 2026-11-24 · 217 · The site's endpoints fit Vercel's free plan; the sign-in setup is live
+
+The first deploy of the apps' sign-in was refused: Vercel's Hobby plan deploys at most 12 functions and site/api had
+14. The ten /api/app endpoints are now one function (`api/app/[step].js`) and the owner's list sign-in's two
+(`/api/auth/google`, `/api/auth/callback`) another (`api/auth/[step].js`); `api/_lib/routes.js` holds the table (step,
+method, handler, the deps it needs). Every address is unchanged: the step comes from Vercel's `step` parameter, else the
+path's last segment, else the two rewritten addresses (`/.well-known/assetlinks.json`, `/app/callback`); the `step`
+parameter is removed before the handler sees the request, so a provider's answer reaches it as sent. An unknown step
+is 404, a wrong method 405 with Allow. tests/routes.test.mjs checks the count (at most 12), the lookup and the table;
+app-pages' check reads the table instead of the removed files. Site `npm test`: 98 passed.
+
+**The owner's setup (2026-11-24).** Google's client, Sign in with Apple (team 8N7RNGH974, Services ID
+com.ferb.signin, key 94L269J7VJ), Neon, AUTH_SECRET, SITE_URL, ADMIN_EMAILS, the pairing key (kid k2026-11, pinned in
+40e148fe) and the Android debug key's fingerprint were put into Vercel's production settings from files on the Mac,
+never printed. Deployed; checked from outside: `/api/app/ready` answers ready for google and apple, a Mac sign-in start
+sends Google and Apple their sign-in with `https://ferb.kartikey.xyz/api/app/callback`, assetlinks.json names
+com.ferb.phone with that fingerprint, `/download/FERB-AppleSilicon.dmg` still 307s to the latest release. Unverified: a
+full sign-in (the owner's live check, LIVE-1202..1204); the list page's sign-in needs
+`https://ferb.kartikey.xyz/api/auth/callback` among the Google client's redirect addresses, which it doesn't have.
