@@ -616,3 +616,26 @@ why = "PKCE with an exact return rule (RFC 8252): a loopback code is useless to 
 rejected = ["Keeping ferb-auth://callback for a Mac: a second return path with the system alert, kept only for a test build", "The Apple authorization code exchanged with Apple's token endpoint as well: a client secret for a second client id, and nothing more proven than the signed identity token"]
 paths = ["site/api/app", "site/api/_lib", "site/sql", "site/tests", "site/vercel.json", "site/env.example"]
 live = ["LIVE-1202", "LIVE-1203"]
+
+[REL-453]
+title = "The account audit's fixes: a sign-in the site ends keeps the pairing; each failure says why"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "yes"
+words_source = "Owner 2026-11-24, relayed by the coordinator, to the fourteen fixes an audit of FERB's account system listed (journal 220 has the list)."
+rule = "A sign-in the site ends (reused after a 60 s grace in which the old refresh token gets the same new pair; expired after 180 days; signed out) only asks to sign in again, with why: phones stay paired, the Mac keeps its phones; only a deleted account also unpairs a phone. A name never blocks sign-in. Each failure has its own true words. Delete succeeds only when the site confirms. The sign-in screens say to use the same account on both; Hide My Email is named in a mismatch. Sign-outs reach other devices on focus or open."
+why = "The audit found sign-outs that lost the pairing for a lost reply, a name that blocked sign-in forever, and wrong or missing reasons; the owner said yes to fixing them all."
+paths = ["site/api/_lib/app.js", "site/api/_lib/store.js", "site/api/_lib/handlers.js", "apps/mac/FERBNotch/Sources/NotchCore/Account.swift", "engine/crates/ferb-daemon/src/account.rs", "engine/crates/ferb-daemon/src/phone/account.rs", "apps/android", "apps/ios"]
+live = ["LIVE-1202", "LIVE-1203", "LIVE-1204"]
+
+[REL-454]
+title = "How the site does REL-453: derived rotation pairs, refusal reasons, hashed tombstones, schema mark"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For REL-453, refining REL-452's reuse. A rotation's pair is HMAC(AUTH_SECRET, old refresh token), issued at the rotation's time; the old token within 60 s, before the new one is used, gets it again. invalid_grant carries reason signed_out, expired or account_deleted (hashes in ferb_app_deleted). Sweep on every grant, bounded. Names: 200 code points, cut. A Mac start's errors 303 to its loopback. Android's landing uses an intent link. Schema runs unless ferb_app_limits carries the version comment. Owner list: providers, last sign-in, devices."
+why = "Only token hashes are kept, so answering the same pair twice needs it derived; an HMAC with the site's secret is as unguessable as random. Hashed tombstones are the one way another device learns the account is gone. A table comment marks the version in the query already made."
+rejected = ["Keeping the new pair's plaintext for 60 s: tokens would be stored readable", "A new random pair on each retry: two live refresh tokens in one family", "Running every schema statement on each cold start: about a dozen round trips per cold start"]
+paths = ["site/api/_lib/app.js", "site/api/_lib/store.js", "site/api/_lib/apple.js", "site/api/_lib/handlers.js", "site/sql", "site/tests", "site/privacy.html"]
+live = ["LIVE-1202", "LIVE-1203"]

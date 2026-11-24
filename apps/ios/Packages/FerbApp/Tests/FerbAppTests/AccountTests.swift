@@ -323,8 +323,8 @@ final class AccountTests: XCTestCase {
         http.held = false
         let answers = await [one, two]
         XCTAssertEqual(Set(answers), [.ok("fpa1.a"), .ok("fpa1.b")])
-        XCTAssertEqual(http.sent.filter { $0.path == "/api/app/token" && ($0.body["refresh_token"] as? String) == "fr1_old" }.count, 3,
-                       "two failed checks, then one refresh for both callers")
+        XCTAssertEqual(http.sent.filter { $0.path == "/api/app/token" && ($0.body["refresh_token"] as? String) == "fr1_old" }.count, 4,
+                       "an offline check sent twice at once (kb REL-453), a 5xx check, then one refresh for both callers")
         XCTAssertEqual(http.sent.filter { $0.path == "/api/app/assertion" }.map(\.bearer), ["Bearer fa1_new", "Bearer fa1_new"])
         XCTAssertFalse(account.checkFailed)
 
@@ -338,13 +338,16 @@ final class AccountTests: XCTestCase {
         await eventually("signed out") { again.account == nil }
         XCTAssertNil(rig.accountStore.get("account"))
         await eventually("the sign-in") { vm.ui.gate == .signIn }
-        // a sign-out like Sign out: this phone left its Mac too (kb PHN-828)
-        await eventually("the Mac told and forgotten") { phone.calls.contains("forget") }
+        // kb REL-453: only asked to sign in again, with why; still paired (the Mac neither told nor forgotten)
+        XCTAssertEqual(again.problem?.key, "signin_ended")
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertFalse(phone.calls.contains("forget"))
     }
 
-    /// A call the site refuses again after a refresh: the site no longer knows this sign-in, so it is Sign out's path.
-    // decision: PHN-828, PHN-841
-    func testACallRefusedAfterARefreshSignsOutAndLeavesTheMac() async {
+    /// A call the site refuses again after a refresh: the site no longer knows this sign-in: signed out, asked to sign
+    /// in again, still paired (kb REL-453).
+    // decision: PHN-828, PHN-841, REL-453
+    func testACallRefusedAfterARefreshSignsOutAndStaysPaired() async {
         let vm = rig.model()
         rig.session.unlocked()
         await eventually("main") { vm.ui.gate == .main }
@@ -356,8 +359,88 @@ final class AccountTests: XCTestCase {
                        "one refresh, one more try")
         XCTAssertNil(rig.account.account)
         XCTAssertNil(rig.accountStore.get("account"))
-        await eventually("the Mac told and forgotten") { phone.calls.contains("forget") }
         await eventually("the sign-in") { vm.ui.gate == .signIn }
+        XCTAssertFalse(phone.calls.contains("forget"), "a sign-in the site ended doesn't unpair")
+    }
+
+    /// Only a deleted account also leaves the Mac; each reason has its own words (kb REL-453).
+    // decision: REL-453, PHN-844
+    func testTheSitesReasonIsSaidAndOnlyADeletedAccountLeavesTheMac() async {
+        let vm = rig.model()
+        rig.session.unlocked()
+        await eventually("main") { vm.ui.gate == .main }
+        http.script("/api/app/assertion", (401, #"{"error":"invalid_token"}"#))
+        http.script("/api/app/token", (401, #"{"error":"invalid_grant","reason":"account_deleted"}"#))
+        _ = await rig.account.assertion(endpoint: "invented-endpoint")
+        XCTAssertEqual(rig.account.problem?.key, "signin_ended_deleted")
+        await eventually("the Mac told and forgotten") { phone.calls.contains("forget") }
+        XCTAssertEqual(AccountModel.endedWords("expired"), "signin_ended_expired")
+        XCTAssertEqual(AccountModel.endedWords("signed_out"), "signin_ended")
+        XCTAssertEqual(AccountModel.endedWords(nil), "signin_ended")
+    }
+
+    /// A refresh with no answer is sent again at once with the same token: inside the site's grace it gets the same
+    /// new pair (kb REL-453).
+    // decision: REL-453, PHN-844
+    func testARefreshWithNoAnswerIsSentAgainAtOnce() async {
+        try? rig.accountStore.set("account", AccountModel.savedItem(Rig.someone, accessToken: "fa1_old", accessExpiresAt: Date().addingTimeInterval(20),
+                                                                    refreshToken: "fr1_old"))
+        let flaky = OnceOfflineHttp(http)
+        let model = AccountModel(store: rig.accountStore, http: flaky, web: rig.web, prefs: rig.prefs, version: "1")
+        http.script("/api/app/token", (200, FakeHttp.tokens("fa1_new", "fr1_new")))
+        await model.check()
+        XCTAssertEqual(http.sent.filter { $0.path == "/api/app/token" }.map { $0.body["refresh_token"] as? String }, ["fr1_old"],
+                       "the first try never reached the site; the second, at once, did")
+        XCTAssertEqual(flaky.tries, 3, "the token twice, then the open's ask of the site (/api/app/me)")
+        XCTAssertFalse(model.checkFailed)
+        XCTAssertNotNil(rig.accountStore.get("account"))
+    }
+
+    /// A rotation the Keychain didn't take is used at once and saved before the next refresh (kb REL-453).
+    // decision: REL-453, PHN-844
+    func testARotationTheKeychainDidntTakeIsUsedAndSavedAgain() async {
+        let store = FailingStore()
+        try? store.set("account", AccountModel.savedItem(Rig.someone, accessToken: "fa1_old", accessExpiresAt: Date().addingTimeInterval(20),
+                                                         refreshToken: "fr1_old"))
+        let model = AccountModel(store: store, http: http, web: rig.web, prefs: rig.prefs, version: "1")
+        store.failing = AccountModel.saveTries
+        http.script("/api/app/token", (200, FakeHttp.tokens("fa1_new", "fr1_new")))
+        await model.check()
+        XCTAssertNotNil(model.account)
+        XCTAssertTrue(model.checkFailed)
+        XCTAssertEqual(store.refresh, "fr1_old", "the Keychain didn't take it")
+        http.script("/api/app/assertion", (200, #"{"assertion":"fpa1.a","expires_in":300}"#))
+        let answer = await model.assertion(endpoint: "e1")
+        XCTAssertEqual(answer, .ok("fpa1.a"))
+        XCTAssertEqual(http.sent.last?.bearer, "Bearer fa1_new", "the new pair is used at once")
+        await model.check()
+        XCTAssertEqual(store.refresh, "fr1_new", "saved at the next check")
+        XCTAssertEqual(http.sent.filter { $0.path == "/api/app/token" }.count, 1, "the spent refresh token is never sent again")
+    }
+
+    /// Opening asks the site at most every five minutes whether it still knows this sign-in; a deletion elsewhere
+    /// signs out (kb REL-453).
+    // decision: REL-453, PHN-844
+    func testOpeningAsksTheSiteAtMostEveryFiveMinutes() async {
+        var t = Date(timeIntervalSince1970: 1_900_000_000)
+        try? rig.accountStore.set("account", AccountModel.savedItem(Rig.someone, accessToken: "fa1_live", accessExpiresAt: t.addingTimeInterval(3600),
+                                                                    refreshToken: "fr1_live"))
+        let model = AccountModel(store: rig.accountStore, http: http, web: rig.web, prefs: rig.prefs, version: "1", now: { t })
+        http.script("/api/app/me", (200, #"{"account":{},"devices":[]}"#))
+        await model.check()
+        XCTAssertEqual(http.paths(), ["/api/app/me"])
+        t = t.addingTimeInterval(AccountModel.checkEvery - 1)
+        await model.check()
+        XCTAssertEqual(http.paths().count, 1)
+        t = t.addingTimeInterval(1)
+        http.script("/api/app/me", (401, #"{"error":"invalid_token"}"#))
+        http.script("/api/app/token", (401, #"{"error":"invalid_grant","reason":"account_deleted"}"#))
+        var reasons: [String?] = []
+        model.onSignedOutBySite = { reasons.append($0) }
+        await model.check()
+        XCTAssertEqual(http.paths(), ["/api/app/me", "/api/app/me", "/api/app/token"])
+        XCTAssertNil(model.account)
+        XCTAssertEqual(reasons, ["account_deleted"])
     }
 
     // decision: PHN-841
@@ -706,5 +789,34 @@ final class AccountTests: XCTestCase {
         XCTAssertTrue((16...64).contains(id.count) && id.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }, id)
         XCTAssertEqual(AccountModel(store: store, http: http, prefs: prefs, version: "1").account, nil)
         XCTAssertEqual(prefs.accountDeviceId, id, "one id per install")
+    }
+}
+
+/// The site's HttpClient with the first request finding no network.
+final class OnceOfflineHttp: HttpClient, @unchecked Sendable {
+    let inner: FakeHttp
+    private(set) var tries = 0
+    init(_ inner: FakeHttp) { self.inner = inner }
+    func send(_ request: URLRequest) async throws -> (status: Int, body: Data) {
+        tries += 1
+        if tries == 1 { throw URLError(.networkConnectionLost) }
+        return try await inner.send(request)
+    }
+}
+
+/// A Keychain whose next `failing` writes fail; `refresh` is the kept account's refresh token.
+final class FailingStore: SecretStore, @unchecked Sendable {
+    private let memory = MemoryStore()
+    var failing = 0
+    func get(_ name: String) -> Data? { memory.get(name) }
+    func exists(_ name: String) -> Bool? { memory.exists(name) }
+    func set(_ name: String, _ value: Data) throws {
+        if failing > 0 { failing -= 1; throw NSError(domain: "invented", code: -25299) }
+        try memory.set(name, value)
+    }
+    func delete(_ name: String) { memory.delete(name) }
+    func deleteAll() { memory.deleteAll() }
+    var refresh: String? {
+        memory.get("account").flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["refreshToken"] as? String
     }
 }

@@ -456,9 +456,14 @@ class FerbViewModel(
             }.distinctUntilChanged().collect { thumbnails.show(it) }
         }
         viewModelScope.launch {
-            // kb PHN-828: signed out by the server is a sign-out: the Mac is told (bounded) and forgotten here, as Sign out
-            account.ended.collect {
-                AppLog.i("the sign-in server ended this sign-in: forgetting the Mac")
+            // kb REL-453: the server ending this sign-in only asks to sign in again: the phone stays paired with its Mac
+            // (signing in to the same account carries on). Only a deleted account also leaves the Mac, as Sign out.
+            account.ended.collect { reason ->
+                if (reason != "account_deleted") {
+                    AppLog.i("the sign-in server ended this sign-in: sign in again; still paired")
+                    return@collect
+                }
+                AppLog.i("the account was deleted: forgetting the Mac")
                 busy("account") { forgetMac(); saved["pair_now"] = false; _ui.update { it.copy(accountNote = null) } }
             }
         }

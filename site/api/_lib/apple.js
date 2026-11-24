@@ -142,7 +142,8 @@ export function appleName(user) {
   try {
     const name = JSON.parse(user)?.name;
     const parts = [name?.firstName, name?.lastName].filter((p) => typeof p === "string" && p.trim());
-    return parts.join(" ").trim().slice(0, 200);
+    // at most 200 characters (code points, never half of one), as the daemon keeps them (REL-453)
+    return [...parts.join(" ").trim()].slice(0, 200).join("").trim();
   } catch {
     return "";
   }

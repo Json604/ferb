@@ -92,6 +92,23 @@ test("a token for the web's audience, another app, another nonce, an expired or 
   assert.equal(f.store.tokens.size, 0);
 });
 
+// decision: REL-453
+test("a name never stops the sign-in: too long is cut to 200 characters, control characters become spaces, not text is no name", async () => {
+  const cases = [
+    ["x".repeat(201), "x".repeat(200)],
+    ["😀".repeat(250), "😀".repeat(200)],
+    ["Ada\nL", "Ada L"],
+    [7, ""],
+    [null, ""],
+  ];
+  for (const [name, kept] of cases) {
+    const f = appFakes();
+    const r = await call(f, good(f, { name }));
+    assert.equal(r.status, 200, JSON.stringify(name).slice(0, 40));
+    assert.equal((await r.json()).account.name, kept);
+  }
+});
+
 test("a nonce is taken once: the same token and nonce can't sign in a second time", async () => {
   const f = appFakes();
   assert.equal((await call(f, good(f))).status, 200);
@@ -114,9 +131,6 @@ test("bad requests are refused before Apple is asked; no verified email is no_em
     { nonce: "short" },
     { nonce: `${RAW_NONCE}A` },
     { nonce: undefined },
-    { name: 7 },
-    { name: "x".repeat(201) },
-    { name: "Ada\nL" },
   ];
   for (const change of bad) {
     const r = await call(f, { ...good(f), ...change });

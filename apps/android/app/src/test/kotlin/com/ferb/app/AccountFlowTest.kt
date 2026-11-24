@@ -145,7 +145,7 @@ class AccountFlowTest {
         val vm = vm(signedIn())
         session.unlocked(); idle()
         vm.pair("FERB-INVENTED"); idle()
-        val asked = http.requests.single()
+        val asked = http.requests.single { !it.url.endsWith("/api/app/me") }
         assertEquals("${Site.URL}/api/app/assertion", asked.url)
         assertEquals("""{"endpoint":"$FAKE_ENDPOINT"}""", asked.body)
         assertEquals("fa1_invented-access", asked.bearer)
@@ -188,8 +188,8 @@ class AccountFlowTest {
         vm.signOut()
         eventually { "account" !in vm.ui.value.busy }
         assertTrue("the Mac is forgotten (and told, as Forget this Mac)", "forget" in phone.calls)
-        assertEquals(listOf("/api/app/signout"), http.paths())
-        assertTrue(http.requests.single().body!!.contains("fr1_invented-refresh"))
+        assertEquals(listOf("/api/app/signout"), http.paths().filter { it != "/api/app/me" })
+        assertTrue(http.requests.single { !it.url.endsWith("/api/app/me") }.body!!.contains("fr1_invented-refresh"))
         assertNull(store.kept)
         assertNull(vm.sheet.value)
         assertEquals(Gate.SIGN_IN, vm.ui.value.gate)
@@ -216,7 +216,7 @@ class AccountFlowTest {
         assertEquals(Gate.SIGN_IN, vm.ui.value.gate)
     }
 
-    // decision: PHN-839, PHN-828
+    // decision: PHN-839, REL-453
     @Test
     fun the_server_ending_the_sign_in_shows_the_sign_in_page_at_the_next_open_and_an_offline_check_does_not() {
         val store = MemoryAccountStore(SignedIn(INVENTED_ACCOUNT, Tokens("fa1_invented-access", 30_000L, "fr1_invented-refresh")))
@@ -227,19 +227,31 @@ class AccountFlowTest {
         assertTrue(vm.ui.value.account.checkFailed)
         session.lockNow()
         http.offline = false
-        http.reply("/api/app/token", 401, """{"error":"invalid_grant"}""")
+        http.reply("/api/app/token", 401, """{"error":"invalid_grant","reason":"expired"}""")
         session.unlocked(); idle()
         assertEquals(Gate.SIGN_IN, vm.ui.value.gate)
-        // a sign-out: the Mac is told and forgotten here, as Sign out does (the server isn't told: it ended it)
-        eventually { "forget" in phone.calls && "account" !in vm.ui.value.busy }
-        assertTrue("forget" in phone.calls)
+        // kb REL-453: only asked to sign in again, with why; the phone stays paired (the Mac isn't told or forgotten)
+        assertEquals(R.string.signin_ended_expired, vm.ui.value.account.note?.res)
+        assertTrue(phone.calls.none { it == "forget" })
         assertNull(store.kept)
         assertTrue(http.paths().none { it == "/api/app/signout" })
     }
 
-    // decision: PHN-828
+    // decision: REL-453, PHN-844
     @Test
-    fun a_server_that_refuses_even_a_fresh_token_signs_out_and_unpairs() {
+    fun a_deleted_account_signs_out_and_leaves_the_mac() {
+        val store = MemoryAccountStore(SignedIn(INVENTED_ACCOUNT, Tokens("fa1_invented-access", 30_000L, "fr1_invented-refresh")))
+        val vm = vm(signedIn(store))
+        http.reply("/api/app/token", 401, """{"error":"invalid_grant","reason":"account_deleted"}""")
+        session.unlocked(); idle()
+        assertEquals(Gate.SIGN_IN, vm.ui.value.gate)
+        eventually { "forget" in phone.calls && "account" !in vm.ui.value.busy }
+        assertEquals(R.string.signin_ended_deleted, vm.ui.value.account.note?.res)
+    }
+
+    // decision: PHN-828, REL-453
+    @Test
+    fun a_server_that_refuses_even_a_fresh_token_signs_out_and_stays_paired() {
         val store = MemoryAccountStore(SignedIn(INVENTED_ACCOUNT, Tokens("fa1_invented-access", 3_600_000L, "fr1_invented-refresh")))
         val vm = vm(signedIn(store))
         session.unlocked(); idle()
@@ -247,9 +259,9 @@ class AccountFlowTest {
         http.reply("/api/app/assertion", 401, """{"error":"invalid_token"}""")
         http.reply("/api/app/token", 200, FakeHttp.tokens(access = "fa1_new-access"))
         vm.pair("FERB-INVENTED")
-        eventually { "forget" in phone.calls && "account" !in vm.ui.value.busy && "pair" !in vm.ui.value.busy }
-        assertEquals(listOf("/api/app/assertion", "/api/app/token", "/api/app/assertion"), http.paths())
-        assertTrue("forget" in phone.calls)
+        eventually { "account" !in vm.ui.value.busy && "pair" !in vm.ui.value.busy && store.kept == null }
+        assertEquals(listOf("/api/app/assertion", "/api/app/token", "/api/app/assertion"), http.paths().filter { it != "/api/app/me" })
+        assertTrue("a sign-in the site ended doesn't unpair", phone.calls.none { it == "forget" })
         assertTrue("nothing handed to the link", phone.calls.none { it.startsWith("pair") })
         assertNull(store.kept)
         assertEquals(Gate.SIGN_IN, vm.ui.value.gate)
@@ -383,8 +395,8 @@ class AccountFlowTest {
 
         held.countDown()
         eventually { !vm.ui.value.signingOut }
-        assertEquals(listOf("/api/app/signout"), http.paths())
-        assertTrue("the site revokes this sign-in", http.requests.single().body!!.contains("fr1_invented-refresh"))
+        assertEquals(listOf("/api/app/signout"), http.paths().filter { it != "/api/app/me" })
+        assertTrue("the site revokes this sign-in", http.requests.single { !it.url.endsWith("/api/app/me") }.body!!.contains("fr1_invented-refresh"))
         assertNull(store.kept)
         assertEquals(Gate.SIGN_IN, vm.ui.value.gate)
         assertNull("the site was told: nothing to say", vm.ui.value.account.note)
@@ -407,7 +419,7 @@ class AccountFlowTest {
         http.offline = true
         vm.signOut()
         eventually { !vm.ui.value.signingOut }
-        assertEquals("tried", listOf("/api/app/signout"), http.paths())
+        assertEquals("tried", listOf("/api/app/signout"), http.paths().filter { it != "/api/app/me" })
         assertNull("signed out here all the same: never stuck", store.kept)
         assertEquals(Gate.SIGN_IN, vm.ui.value.gate)
         assertEquals(Note(R.string.signout_unreachable), vm.ui.value.account.note)

@@ -165,7 +165,9 @@ public struct AccountRequest: Equatable, Sendable {
 public enum AccountCallback: Equatable, Sendable {
     case code(String)
     case cancelled
-    case failed
+    /// The site's word for what went wrong (REL-454): no_email, account_conflict, provider, not_ready, slow_down,
+    /// unavailable, or failed (anything else, a code missing included).
+    case failed(String)
 
     /// Nil when the address isn't this sign-in's (another scheme, host, port or path, or another state: CSRF, RFC 6749
     /// §10.12).
@@ -177,13 +179,18 @@ public enum AccountCallback: Equatable, Sendable {
               let given = items.first(where: { $0.name == "state" })?.value,
               Self.same(given, state) else { return nil }
         if let error = items.first(where: { $0.name == "error" })?.value {
-            return error == "cancelled" ? .cancelled : .failed
+            if error == "cancelled" { return .cancelled }
+            return .failed(Self.siteErrors.contains(error) ? error : "failed")
         }
         guard let code = items.first(where: { $0.name == "code" })?.value, !code.isEmpty, code.count <= 256 else {
-            return .failed
+            return .failed("failed")
         }
         return .code(code)
     }
+
+    /// The site's errors FERB.app says in their own words; any other is "failed".
+    public static let siteErrors: Set<String> = ["no_email", "account_conflict", "provider", "not_ready", "slow_down",
+                                                 "unavailable", "failed"]
 
     private static func same(_ a: String, _ b: String) -> Bool {
         let (x, y) = (Array(a.utf8), Array(b.utf8))
@@ -192,13 +199,43 @@ public enum AccountCallback: Equatable, Sendable {
     }
 }
 
-/// A server answer: the thing asked for, the server's definite No (the session is over), no answer (offline, the
-/// server down), or another failure.
+/// A server answer: the thing asked for; the server's definite No (the sign-in is over), with the site's reason when it
+/// gave one (`signed_out`, `expired`, `account_deleted`; REL-454); no answer at all (offline, or no reply in time); the
+/// site answering that it can't now (5xx); too many requests from here (429); or another failure. Each is said in its
+/// own words (REL-453).
 public enum AccountReply<Value> {
     case ok(Value)
-    case rejected
+    case rejected(reason: String? = nil)
     case unreachable
+    case unavailable
+    case slowDown
     case failed
+}
+
+/// Why the site ended this Mac's sign-in, as FERB says it (REL-453).
+public enum AccountEnded: Equatable, Sendable {
+    /// The account was deleted (on another device: this Mac's own Delete account says nothing more).
+    case deleted
+    /// Unused for 180 days (REL-445).
+    case expired
+    /// Ended otherwise (signed out, or the site couldn't tell).
+    case ended
+
+    public init(reason: String?) {
+        switch reason {
+        case "account_deleted": self = .deleted
+        case "expired": self = .expired
+        default: self = .ended
+        }
+    }
+
+    public var words: String {
+        switch self {
+        case .deleted: return AccountWords.endedDeleted
+        case .expired: return AccountWords.endedExpired
+        case .ended: return AccountWords.ended
+        }
+    }
 }
 
 public struct AccountGrant: Sendable {
@@ -216,6 +253,8 @@ public protocol AccountServing: Sendable {
     func ready(_ provider: AccountProvider) async -> AccountReply<Bool>
     func exchange(code: String, verifier: String, device: AccountDevice) async -> AccountReply<AccountGrant>
     func refresh(_ refreshToken: String, device: AccountDevice) async -> AccountReply<AccountGrant>
+    /// Whether the site still knows this sign-in (`/api/app/me`): no rotation, nothing written.
+    func me(accessToken: String) async -> AccountReply<AccountInfo>
     func signOut(refreshToken: String) async
     func delete(accessToken: String) async -> AccountReply<Void>
 }
@@ -245,7 +284,27 @@ public final class HTTPAccountServer: AccountServing, @unchecked Sendable {
         switch Self.classify(status: status, body: body) {
         case .ok(let body): return .ok(body["ready"] as? Bool == true)
         case .unreachable: return .unreachable
+        case .unavailable: return .unavailable
+        case .slowDown: return .slowDown
         case .rejected, .failed: return .ok(false)       // a site without the apps' sign-in (404) isn't set up
+        }
+    }
+
+    public func me(accessToken: String) async -> AccountReply<AccountInfo> {
+        var request = URLRequest(url: base.appendingPathComponent("api/app/me"))
+        request.setValue("Bearer " + accessToken, forHTTPHeaderField: "authorization")
+        guard let (data, response) = try? await session.data(for: request),
+              let status = (response as? HTTPURLResponse)?.statusCode else { return .unreachable }
+        let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        switch Self.classify(status: status, body: body) {
+        case .ok(let body):
+            guard let info = AccountInfo(json: body["account"] as? [String: Any]) else { return .failed }
+            return .ok(info)
+        case .rejected(let reason): return .rejected(reason: reason)
+        case .unreachable: return .unreachable
+        case .unavailable: return .unavailable
+        case .slowDown: return .slowDown
+        case .failed: return .failed
         }
     }
 
@@ -267,8 +326,10 @@ public final class HTTPAccountServer: AccountServing, @unchecked Sendable {
         switch await post("api/app/delete", [:], bearer: accessToken) {
         case .ok(let reply) where reply["deleted"] as? Bool == true: return .ok(())
         case .ok: return .failed
-        case .rejected: return .rejected
+        case .rejected(let reason): return .rejected(reason: reason)
         case .unreachable: return .unreachable
+        case .unavailable: return .unavailable
+        case .slowDown: return .slowDown
         case .failed: return .failed
         }
     }
@@ -282,8 +343,10 @@ public final class HTTPAccountServer: AccountServing, @unchecked Sendable {
             return .ok(AccountGrant(tokens: AccountTokens(access: access,
                                                           accessExpiresAt: now().timeIntervalSince1970 + seconds,
                                                           refresh: refresh), account: account))
-        case .rejected: return .rejected
+        case .rejected(let reason): return .rejected(reason: reason)
         case .unreachable: return .unreachable
+        case .unavailable: return .unavailable
+        case .slowDown: return .slowDown
         case .failed: return .failed
         }
     }
@@ -300,14 +363,16 @@ public final class HTTPAccountServer: AccountServing, @unchecked Sendable {
         return Self.classify(status: status, body: json)
     }
 
-    /// 200 is the answer; 401 (`invalid_grant`, `invalid_token`) is the server's definite No; 5xx and 429 are "not
-    /// now"; anything else failed.
+    /// 200 is the answer; 401 (`invalid_grant`, `invalid_token`) is the server's definite No, with its `reason`; 5xx
+    /// is the site unable now, 429 too many requests; anything else failed. No answer at all is `.unreachable`.
     public static func classify(status: Int, body: [String: Any]) -> AccountReply<[String: Any]> {
+        let reason = body["reason"] as? String
         switch status {
         case 200: return .ok(body)
-        case 401: return .rejected
-        case 400 where body["error"] as? String == "invalid_grant": return .rejected
-        case 429, 500...599: return .unreachable
+        case 401: return .rejected(reason: reason)
+        case 400 where body["error"] as? String == "invalid_grant": return .rejected(reason: reason)
+        case 429: return .slowDown
+        case 500...599: return .unavailable
         default: return .failed
         }
     }
@@ -435,6 +500,33 @@ public enum AccountWords {
     public static let pageUnanswered = "Go back to FERB to finish signing in. You can close this tab."
     public static let offline = "FERB can't reach its sign-in right now. Check your internet connection and try again."
     public static let serverDown = "FERB's sign-in isn't answering right now. Try again in a minute."
+    /// Each sign-in failure in its own words (REL-453).
+    public static let slowDown = "There have been a lot of sign-ins from your network in the last few minutes. Wait a " +
+        "few minutes, then try again."
+    public static func noEmail(_ provider: AccountProvider) -> String {
+        "\(provider.title) didn't share a verified email address for that account, and FERB needs one. Try again, or " +
+            "use another account."
+    }
+    public static func accountConflict(_ provider: AccountProvider) -> String {
+        "That email address already has a FERB account that signs in with a different \(provider.title) account. " +
+            "Sign in with that one instead."
+    }
+    public static func providerFailed(_ provider: AccountProvider) -> String {
+        "\(provider.title) didn't confirm the sign-in. Try again."
+    }
+    public static let codeExpired = "That sign-in ran out of time before FERB could finish it. Try again."
+    public static let signInFailed = "FERB couldn't finish signing you in. Try again."
+    /// Use the same account on the Mac and the phone (REL-453).
+    public static let sameAccount = "Use the same account on your Mac and your phone."
+    /// Why the site ended this Mac's sign-in (REL-453).
+    public static let endedDeleted = "Your FERB account was deleted on another device, so FERB on this Mac signed out. " +
+        "Sign in to keep using FERB."
+    public static let endedExpired = "Your sign-in to FERB ended after 180 days without use. Sign in again to keep " +
+        "using FERB."
+    public static let ended = "Your sign-in to FERB on this Mac ended. Sign in again to keep using FERB."
+    public static let deleteNeedsSignIn = "FERB needs you to sign in again before it can delete your account."
+    public static let copyLink = "Copy link"
+    public static let linkCopied = "Link copied. Paste it into your browser to continue."
     public static func notSetUp(_ provider: AccountProvider) -> String {
         "Signing in with \(provider.title) isn't ready on FERB's site yet. Try again later."
     }
@@ -453,17 +545,24 @@ public enum AccountWords {
     public static let cancel = "Cancel"
     public static let deleteFailed = "FERB couldn't delete your account just now. Check your connection and try again."
     public static let checkTrouble = "FERB couldn't check your sign-in just now. It keeps working and tries again later."
+    /// The phones were paired under the account this Mac had before: another email, or the same email's account
+    /// deleted and made again (REL-453), so never "your other account".
     public static func phonesRemoved(_ email: String, names: [String]) -> String {
-        "You're signed in as \(email) now, so FERB removed the phones paired with your other account: " +
-            "\(names.joined(separator: ", ")). Sign in on each phone with \(email) and pair it again."
+        "You're signed in as \(email) now, so FERB removed the phones paired under the account this Mac had before: " +
+            "\(names.joined(separator: ", ")). Sign in on each phone as \(email) and pair it again."
     }
 }
 
-/// FERB.app's account: what the tour's account step and Settings → Account show and do (APP-1138).
+/// FERB.app's account: what the tour's account step and Settings → Account show and do (APP-1138, APP-1139).
 /// - Signed out blocks FERB.app (the tour's account step, which has no skip). A definite No from the server (the
-///   refresh token revoked, reused or expired, the account deleted) signs out.
-/// - A refresh that can't reach the server keeps the owner signed in and working; it is tried again later.
-/// - One refresh at a time: the server revokes a whole sign-in when a refresh token is used twice.
+///   refresh token revoked, reused or expired, the account deleted) signs out and says why (`ended`); the phones
+///   paired with this Mac stay paired (REL-453): signing in again to the same account keeps them.
+/// - A refresh that can't reach the server keeps the owner signed in and working; one that got no answer is asked
+///   again at once, inside the site's 60-second grace (REL-453), so a reply lost on the way never signs out.
+/// - Rotated tokens that couldn't be kept in the Keychain stay in memory and are saved again before anything else.
+/// - One refresh at a time: the server revokes a whole sign-in when a refresh token is used twice after its grace.
+/// - `check()` asks the site whether this sign-in still stands when FERB.app comes forward or the Mac wakes (at most
+///   every `checkEvery` seconds), so a sign-out or a deleted account elsewhere shows promptly.
 @MainActor
 public final class AccountSession: ObservableObject {
     public enum State: Equatable {
@@ -471,6 +570,11 @@ public final class AccountSession: ObservableObject {
         case signedOut
         case signedIn(AccountInfo)
     }
+
+    /// The least time between two `check()`s.
+    public static let checkEvery: TimeInterval = 5 * 60
+    /// Keychain saves tried for rotated tokens before they are kept in memory for later.
+    static let saveTries = 3
 
     @Published public private(set) var state: State = .unknown
     /// The last outcome worth saying (cancelled, offline, failed), nil when there is none.
@@ -480,6 +584,10 @@ public final class AccountSession: ObservableObject {
     @Published public private(set) var busy = false
     /// Phones the daemon removed at the last sign-in because they were paired under another account.
     @Published public private(set) var removedPhones: [String] = []
+    /// Why the site signed this Mac out, until the next sign-in; nil when the owner signed out or deleted here.
+    @Published public private(set) var ended: AccountEnded?
+    /// The sign-in page the browser was sent to, while FERB waits for it (the waiting step's Copy link).
+    @Published public private(set) var pendingLink: URL?
     /// The owner is signed out now (sign-out, a deleted account, the server's No): FERB.app shows the account step.
     public var onSignedOut: (() -> Void)?
 
@@ -489,26 +597,39 @@ public final class AccountSession: ObservableObject {
     private let device: AccountDevice
     private let now: () -> Date
     private let makeRequest: () -> AccountRequest
+    private let pause: (Double) async -> Void
     private var tokens: AccountTokens?
+    /// Rotated tokens the Keychain didn't take yet: the only copy of the live refresh token.
+    private var unsaved: AccountGrant?
     private var refreshing: Task<Void, Never>?
+    private var lastCheck: Date?
 
     public init(vault: AccountVault, server: AccountServing, web: WebSignIn?, device: AccountDevice,
                 now: @escaping () -> Date = Date.init,
-                makeRequest: @escaping () -> AccountRequest = { AccountRequest.make() }) {
+                makeRequest: @escaping () -> AccountRequest = { AccountRequest.make() },
+                pause: @escaping (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }) {
         self.vault = vault
         self.server = server
         self.web = web
         self.device = device
         self.now = now
         self.makeRequest = makeRequest
+        self.pause = pause
     }
 
     public var signedIn: Bool { if case .signedIn = state { return true } else { return false } }
     public var account: AccountInfo? { if case .signedIn(let info) = state { return info } else { return nil } }
 
     /// Reads the Keychain item through the daemon. A daemon that doesn't answer changes nothing (`unknown` stays).
+    /// Rotated tokens not yet kept win over what the Keychain holds (an older, spent refresh token).
     @discardableResult
     public func load() async -> State {
+        if let pending = unsaved {
+            tokens = pending.tokens
+            state = .signedIn(pending.account)
+            await saveUnsaved()
+            return state
+        }
         switch await vault.load() {
         case .record(let account, let tokens):
             self.tokens = tokens
@@ -526,7 +647,7 @@ public final class AccountSession: ObservableObject {
     public func signIn(_ provider: AccountProvider) async -> Bool {
         guard let web, !busy else { return false }
         busy = true
-        defer { busy = false }
+        defer { busy = false; pendingLink = nil }
         line = nil
         // The site says first whether this sign-in is set up: never a browser opened on an error page (APP-1138).
         switch await server.ready(provider) {
@@ -537,13 +658,22 @@ public final class AccountSession: ObservableObject {
         case .unreachable:
             line = AccountWords.offline
             return false
+        case .unavailable:
+            line = AccountWords.serverDown
+            return false
+        case .slowDown:
+            line = AccountWords.slowDown
+            return false
         }
         let request = makeRequest()
         var returnAddress: URL?
         let result = await web.run(state: request.state) { address in
             returnAddress = address
-            return request.startURL(provider, redirect: address)
+            let link = request.startURL(provider, redirect: address)
+            pendingLink = link
+            return link
         }
+        pendingLink = nil
         let url: URL
         switch result {
         case .callback(let back): url = back
@@ -560,11 +690,27 @@ public final class AccountSession: ObservableObject {
         case .cancelled?:
             line = AccountWords.cancelled
             web.finish(.cancelled)
-        case .failed?, nil:
-            line = AccountWords.serverDown
+        case .failed(let why)?:
+            line = Self.words(forSiteError: why, provider)
+            web.finish(.failed)
+        case nil:
+            line = AccountWords.signInFailed
             web.finish(.failed)
         }
         return false
+    }
+
+    /// The site's error at the loopback, in its own words (REL-453).
+    public static func words(forSiteError error: String, _ provider: AccountProvider) -> String {
+        switch error {
+        case "no_email": return AccountWords.noEmail(provider)
+        case "account_conflict": return AccountWords.accountConflict(provider)
+        case "provider": return AccountWords.providerFailed(provider)
+        case "not_ready": return AccountWords.notSetUp(provider)
+        case "slow_down": return AccountWords.slowDown
+        case "unavailable": return AccountWords.serverDown
+        default: return AccountWords.signInFailed
+        }
     }
 
     /// Cancel while the browser is open: FERB stops waiting for it (the account step's Cancel).
@@ -579,14 +725,22 @@ public final class AccountSession: ObservableObject {
                 return false
             }
             tokens = grant.tokens
+            unsaved = nil
             removedPhones = removed
             checkTrouble = false
+            ended = nil
             state = .signedIn(grant.account)
             return true
         case .unreachable:
             line = AccountWords.offline
-        case .rejected, .failed:
+        case .unavailable:
             line = AccountWords.serverDown
+        case .slowDown:
+            line = AccountWords.slowDown
+        case .rejected:
+            line = AccountWords.codeExpired
+        case .failed:
+            line = AccountWords.signInFailed
         }
         return false
     }
@@ -595,6 +749,7 @@ public final class AccountSession: ObservableObject {
     /// the owner signed in (`checkTrouble`); the server's definite No signs out.
     public func refresh(force: Bool = false) async {
         if let refreshing { return await refreshing.value }
+        if unsaved != nil { await saveUnsaved() }
         guard signedIn, let current = tokens, force || current.expiresSoon(now: now()) else { return }
         let task = Task { [weak self] in
             guard let self else { return }
@@ -606,50 +761,101 @@ public final class AccountSession: ObservableObject {
     }
 
     private func rotate(_ current: AccountTokens) async {
-        switch await server.refresh(current.refresh, device: device) {
+        var reply = await server.refresh(current.refresh, device: device)
+        // No answer at all: the site may have rotated and the reply been lost. Asked again at once, inside the site's
+        // grace, the same token gets the same new pair (REL-453).
+        if case .unreachable = reply { reply = await server.refresh(current.refresh, device: device) }
+        switch reply {
         case .ok(let grant):
             // The old refresh token is spent now: the new one must be kept, or the next refresh signs out.
             tokens = grant.tokens
-            if await vault.save(grant.account, grant.tokens) == nil { checkTrouble = true; return }
-            checkTrouble = false
             state = .signedIn(grant.account)
-        case .unreachable, .failed:
+            unsaved = grant
+            await saveUnsaved()
+        case .unreachable, .unavailable, .slowDown, .failed:
             checkTrouble = true
-        case .rejected:
-            await signedOutHere()
+        case .rejected(let reason):
+            await signedOutHere(ended: AccountEnded(reason: reason))
         }
+    }
+
+    /// Keeps rotated tokens in the Keychain: a few tries, then they stay in memory (`checkTrouble`) and are saved again
+    /// at the next refresh, check or load.
+    private func saveUnsaved() async {
+        guard let grant = unsaved else { return }
+        for attempt in 0..<Self.saveTries {
+            if attempt > 0 { await pause(Double(attempt)) }
+            if await vault.save(grant.account, grant.tokens) != nil {
+                if unsaved?.tokens == grant.tokens { unsaved = nil }
+                checkTrouble = false
+                return
+            }
+        }
+        checkTrouble = true
+    }
+
+    /// Asks the site whether this sign-in still stands (REL-453): when FERB.app comes forward or the Mac wakes, at most
+    /// every `checkEvery` seconds. A refused access token is refreshed, so the site's No says why.
+    public func check() async {
+        guard signedIn, !busy, refreshing == nil else { return }
+        if let last = lastCheck, now().timeIntervalSince(last) < Self.checkEvery { return }
+        lastCheck = now()
+        await refresh()
+        guard signedIn, let access = tokens?.access else { return }
+        if case .rejected = await server.me(accessToken: access) { await refresh(force: true) }
     }
 
     /// Settings → Account → Sign out: the server ends this sign-in (when it can be reached), the Keychain item goes.
     public func signOut() async {
         if let refresh = tokens?.refresh { await server.signOut(refreshToken: refresh) }
-        await signedOutHere()
+        await signedOutHere(ended: nil)
     }
 
-    /// Settings → Account → Delete account: only once the server says it is deleted.
+    /// Settings → Account → Delete account: only once the site says it is deleted (REL-453). An access token the site
+    /// refuses is refreshed and the delete asked once more; a refresh the site refuses because the account is already
+    /// deleted counts as deleted; any other No asks the owner to sign in again first.
     public func deleteAccount() async -> Bool {
         guard !busy else { return false }
         busy = true
         defer { busy = false }
+        line = nil
         await refresh()
-        guard let access = tokens?.access, signedIn else { line = AccountWords.deleteFailed; return false }
-        switch await server.delete(accessToken: access) {
-        case .ok:
-            await signedOutHere()
-            return true
-        case .rejected:
-            await signedOutHere()
-            return true
-        case .unreachable, .failed:
-            line = AccountWords.deleteFailed
-            return false
+        for attempt in 0..<2 {
+            guard signedIn, let access = tokens?.access else { break }
+            switch await server.delete(accessToken: access) {
+            case .ok:
+                await signedOutHere(ended: nil)
+                return true
+            case .rejected where attempt == 0:
+                await refresh(force: true)
+            case .rejected, .failed:
+                line = AccountWords.deleteFailed
+                return false
+            case .unreachable:
+                line = AccountWords.deleteFailed
+                return false
+            case .unavailable:
+                line = AccountWords.serverDown
+                return false
+            case .slowDown:
+                line = AccountWords.slowDown
+                return false
+            }
         }
+        if ended == .deleted {
+            ended = nil
+            return true
+        }
+        line = signedIn ? AccountWords.deleteFailed : AccountWords.deleteNeedsSignIn
+        return false
     }
 
-    private func signedOutHere() async {
+    private func signedOutHere(ended why: AccountEnded?) async {
         tokens = nil
+        unsaved = nil
         _ = await vault.clear()
         checkTrouble = false
+        ended = why
         state = .signedOut
         onSignedOut?()
     }

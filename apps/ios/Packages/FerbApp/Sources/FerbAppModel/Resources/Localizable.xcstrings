@@ -3678,6 +3678,17 @@
         }
       }
     },
+    "signin_account_conflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That email address already has a FERB account that signs in with a different Google or Apple account. Sign in with that one instead."
+          }
+        }
+      }
+    },
     "signin_apple": {
       "extractionState": "manual",
       "localizations": {
@@ -3696,6 +3707,39 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sign-in was cancelled. Try again when you're ready."
+          }
+        }
+      }
+    },
+    "signin_ended": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your sign-in to FERB on this phone ended. Sign in again to keep using FERB."
+          }
+        }
+      }
+    },
+    "signin_ended_deleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your FERB account was deleted on another device, so FERB on this phone signed out. Sign in to keep using FERB."
+          }
+        }
+      }
+    },
+    "signin_ended_expired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your sign-in to FERB ended after 180 days without use. Sign in again to keep using FERB."
           }
         }
       }
@@ -3761,7 +3805,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "FERB needs a confirmed email address to sign you in. Try again and choose to share your email."
+            "value": "Google or Apple didn't share a verified email address for that account, and FERB needs one. Try again, or use another account."
           }
         }
       }
@@ -3784,6 +3828,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "You're signed in as %1$@."
+          }
+        }
+      }
+    },
+    "signin_slow_down": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There have been a lot of sign-ins from your network in the last few minutes. Wait a few minutes, then try again."
           }
         }
       }

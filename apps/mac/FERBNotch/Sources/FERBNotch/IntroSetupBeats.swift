@@ -10,13 +10,14 @@ extension IntroController {
 
     /// Signing in to FERB is required (APP-1127): Google or Apple in the person's own browser, back over the loopback
     /// (APP-1138); the step has no skip and waits until the owner is signed in, saying plainly what went wrong each time
-    /// (cancelled, timed out, offline, the server down). While the browser is open the step says so, with Cancel.
-    /// Already signed in (a replay, a resume): one line and on.
+    /// (cancelled, timed out, offline, the server down). While the browser is open the step says so, with Copy link
+    /// and Cancel. Signed out by the site, it first says why (REL-453). Already signed in (a replay, a resume): one
+    /// line and on.
     func accountStep() async {
         guard let account else { return }
         if account.state == .unknown { await account.load() }
         guard live else { return }
-        var line = IntroCopy.account
+        var line = account.ended.map(IntroCopy.accountEnded) ?? IntroCopy.account
         while live && !account.signedIn {
             guard case .choice(let id)? = await ask(line) else { return }
             let provider: AccountProvider = id == Pick.accountApple ? .apple : .google
@@ -40,7 +41,15 @@ extension IntroController {
             return done
         }
         let since = Date()
-        _ = await wait(showing: { IntroCopy.accountWaiting.waiting(since: since) }, until: { outcome.done != nil })
+        var copied = false
+        while true {
+            let picked = await wait(showing: { IntroCopy.accountWaiting(copied: copied).waiting(since: since) },
+                                    until: { outcome.done != nil })
+            // Copy link: the sign-in page's address for a browser that didn't open or got lost; the wait goes on.
+            guard case .choice(Pick.copyLink)? = picked, outcome.done == nil else { break }
+            if let link = account.pendingLink { copyText(link.absoluteString) }
+            copied = true
+        }
         if outcome.done == nil { account.cancelSignIn() }
         return await attempt.value
     }

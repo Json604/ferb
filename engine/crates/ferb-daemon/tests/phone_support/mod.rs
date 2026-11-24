@@ -5,14 +5,14 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use chrono::{FixedOffset, TimeZone};
 use ferb_core::interfaces::{BoxFuture, Clock};
-use ferb_daemon::phone::account::{AccountCheck, MacAccount};
+use ferb_daemon::phone::account::{AccountCheck, MacAccount, MacUnreadable};
 use ferb_daemon::phone::{
     proof::SPKI, Limits, MacPrompts, Phones, QuestionFacts, Questions, ScreenPrompt, Seams,
 };
@@ -248,6 +248,8 @@ pub struct World {
     pub calls: Arc<Mutex<Vec<(String, Value)>>>,
     /// The FERB account the Mac is signed in to (PHN-828); a test signs it out or in.
     pub mac: Arc<Mutex<Option<MacAccount>>>,
+    /// The Mac's sign-in can't be read now (the Keychain failing, REL-453); a test sets it.
+    pub unreadable: Arc<AtomicBool>,
 }
 
 impl World {
@@ -304,6 +306,7 @@ async fn world_at(
     let published = Arc::new(Mutex::new(Vec::new()));
     let n = Arc::new(AtomicU64::new(1));
     let mac = Arc::new(Mutex::new(Some(mac_account())));
+    let unreadable = Arc::new(AtomicBool::new(false));
     let public = site_vector()["test_public_key_sec1_uncompressed_b64"]
         .as_str()
         .unwrap()
@@ -315,7 +318,14 @@ async fn world_at(
     };
     let account = AccountCheck::new(pinned, {
         let mac = mac.clone();
-        Arc::new(move || mac.lock().unwrap().clone())
+        let unreadable = unreadable.clone();
+        Arc::new(move || {
+            if unreadable.load(Ordering::SeqCst) {
+                Err(MacUnreadable)
+            } else {
+                Ok(mac.lock().unwrap().clone())
+            }
+        })
     });
     let seams = Seams {
         db: db.clone(),
@@ -385,6 +395,7 @@ async fn world_at(
         db,
         calls,
         mac,
+        unreadable,
     }
 }
 

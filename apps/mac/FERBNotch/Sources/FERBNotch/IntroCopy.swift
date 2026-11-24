@@ -12,7 +12,7 @@ enum IntroCopy {
         static let permissionsNext = "permissions.next"
         static func permission(_ id: String) -> String { "permission." + id }
         static let openLoginItems = "openLoginItems"
-        static let accountGoogle = "account.google", accountApple = "account.apple"
+        static let accountGoogle = "account.google", accountApple = "account.apple", copyLink = "account.copyLink"
         static let pairAll = "pairAll", browsersLater = "browsersLater", next = "next"
         static let identityNow = "identityNow", identityLater = "identityLater"
         static func profile(_ index: Int) -> String { "profile.\(index)" }
@@ -41,11 +41,18 @@ enum IntroCopy {
     // MARK: 1b. Your FERB account (APP-1138): required, no skip
 
     static let account = IntroLine(text: "To start, sign in to FERB.",
-                                   detail: "One FERB account for your Mac and your phone. " + AccountWords.kept,
+                                   detail: AccountWords.sameAccount + " " + AccountWords.kept,
                                    choices: [IntroChoice(Pick.accountGoogle, AccountWords.google),
                                              IntroChoice(Pick.accountApple, AccountWords.apple)])
-    static let accountWaiting = IntroLine(text: AccountWords.waiting, detail: AccountWords.waitingDetail,
-                                          choices: [IntroChoice(Pick.cancel, AccountWords.cancel)])
+    /// Signed out by the site while FERB.app ran or since it last did: why, instead of "To start" (REL-453).
+    static func accountEnded(_ why: AccountEnded) -> IntroLine {
+        IntroLine(text: why.words, detail: account.detail, choices: account.choices)
+    }
+    /// While the browser is open: Copy link for a browser that didn't open or got lost, and Cancel.
+    static func accountWaiting(copied: Bool = false) -> IntroLine {
+        IntroLine(text: AccountWords.waiting, detail: copied ? AccountWords.linkCopied : AccountWords.waitingDetail,
+                  choices: [IntroChoice(Pick.copyLink, AccountWords.copyLink), IntroChoice(Pick.cancel, AccountWords.cancel)])
+    }
     static func accountFailed(_ why: String?) -> IntroLine {
         IntroLine(text: why ?? AccountWords.serverDown, choices: account.choices)
     }

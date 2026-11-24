@@ -1,12 +1,13 @@
 // decision: REL-449
 // decision: REL-452
 // decision: REL-445
+// decision: REL-454
 // The apps' side of the sign-in: /api/app/token (code and refresh grants), and the bearer endpoints me, signout and
 // delete.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { appDelete, appMe, appSignOut, appToken, sha256hex } from "../api/_lib/app.js";
-import { NOW } from "./support.mjs";
+import { appAppleNative, appDelete, appMe, appSignOut, appToken, REFRESH_GRACE, sha256hex, successorOf } from "../api/_lib/app.js";
+import { NOW, SECRET } from "./support.mjs";
 import { appFakes, browserSignIn, DEVICE, getWith, postJson, SITE, VERIFIER } from "./app-support.mjs";
 
 const token = (f, body, options) => appToken(postJson("/api/app/token", body, options), f.deps);
@@ -135,10 +136,12 @@ test("a refresh rotates the pair in the same family; using the old refresh token
   assert.equal([...f.store.deviceRows.values()][0].app_version, "0.28.1");
   assert.equal((await appMe(getWith("/api/app/me", second.access_token), f.deps)).status, 200);
 
-  // The old refresh token comes back (stolen, or replayed): the family is revoked, the new tokens included.
+  // The old refresh token comes back after its grace (stolen, or replayed): the family is revoked, the new tokens
+  // included, and the answer says the sign-in was ended.
+  f.advance(REFRESH_GRACE);
   const reuse = await token(f, refreshGrant(first.refresh_token));
   assert.equal(reuse.status, 401);
-  assert.deepEqual(await reuse.json(), { error: "invalid_grant" });
+  assert.deepEqual(await reuse.json(), { error: "invalid_grant", reason: "signed_out" });
   assert.equal((await token(f, refreshGrant(second.refresh_token))).status, 401);
   assert.equal((await appMe(getWith("/api/app/me", second.access_token), f.deps)).status, 401);
   assert.equal((await appMe(getWith("/api/app/me", first.access_token), f.deps)).status, 401);
@@ -147,6 +150,113 @@ test("a refresh rotates the pair in the same family; using the old refresh token
   // Another sign-in of the same account (another family) is untouched.
   const other = await signedIn(f);
   assert.equal((await appMe(getWith("/api/app/me", other.access_token), f.deps)).status, 200);
+});
+
+// decision: REL-453
+test("the previous refresh token is answered with the same new pair for 60 seconds, until the new one is used", async () => {
+  const f = appFakes();
+  const first = await signedIn(f);
+  f.advance(1800);
+  const second = await (await token(f, refreshGrant(first.refresh_token))).json();
+  assert.deepEqual(
+    { access: second.access_token, refresh: second.refresh_token },
+    successorOf(SECRET, first.refresh_token),
+    "the new pair is derived from the old refresh token",
+  );
+  const tokensBefore = f.store.tokens.size;
+  // The reply was lost (a timeout): the app asks again with the same token, 59 seconds later.
+  f.advance(REFRESH_GRACE - 1);
+  const again = await token(f, refreshGrant(first.refresh_token));
+  assert.equal(again.status, 200);
+  const third = await again.json();
+  assert.equal(third.access_token, second.access_token);
+  assert.equal(third.refresh_token, second.refresh_token);
+  assert.equal(third.expires_in, 3600 - (REFRESH_GRACE - 1), "the same access token, with the time it has left");
+  assert.equal(f.store.tokens.size, tokensBefore, "nothing new is written");
+  assert.ok(f.logs.some((l) => /within its grace/.test(l)));
+  // Both work, as one sign-in.
+  assert.equal((await appMe(getWith("/api/app/me", third.access_token), f.deps)).status, 200);
+  const fourth = await (await token(f, refreshGrant(third.refresh_token))).json();
+  assert.equal((await appMe(getWith("/api/app/me", fourth.access_token), f.deps)).status, 200);
+  // Once the new refresh token was used, the old one coming back even inside the grace is a reuse.
+  const late = await token(f, refreshGrant(first.refresh_token));
+  assert.equal(late.status, 401);
+  assert.deepEqual(await late.json(), { error: "invalid_grant", reason: "signed_out" });
+  assert.equal((await appMe(getWith("/api/app/me", fourth.access_token), f.deps)).status, 401);
+});
+
+// decision: REL-453
+test("a rotation whose answer was never written (the first request died) is finished by the same token within the grace", async () => {
+  const f = appFakes();
+  const first = await signedIn(f);
+  // The first request marked the token used, then failed before the new pair was stored.
+  await f.store.useRefresh(sha256hex(first.refresh_token), new Date(f.clock.now * 1000));
+  f.advance(10);
+  const r = await token(f, refreshGrant(first.refresh_token));
+  assert.equal(r.status, 200);
+  const body = await r.json();
+  assert.equal(body.refresh_token, successorOf(SECRET, first.refresh_token).refresh);
+  assert.equal(body.expires_in, 3600 - 10);
+  assert.equal((await appMe(getWith("/api/app/me", body.access_token), f.deps)).status, 200);
+  // After the grace the same thing is a reuse.
+  const g = appFakes();
+  const other = await signedIn(g);
+  await g.store.useRefresh(sha256hex(other.refresh_token), new Date(g.clock.now * 1000));
+  g.advance(REFRESH_GRACE);
+  assert.deepEqual(await (await token(g, refreshGrant(other.refresh_token))).json(), { error: "invalid_grant", reason: "signed_out" });
+});
+
+// decision: REL-453
+test("a refused refresh says why: signed out, expired, the account deleted; an unknown token says nothing more", async () => {
+  const f = appFakes();
+  const out = await signedIn(f);
+  await appSignOut(postJson("/api/app/signout", { refresh_token: out.refresh_token }), f.deps);
+  assert.deepEqual(await (await token(f, refreshGrant(out.refresh_token))).json(), { error: "invalid_grant", reason: "signed_out" });
+
+  const old = await signedIn(f);
+  f.advance(180 * 86400);
+  assert.deepEqual(await (await token(f, refreshGrant(old.refresh_token))).json(), { error: "invalid_grant", reason: "expired" });
+
+  const g = appFakes();
+  const mac = await signedIn(g);
+  const phone = await signedIn(g, { platform: "android" });
+  await appDelete(postJson("/api/app/delete", {}, { bearer: phone.access_token }), g.deps);
+  const deleted = await token(g, refreshGrant(mac.refresh_token));
+  assert.equal(deleted.status, 401);
+  assert.deepEqual(await deleted.json(), { error: "invalid_grant", reason: "account_deleted" });
+  // Only hashes of the deleted account's sign-ins are kept, tied to nothing, until they would have expired.
+  assert.deepEqual([...g.store.deleted.values()].map((d) => Object.keys(d).sort()), [["expires_at", "token_hash"], ["expires_at", "token_hash"]]);
+  assert.ok(g.store.deleted.has(sha256hex(mac.refresh_token)));
+  g.advance(180 * 86400 + 1);
+  await token(g, refreshGrant(`fr1_${"B".repeat(43)}`)); // a refresh sweeps
+  assert.equal(g.store.deleted.size, 0, "removed once they would have expired");
+
+  assert.deepEqual(await (await token(f, refreshGrant(`fr1_${"A".repeat(43)}`))).json(), { error: "invalid_grant" });
+});
+
+// decision: REL-453
+test("expired codes and tokens are removed on a refresh, a code grant and the iPhone's Apple sign-in too", async () => {
+  const f = appFakes();
+  const a = await signedIn(f);
+  const sweeps = f.store.sweeps;
+  f.advance(3601);
+  await token(f, refreshGrant(a.refresh_token));
+  assert.equal(f.store.sweeps, sweeps + 1);
+  assert.equal(f.store.tokens.has(sha256hex(a.access_token)), false, "the expired access token is gone");
+  const { code } = await browserSignIn(f);
+  const before = f.store.sweeps;
+  await token(f, codeGrant(code));
+  assert.equal(f.store.sweeps, before + 1);
+  await appAppleNative(postJson("/api/app/apple", { identity_token: "x", nonce: "short", device: DEVICE }), f.deps);
+  assert.equal(f.store.sweeps, before + 1, "a refused request sweeps nothing");
+  // A failed sweep never changes the answer.
+  const g = appFakes();
+  const b = await signedIn(g);
+  g.store.sweep = async () => {
+    throw new Error("down");
+  };
+  assert.equal((await token(g, refreshGrant(b.refresh_token))).status, 200);
+  assert.ok(g.logs.some((l) => /not removed/.test(l)));
 });
 
 test("a refresh token lasts 180 days from its issue", async () => {

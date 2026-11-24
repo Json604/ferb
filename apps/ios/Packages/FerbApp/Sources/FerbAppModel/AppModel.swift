@@ -1350,10 +1350,17 @@ public final class AppModel {
             bindTried = false
             bindIfNeeded()
         }
-        // signed out by the site: the same as Sign out (kb PHN-828): the Mac is left too, then the sign-in shows
-        account.onSignedOutBySite = { [weak self] in
+        // signed out by the site (kb REL-453): only asked to sign in again, still paired with its Mac (the same account
+        // carries on); only a deleted account also leaves the Mac, as Sign out does
+        account.onSignedOutBySite = { [weak self] reason in
             guard let self else { return }
-            AppLog.i("the site ended the sign-in: this phone leaves its Mac as on Sign out")
+            guard reason == "account_deleted" else {
+                AppLog.i("the site ended the sign-in: sign in again; still paired")
+                self.sheet = nil
+                self.recheck()
+                return
+            }
+            AppLog.i("the account was deleted: this phone leaves its Mac as on Sign out")
             busy("account") {
                 self.sheet = nil
                 await self.forgetHere(quiet: true)

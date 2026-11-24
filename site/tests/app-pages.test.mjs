@@ -29,7 +29,8 @@ test("assetlinks.json names the Android app and its certificates; it's an empty 
   assert.deepEqual(parseFingerprints("AA:BB"), []);
 });
 
-test("the App Link's fallback page has no script and links to the same address, with only the sign-in's values", async () => {
+// decision: REL-453
+test("the App Link's fallback page has no script and opens FERB's Android app with an intent link to the same address, with only the sign-in's values", async () => {
   const deps = { config: readAppConfig({ SITE_URL: "https://ferb.example.com/" }) };
   const r = appLanding(new Request("https://ferb.example.com/api/app/landing?code=abc_DEF-123&state=st4te-0123456789&evil=%3Cscript%3E&error="), deps);
   assert.equal(r.status, 200);
@@ -37,9 +38,15 @@ test("the App Link's fallback page has no script and links to the same address, 
   assert.equal(r.headers.get("referrer-policy"), "no-referrer");
   const html = await r.text();
   assert.doesNotMatch(html, /<script/i);
-  assert.ok(html.includes('href="https://ferb.example.com/app/callback?code=abc_DEF-123&amp;state=st4te-0123456789"'));
+  assert.ok(
+    html.includes('href="intent://ferb.example.com/app/callback?code=abc_DEF-123&amp;state=st4te-0123456789#Intent;scheme=https;package=com.ferb.phone;end"'),
+    html,
+  );
   const odd = await appLanding(new Request('https://ferb.example.com/app/callback?code="><b>x'), deps).text();
-  assert.ok(odd.includes('href="https://ferb.example.com/app/callback"'));
+  assert.ok(odd.includes('href="intent://ferb.example.com/app/callback#Intent;scheme=https;package=com.ferb.phone;end"'));
+  // The error a sign-in came back with is carried too.
+  const failed = await appLanding(new Request("https://ferb.example.com/app/callback?error=no_email&state=st4te-0123456789"), deps).text();
+  assert.ok(failed.includes("intent://ferb.example.com/app/callback?state=st4te-0123456789&amp;error=no_email#Intent;"));
 });
 
 test("vercel.json sends /.well-known/assetlinks.json and /app/callback to their functions, and the functions exist", () => {

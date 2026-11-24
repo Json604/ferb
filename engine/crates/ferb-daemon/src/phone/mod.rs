@@ -650,13 +650,13 @@ impl Phones {
         let check = inner.seams.account.clone();
         let mac = tokio::task::spawn_blocking(move || check.mac_account())
             .await
-            .unwrap_or(None);
+            .unwrap_or(Err(account::MacUnreadable));
         let now = inner.seams.clock.now().timestamp();
         let statement = params.get("assertion").and_then(Value::as_str);
         let refusal = match inner
             .seams
             .account
-            .check(statement, &dev.endpoint, now, mac.as_ref())
+            .check_read(statement, &dev.endpoint, now, &mac)
         {
             Ok(c) => {
                 let changed = dev.account_id.as_deref() != Some(c.account_id.as_str());
@@ -867,32 +867,31 @@ impl Phones {
         let check = self.inner.seams.account.clone();
         let mac = tokio::task::spawn_blocking(move || check.mac_account())
             .await
-            .unwrap_or(None);
+            .unwrap_or(Err(account::MacUnreadable));
         let now = self.inner.seams.clock.now().timestamp();
         let statement = params.get("account").and_then(Value::as_str);
         // decision: PHN-828 — before the owner is asked: a phone of another account (or none confirmed) never is
-        let account_id =
-            match self
-                .inner
-                .seams
-                .account
-                .check(statement, &endpoint, now, mac.as_ref())
-            {
-                Ok(c) => c.account_id,
-                Err(r) => {
-                    let detail = match &r {
-                        account::AccountRefused::Unconfirmed(why) => json!(why),
-                        _ => Value::Null,
-                    };
-                    (self.inner.seams.journal)(
-                        "phone.pair_refused",
-                        json!({"phone": endpoint, "why": r.name(), "detail": detail}),
-                    );
-                    self.inner
-                        .audit(&endpoint, "link.pair_request", "link", r.name(), json!({}));
-                    return Err(coded(refused(r.code(), r.words())));
-                }
-            };
+        let account_id = match self
+            .inner
+            .seams
+            .account
+            .check_read(statement, &endpoint, now, &mac)
+        {
+            Ok(c) => c.account_id,
+            Err(r) => {
+                let detail = match &r {
+                    account::AccountRefused::Unconfirmed(why) => json!(why),
+                    _ => Value::Null,
+                };
+                (self.inner.seams.journal)(
+                    "phone.pair_refused",
+                    json!({"phone": endpoint, "why": r.name(), "detail": detail}),
+                );
+                self.inner
+                    .audit(&endpoint, "link.pair_request", "link", r.name(), json!({}));
+                return Err(coded(refused(r.code(), r.words())));
+            }
+        };
         self.pair_request_ask(params, endpoint, code, account_id)
     }
 

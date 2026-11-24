@@ -57,14 +57,27 @@ test("only a verified Google account named in ADMIN_EMAILS gets the owner's cook
   assert.equal(list.status, 200);
 });
 
-test("the list shows counts and escapes what Google sent; the CSV defuses formulas", async () => {
+// decision: REL-453
+test("the list shows each account's providers, last sign-in and devices, escapes what Google sent; the CSV defuses formulas", async () => {
   const { deps, users } = fakeDeps();
-  users.set("a@example.com", { email: "a@example.com", name: "<script>x</script>", first_signin_at: new Date((NOW - 86400) * 1000), last_download_at: new Date(NOW * 1000) });
-  users.set("b@example.com", { email: "b@example.com", name: '=HYPERLINK("http://x")', first_signin_at: new Date((NOW - 90 * 86400) * 1000), last_download_at: null });
+  users.set("a@example.com", {
+    email: "a@example.com",
+    name: "<script>x</script>",
+    first_signin_at: new Date((NOW - 86400) * 1000),
+    providers: ["google", "apple"],
+    last_signin_at: new Date(NOW * 1000),
+    mac: 1,
+    ios: 0,
+    android: 2,
+  });
+  users.set("b@example.com", { email: "b@example.com", name: '=HYPERLINK("http://x")', first_signin_at: new Date((NOW - 90 * 86400) * 1000), providers: [], last_signin_at: null, mac: 0, ios: 0, android: 0 });
   const cookie = `ferb_admin=${adminToken(SECRET, ADMIN, NOW)}`;
 
   const html = await (await admin(get("/api/admin", cookie), deps)).text();
-  assert.match(html, /2 people · 1 downloaded in the last 30 days/);
+  assert.match(html, /2 people · 1 signed in in the last 30 days/);
+  assert.doesNotMatch(html, /downloaded|last download/);
+  assert.match(html, /<th>provider<\/th><th>first sign-in<\/th><th>last sign-in<\/th><th>Mac · iPhone · Android<\/th>/);
+  assert.match(html, /<td>google apple<\/td>.*<td>1 · 0 · 2<\/td>/);
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;/);
 
@@ -72,8 +85,9 @@ test("the list shows counts and escapes what Google sent; the CSV defuses formul
   assert.match(csv.headers.get("content-type"), /^text\/csv/);
   assert.match(csv.headers.get("content-disposition"), /attachment/);
   const lines = (await csv.text()).trim().split("\r\n");
-  assert.equal(lines[0], "email,name,first_signin_at,last_download_at");
-  assert.equal(lines[2], `b@example.com,"'=HYPERLINK(""http://x"")",${new Date((NOW - 90 * 86400) * 1000).toISOString()},`);
+  assert.equal(lines[0], "email,name,providers,first_signin_at,last_signin_at,mac,ios,android");
+  assert.equal(lines[1], `a@example.com,<script>x</script>,google apple,${new Date((NOW - 86400) * 1000).toISOString()},${new Date(NOW * 1000).toISOString()},1,0,2`);
+  assert.equal(lines[2], `b@example.com,"'=HYPERLINK(""http://x"")",,${new Date((NOW - 90 * 86400) * 1000).toISOString()},,0,0,0`);
 });
 
 test("CSV cells: quotes, commas, new lines and formula starts", () => {
@@ -83,7 +97,7 @@ test("CSV cells: quotes, commas, new lines and formula starts", () => {
   assert.equal(csvCell("+1"), "'+1");
   assert.equal(csvCell("@sum"), "'@sum");
   assert.equal(csvCell(null), "");
-  assert.equal(toCsv([]), "email,name,first_signin_at,last_download_at\r\n");
+  assert.equal(toCsv([]), "email,name,providers,first_signin_at,last_signin_at,mac,ios,android\r\n");
 });
 
 test("the site counts as set up only with a long secret, Google's client and the database", () => {

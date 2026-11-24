@@ -70,8 +70,11 @@ sealed interface Answer<out T> {
     data class Ok<T>(val value: T) : Answer<T>
     data object Offline : Answer<Nothing>
 
-    /** [error]: the body's `error` (`invalid_grant`, `invalid_token`, `slow_down`, `unavailable`, …). */
-    data class Refused(val status: Int, val error: String?, val retryAfterS: Long? = null) : Answer<Nothing>
+    /**
+     * [error]: the body's `error` (`invalid_grant`, `invalid_token`, `slow_down`, `unavailable`, …); [reason]: why the
+     * site ended a sign-in (`signed_out`, `expired`, `account_deleted`; kb REL-453), when it said.
+     */
+    data class Refused(val status: Int, val error: String?, val retryAfterS: Long? = null, val reason: String? = null) : Answer<Nothing>
 }
 
 /** The account as the server describes it: its id (matched by the Mac, never the e-mail text), e-mail, providers. */
@@ -108,6 +111,9 @@ class AccountServer(private val http: Http, private val device: Device, private 
 
     fun delete(access: String): Answer<Unit> = call("POST", "/api/app/delete", "{}", access).map { }
 
+    /** Whether the site still knows this sign-in (`/api/app/me`): nothing rotated, nothing written (kb REL-453). */
+    fun me(access: String): Answer<Unit> = call("GET", "/api/app/me", null, access).map { }
+
     /** The server's signed statement that this account is signed in on the phone whose link id is [endpoint]. */
     fun assertion(access: String, endpoint: String): Answer<String> =
         call("POST", "/api/app/assertion", """{"endpoint":${Json.quote(endpoint)}}""", access).then { o ->
@@ -139,7 +145,7 @@ class AccountServer(private val http: Http, private val device: Device, private 
         }
         @Suppress("UNCHECKED_CAST")
         val o = runCatching { Json.parse(reply.body) as? Map<String, Any?> }.getOrNull()
-        return if (reply.status in 200..299 && o != null) Answer.Ok(o) else Answer.Refused(reply.status, o?.str("error"), reply.retryAfterS)
+        return if (reply.status in 200..299 && o != null) Answer.Ok(o) else Answer.Refused(reply.status, o?.str("error"), reply.retryAfterS, o?.str("reason"))
     }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")

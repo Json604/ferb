@@ -64,6 +64,11 @@ final class IntroController {
     /// The owner's FERB account (APP-1138): the account step signs in through it and can't be skipped. Nil (tests that
     /// aren't about it): the step has nothing to do.
     var account: AccountSession?
+    /// Puts text on the clipboard (the account step's Copy link); tests record it instead.
+    var copyText: (String) -> Void = { text in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
     var seenControls: Set<IntroControl> = []
     var controlWaiter: (() -> Void)?
 

@@ -25,6 +25,8 @@ export function fakeAppStore() {
   const tokens = new Map();
   const devices = new Map();
   const limits = new Map();
+  const deleted = new Map();
+  let sweeps = 0;
   let ids = 0;
   let failing = false;
   const check = () => {
@@ -47,6 +49,10 @@ export function fakeAppStore() {
     tokens,
     deviceRows: devices,
     limits,
+    deleted,
+    get sweeps() {
+      return sweeps;
+    },
     fail(value = true) {
       failing = value;
     },
@@ -76,8 +82,13 @@ export function fakeAppStore() {
       const u = users.get(userId);
       return u ? pub(u) : null;
     },
-    async deleteUser(userId) {
+    async deleteUser(userId, at) {
       check();
+      for (const t of tokens.values()) {
+        if (t.user_id === userId && t.kind === "refresh" && ms(t.expires_at) > ms(at) && !deleted.has(t.token_hash)) {
+          deleted.set(t.token_hash, { token_hash: t.token_hash, expires_at: t.expires_at });
+        }
+      }
       const had = users.delete(userId);
       for (const map of [codes, tokens, devices]) for (const [k, v] of map) if (v.user_id === userId) map.delete(k);
       return had;
@@ -111,26 +122,37 @@ export function fakeAppStore() {
       check();
       fk(userId);
       for (const [hash, kind, expires] of [[accessHash, "access", accessExpiresAt], [refreshHash, "refresh", refreshExpiresAt]]) {
-        if (tokens.has(hash)) throw Object.assign(new Error("duplicate"), { code: "23505" });
+        if (tokens.has(hash)) continue; // ON CONFLICT DO NOTHING
         tokens.set(hash, { token_hash: hash, kind, user_id: userId, family, device_id: deviceId, created_at: at, expires_at: expires, used_at: null, revoked_at: null });
       }
     },
-    async useRefresh(hash, at) {
+    async useRefresh(hash, at, { graceSeconds = 0, successorHash = null } = {}) {
       check();
       const t = tokens.get(hash);
       if (t && t.kind === "refresh" && t.used_at === null && t.revoked_at === null && ms(t.expires_at) > ms(at)) {
         t.used_at = at;
-        return { user_id: t.user_id, family: t.family };
+        return { user_id: t.user_id, family: t.family, used_at: at };
       }
-      if (!t || t.kind !== "refresh" || t.used_at === null) return null;
-      let revoked = 0;
-      for (const x of tokens.values()) {
-        if (x.family === t.family && x.revoked_at === null) {
-          x.revoked_at = at;
-          revoked += 1;
+      if (graceSeconds > 0 && successorHash && t && t.kind === "refresh" && t.revoked_at === null && ms(t.expires_at) > ms(at) &&
+          t.used_at !== null && ms(t.used_at) > ms(at) - graceSeconds * 1000) {
+        const next = tokens.get(successorHash);
+        if (!next || (next.used_at === null && next.revoked_at === null)) {
+          return { user_id: t.user_id, family: t.family, used_at: t.used_at, replay: true };
         }
       }
-      return revoked > 0 ? { reused: true } : null;
+      let revoked = 0;
+      if (t && t.kind === "refresh" && t.used_at !== null) {
+        for (const x of tokens.values()) {
+          if (x.family === t.family && x.revoked_at === null) {
+            x.revoked_at = at;
+            revoked += 1;
+          }
+        }
+      }
+      if (revoked > 0) return { reused: true };
+      if (t && t.kind === "refresh") return { ended: t.revoked_at !== null ? "signed_out" : "expired" };
+      const gone = deleted.get(hash);
+      return gone && ms(gone.expires_at) > ms(at) ? { ended: "account_deleted" } : null;
     },
     async accessUser(hash, at) {
       check();
@@ -161,7 +183,8 @@ export function fakeAppStore() {
     },
     async sweep(at) {
       check();
-      for (const map of [codes, tokens]) for (const [k, v] of map) if (ms(v.expires_at) < ms(at)) map.delete(k);
+      sweeps += 1;
+      for (const map of [codes, tokens, deleted]) for (const [k, v] of map) if (ms(v.expires_at) < ms(at)) map.delete(k);
       for (const [k, v] of limits) if (ms(v.window_start) < ms(at) - 86400_000) limits.delete(k);
     },
   };

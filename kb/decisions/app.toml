@@ -4828,3 +4828,14 @@ words = "no"
 words_source = "Owner 2026-11-24, to 'while a password field elsewhere has focus, hovering opens FERB without taking the keyboard. OK?' (T-1064)."
 rule = "Hover keeps today's behaviour (APP-745, APP-740): it opens FERB and makes its panel key even while a password field in another app has focus; FERB doesn't look at secure input before taking the keyboard."
 untestable = "Keeps built behaviour; nothing changes."
+
+[APP-1139]
+title = "How FERB.app does REL-453: its own words per failure, the site's reason, checks on focus, Copy link"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For REL-453, with APP-1138. Offline, 5xx, 429, rejected(reason) and each loopback error have their own line. No answer to a refresh: sent again at once (20 s timeout, inside the grace). Unsaved rotations stay in memory and are saved first. The site's No signs out with AccountEnded (deleted, expired, ended), said by the account step and Settings. check() on app activation and wake, at most every 5 min, asks /api/app/me. Delete refreshes on 401 and asks once more. The waiting step has Copy link."
+why = "Each failure had one shared or wrong line; a lost reply or an unsaved rotation signed out; a deletion elsewhere showed only at the next 6-hourly refresh."
+rejected = ["A longer request timeout: a reply that arrives after the site's 60 s grace can't be retried; a short timeout and an immediate retry stay inside it"]
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/Account.swift", "apps/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift", "apps/mac/FERBNotch/Sources/FERBNotch/IntroCopy.swift", "apps/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift"]
+live = ["LIVE-1202"]

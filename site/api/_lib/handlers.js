@@ -116,7 +116,7 @@ export async function finishSignIn(request, deps) {
   }
 
   // A database that can't be reached never stops a download; the person is then simply not counted.
-  const name = typeof claims.name === "string" ? claims.name.trim().slice(0, 200) : "";
+  const name = typeof claims.name === "string" ? [...claims.name.trim()].slice(0, 200).join("").trim() : "";
   try {
     await deps.store.recordSignIn({ email, name, at: new Date(now * 1000) });
   } catch (error) {
@@ -194,27 +194,33 @@ export async function admin(request, deps) {
 
 const iso = (value) => (value ? new Date(value).toISOString() : "");
 const shortTime = (value) => (value ? iso(value).slice(0, 16).replace("T", " ") + " UTC" : "–");
+const providersOf = (u) => (Array.isArray(u.providers) ? u.providers.join(" ") : "");
+const count = (value) => Number(value) || 0;
 
+// The owner's list (REL-453): each account's provider(s), last sign-in and devices; the download sign-in's own
+// columns are no longer shown (downloads need no sign-in, REL-449).
 export function counts(users, now) {
   const month = (now - 30 * 24 * 60 * 60) * 1000;
   return {
     people: users.length,
-    downloadedThisMonth: users.filter((u) => u.last_download_at && new Date(u.last_download_at).getTime() >= month).length,
+    signedInThisMonth: users.filter((u) => u.last_signin_at && new Date(u.last_signin_at).getTime() >= month).length,
   };
 }
+
+const devicesOf = (u) => `${count(u.mac)} · ${count(u.ios)} · ${count(u.android)}`;
 
 function adminBody(users, now) {
   const c = counts(users, now);
   const rows = users
     .map(
-      (u) => `<tr><td>${escapeHtml(u.email)}</td><td>${escapeHtml(u.name)}</td><td>${shortTime(u.first_signin_at)}</td>` +
-        `<td>${shortTime(u.last_download_at)}</td></tr>`,
+      (u) => `<tr><td>${escapeHtml(u.email)}</td><td>${escapeHtml(u.name)}</td><td>${escapeHtml(providersOf(u)) || "–"}</td>` +
+        `<td>${shortTime(u.first_signin_at)}</td><td>${shortTime(u.last_signin_at)}</td><td>${devicesOf(u)}</td></tr>`,
     )
     .join("\n");
-  return `<p>${c.people} people · ${c.downloadedThisMonth} downloaded in the last 30 days</p>
+  return `<p>${c.people} people · ${c.signedInThisMonth} signed in in the last 30 days</p>
 <p><a href="/api/admin?format=csv">Download as CSV</a></p>
 <div class="users"><table>
-<thead><tr><th>email</th><th>name</th><th>first sign-in</th><th>last download</th></tr></thead>
+<thead><tr><th>email</th><th>name</th><th>provider</th><th>first sign-in</th><th>last sign-in</th><th>Mac · iPhone · Android</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>
@@ -228,11 +234,13 @@ export function csvCell(value) {
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
+export const CSV_COLUMNS = ["email", "name", "providers", "first_signin_at", "last_signin_at", "mac", "ios", "android"];
+
 export function toCsv(users) {
-  const lines = [["email", "name", "first_signin_at", "last_download_at"].join(",")];
+  const lines = [CSV_COLUMNS.join(",")];
   for (const u of users) {
     lines.push(
-      [u.email, u.name, iso(u.first_signin_at), iso(u.last_download_at)]
+      [u.email, u.name, providersOf(u), iso(u.first_signin_at), iso(u.last_signin_at), count(u.mac), count(u.ios), count(u.android)]
         .map(csvCell)
         .join(","),
     );

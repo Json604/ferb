@@ -1,6 +1,6 @@
 -- FERB accounts for the apps (REL-440, REL-441): the site's user list gains an account id and the Google and Apple
--- links, and four small tables hold the apps' devices, one-time sign-in codes, tokens and rate limits. Every
--- statement is safe to run again. The site's functions make the same tables on first use (api/_lib/store.js keeps the
+-- links, and small tables hold the apps' devices, one-time sign-in codes, tokens, rate limits and a deleted account's
+-- ended sign-ins. Every statement is safe to run again. The site's functions make the same tables on first use (api/_lib/store.js keeps the
 -- same statements, and a test checks they match this file); this file is for running by hand in Neon's SQL editor.
 --
 -- Codes and tokens are kept only as SHA-256 (hex) of their value; IP addresses in rate-limit keys only as an HMAC.
@@ -57,9 +57,19 @@ CREATE TABLE IF NOT EXISTS ferb_app_tokens (
 CREATE INDEX IF NOT EXISTS ferb_app_tokens_family ON ferb_app_tokens(family);
 CREATE INDEX IF NOT EXISTS ferb_app_tokens_user ON ferb_app_tokens(user_id);
 
--- Made last: the functions skip this file's statements once this table exists.
 CREATE TABLE IF NOT EXISTS ferb_app_limits (
   key text PRIMARY KEY,
   window_start timestamptz NOT NULL,
   count integer NOT NULL
 );
+
+-- A deleted account's sign-ins, as their SHA-256 only and tied to nothing, until they would have expired: another
+-- device of that account is then told the account was deleted.
+CREATE TABLE IF NOT EXISTS ferb_app_deleted (
+  token_hash text PRIMARY KEY,
+  expires_at timestamptz NOT NULL
+);
+
+-- Last: the version mark. The functions skip this file's statements while the database carries their version's mark;
+-- a database without it gets every statement again (each is safe to repeat), then the mark.
+COMMENT ON TABLE ferb_app_limits IS 'ferb app schema 2';

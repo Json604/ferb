@@ -22,6 +22,11 @@ final class AccountTests: XCTestCase {
         var deleteReply: AccountReply<Void> = .ok(())
         var refreshDelay: UInt64 = 0
         var readyReply: AccountReply<Bool> = .ok(true)
+        /// Answered first, in order, before `refreshReply` / `deleteReply`.
+        var refreshReplies: [AccountReply<AccountGrant>] = []
+        var deleteReplies: [AccountReply<Void>] = []
+        var meReply: AccountReply<AccountInfo> = .ok(AccountTests.grant.account)
+        var mes: [String] = []
 
         func ready(_ provider: AccountProvider) async -> AccountReply<Bool> { readyReply }
 
@@ -32,12 +37,16 @@ final class AccountTests: XCTestCase {
         func refresh(_ refreshToken: String, device: AccountDevice) async -> AccountReply<AccountGrant> {
             refreshes.append(refreshToken)
             if refreshDelay > 0 { try? await Task.sleep(nanoseconds: refreshDelay) }
-            return refreshReply
+            return refreshReplies.isEmpty ? refreshReply : refreshReplies.removeFirst()
+        }
+        func me(accessToken: String) async -> AccountReply<AccountInfo> {
+            mes.append(accessToken)
+            return meReply
         }
         func signOut(refreshToken: String) async { signOuts.append(refreshToken) }
         func delete(accessToken: String) async -> AccountReply<Void> {
             deletes.append(accessToken)
-            return deleteReply
+            return deleteReplies.isEmpty ? deleteReply : deleteReplies.removeFirst()
         }
     }
 
@@ -46,9 +55,15 @@ final class AccountTests: XCTestCase {
         var calls: [(String, [String: Any])] = []
         var stored: [String: Any]?
         var answers = true
+        /// The next this many `account.save`s fail (the Keychain or the daemon not taking it).
+        var failSaves = 0
         func call(_ method: String, params: [String: Any]) async throws -> [String: Any] {
             calls.append((method, params))
             guard answers else { throw DaemonRPCError.unavailable }
+            if method == "account.save" && failSaves > 0 {
+                failSaves -= 1
+                throw DaemonRPCError.unavailable
+            }
             switch method {
             case "account.get":
                 guard let stored else { return ["signed_in": false, "account": NSNull(), "tokens": NSNull()] }
@@ -100,7 +115,16 @@ final class AccountTests: XCTestCase {
     func session(_ rpc: AccountRPC, _ server: FakeServer, _ web: FakeWeb? = nil,
                  now: Date = Date(timeIntervalSince1970: 1_900_000_000)) -> AccountSession {
         AccountSession(vault: DaemonAccountVault(rpc: rpc), server: server, web: web,
-                       device: AccountDevice(id: "device-0123456789ab", version: "0.28.0"), now: { now })
+                       device: AccountDevice(id: "device-0123456789ab", version: "0.28.0"), now: { now },
+                       pause: { _ in })
+    }
+
+    /// A clock a test moves.
+    final class Clock { var now = Date(timeIntervalSince1970: 1_900_000_000) }
+
+    func signedIn(_ rpc: AccountRPC, expires: Double = 0) {
+        rpc.stored = ["account": Self.grant.account.json,
+                      "tokens": AccountTokens(access: "fa1_old", accessExpiresAt: expires, refresh: "fr1_old").json]
     }
 
     // MARK: The request and the callback
@@ -140,7 +164,13 @@ final class AccountTests: XCTestCase {
         XCTAssertNil(read("http://127.0.0.1:52345/callback/x?code=abc&state=s1", "s1"))
         XCTAssertNil(read("ferb-auth://callback?code=abc&state=s1", "s1"))
         XCTAssertEqual(read("http://127.0.0.1:52345/callback?error=cancelled&state=s1", "s1"), .cancelled)
-        XCTAssertEqual(read("http://127.0.0.1:52345/callback?error=failed&state=s1", "s1"), .failed)
+        XCTAssertEqual(read("http://127.0.0.1:52345/callback?error=failed&state=s1", "s1"), .failed("failed"))
+        // decision: REL-453 — the site's own errors keep their word; anything else is failed
+        for error in ["no_email", "account_conflict", "provider", "not_ready", "slow_down", "unavailable"] {
+            XCTAssertEqual(read("http://127.0.0.1:52345/callback?error=\(error)&state=s1", "s1"), .failed(error))
+        }
+        XCTAssertEqual(read("http://127.0.0.1:52345/callback?error=whatever&state=s1", "s1"), .failed("failed"))
+        XCTAssertEqual(read("http://127.0.0.1:52345/callback?state=s1", "s1"), .failed("failed"))
     }
 
     // MARK: Where the tokens go
@@ -190,7 +220,7 @@ final class AccountTests: XCTestCase {
         XCTAssertEqual(account.line, AccountWords.cancelled)
         let fourth = await account.signIn(.apple)
         XCTAssertFalse(fourth)
-        XCTAssertEqual(account.line, AccountWords.serverDown)
+        XCTAssertEqual(account.line, AccountWords.signInFailed)
         let fifth = await account.signIn(.apple)
         XCTAssertFalse(fifth)
         XCTAssertEqual(account.line, AccountWords.cancelled)
@@ -263,7 +293,7 @@ final class AccountTests: XCTestCase {
         account.onSignedOut = { signedOut += 1 }
         await account.load()
         await account.refresh()
-        XCTAssertEqual(server.refreshes, ["fr1_old"])
+        XCTAssertEqual(server.refreshes, ["fr1_old", "fr1_old"])        // no answer: asked again at once (REL-453)
         XCTAssertTrue(account.signedIn)
         XCTAssertTrue(account.checkTrouble)
         XCTAssertEqual(signedOut, 0)
@@ -284,7 +314,7 @@ final class AccountTests: XCTestCase {
         rpc.stored = ["account": Self.grant.account.json,
                       "tokens": AccountTokens(access: "fa1_old", accessExpiresAt: 0, refresh: "fr1_old").json]
         let server = FakeServer()
-        server.refreshReply = .rejected
+        server.refreshReply = .rejected()
         let account = session(rpc, server)
         var signedOut = 0
         account.onSignedOut = { signedOut += 1 }
@@ -319,10 +349,16 @@ final class AccountTests: XCTestCase {
         }
         XCTAssertTrue({ if case .rejected = HTTPAccountServer.classify(status: 400, body: ["error": "invalid_grant"]) {
             return true }; return false }())
-        for status in [429, 500, 503] {
-            XCTAssertTrue({ if case .unreachable = HTTPAccountServer.classify(status: status, body: [:]) { return true }
+        // decision: REL-453 — 429 and 5xx each have their own words, never "offline"
+        XCTAssertTrue({ if case .slowDown = HTTPAccountServer.classify(status: 429, body: [:]) { return true }
+            return false }())
+        for status in [500, 503] {
+            XCTAssertTrue({ if case .unavailable = HTTPAccountServer.classify(status: status, body: [:]) { return true }
                 return false }())
         }
+        XCTAssertTrue({ if case .rejected(reason: "account_deleted") = HTTPAccountServer.classify(
+            status: 401, body: ["error": "invalid_grant", "reason": "account_deleted"]) { return true }
+            return false }())
         XCTAssertTrue({ if case .failed = HTTPAccountServer.classify(status: 400, body: [:]) { return true }
             return false }())
     }
@@ -363,6 +399,198 @@ final class AccountTests: XCTestCase {
         let account = session(rpc, FakeServer())
         let state = await account.load()
         XCTAssertEqual(state, .unknown)
+    }
+
+    // MARK: Each failure in its own words (REL-453)
+
+    // decision: REL-453, APP-1139
+    func testEachSignInFailureIsSaidInItsOwnWords() async {
+        let server = FakeServer()
+        let web = FakeWeb([.error("no_email"), .error("account_conflict"), .error("provider"), .error("not_ready"),
+                           .error("slow_down"), .error("unavailable"), .code("c"), .code("c"), .code("c"), .code("c")])
+        let account = session(AccountRPC(), server, web)
+        for (provider, words) in [(AccountProvider.apple, AccountWords.noEmail(.apple)),
+                                  (.google, AccountWords.accountConflict(.google)),
+                                  (.google, AccountWords.providerFailed(.google)),
+                                  (.apple, AccountWords.notSetUp(.apple)),
+                                  (.google, AccountWords.slowDown),
+                                  (.google, AccountWords.serverDown)] {
+            let done = await account.signIn(provider)
+            XCTAssertFalse(done)
+            XCTAssertEqual(account.line, words)
+        }
+        for (reply, words) in [(AccountReply<AccountGrant>.rejected(), AccountWords.codeExpired),
+                               (.unavailable, AccountWords.serverDown), (.slowDown, AccountWords.slowDown),
+                               (.failed, AccountWords.signInFailed)] {
+            server.exchangeReply = reply
+            let done = await account.signIn(.google)
+            XCTAssertFalse(done)
+            XCTAssertEqual(account.line, words)
+        }
+        XCTAssertEqual(web.endings, Array(repeating: .failed, count: 10))
+        for (reply, words) in [(AccountReply<Bool>.unavailable, AccountWords.serverDown),
+                               (.slowDown, AccountWords.slowDown), (.unreachable, AccountWords.offline)] {
+            server.readyReply = reply
+            let done = await account.signIn(.google)
+            XCTAssertFalse(done)
+            XCTAssertEqual(account.line, words)
+        }
+        // every distinct case has distinct words
+        let all = [AccountWords.noEmail(.apple), AccountWords.accountConflict(.google), AccountWords.providerFailed(.google),
+                   AccountWords.notSetUp(.apple), AccountWords.slowDown, AccountWords.serverDown, AccountWords.offline,
+                   AccountWords.codeExpired, AccountWords.signInFailed]
+        XCTAssertEqual(Set(all).count, all.count)
+    }
+
+    // MARK: The site's No: why, and nothing else lost (REL-453)
+
+    /// The site signing this Mac out says why; only the Keychain item goes (the phones stay paired: account.clear
+    /// removes none, as the daemon's tests check), and the account step shows the reason.
+    // decision: REL-453, APP-1139
+    func testTheSitesNoSaysWhy() async {
+        for (reason, ended) in [("account_deleted", AccountEnded.deleted), ("expired", .expired),
+                                ("signed_out", .ended), (nil, .ended)] as [(String?, AccountEnded)] {
+            let rpc = AccountRPC()
+            signedIn(rpc)
+            let server = FakeServer()
+            server.refreshReply = .rejected(reason: reason)
+            let account = session(rpc, server)
+            await account.load()
+            await account.refresh()
+            XCTAssertEqual(account.state, .signedOut)
+            XCTAssertEqual(account.ended, ended)
+            XCTAssertEqual(rpc.calls.map(\.0), ["account.get", "account.clear"], "nothing but the Keychain item")
+        }
+        XCTAssertEqual(Set([AccountEnded.deleted, .expired, .ended].map(\.words)).count, 3)
+        // signing out here says nothing more
+        let rpc = AccountRPC()
+        signedIn(rpc)
+        let account = session(rpc, FakeServer())
+        await account.load()
+        await account.signOut()
+        XCTAssertNil(account.ended)
+    }
+
+    /// A refresh with no answer is asked again at once with the same token, inside the site's grace: the same new pair
+    /// comes back and nothing signs out.
+    // decision: REL-453, APP-1139
+    func testARefreshWithNoAnswerIsAskedAgainAtOnce() async {
+        let rpc = AccountRPC()
+        signedIn(rpc)
+        let server = FakeServer()
+        server.refreshReplies = [.unreachable, .ok(Self.grant)]
+        let account = session(rpc, server)
+        await account.load()
+        await account.refresh()
+        XCTAssertEqual(server.refreshes, ["fr1_old", "fr1_old"])
+        XCTAssertFalse(account.checkTrouble)
+        XCTAssertEqual((rpc.stored?["tokens"] as? [String: Any])?["refresh_token"] as? String, "fr1_refresh-value")
+    }
+
+    /// Rotated tokens the Keychain didn't take stay in memory, win over the spent ones a load reads, and are saved at
+    /// the next refresh; the spent refresh token is never sent again.
+    // decision: REL-453, APP-1139
+    func testRotatedTokensTheKeychainDidntTakeAreKeptAndSavedAgain() async {
+        let rpc = AccountRPC()
+        signedIn(rpc)
+        let server = FakeServer()
+        let account = session(rpc, server)
+        await account.load()
+        rpc.failSaves = AccountSession.saveTries + 1
+        await account.refresh()
+        XCTAssertTrue(account.checkTrouble)
+        XCTAssertEqual((rpc.stored?["tokens"] as? [String: Any])?["refresh_token"] as? String, "fr1_old")
+        await account.load()                                            // the Keychain's spent token doesn't win
+        XCTAssertEqual((rpc.stored?["tokens"] as? [String: Any])?["refresh_token"] as? String, "fr1_refresh-value")
+        XCTAssertFalse(account.checkTrouble)
+        await account.refresh(force: true)
+        XCTAssertEqual(server.refreshes, ["fr1_old", "fr1_refresh-value"])
+    }
+
+    /// Delete account: a refused access token is refreshed and the delete asked once more; success only when the site
+    /// confirmed (its delete, or its refresh saying the account is already deleted).
+    // decision: REL-453, APP-1139
+    func testDeleteNeverReportsSuccessTheSiteDidntConfirm() async {
+        func signedInSession(_ server: FakeServer) async -> (AccountSession, AccountRPC) {
+            let rpc = AccountRPC()
+            rpc.stored = ["account": Self.grant.account.json, "tokens": AccountTokens(
+                access: "fa1_old", accessExpiresAt: 2_000_000_000, refresh: "fr1_old").json]
+            let account = session(rpc, server)
+            await account.load()
+            return (account, rpc)
+        }
+        // the access token had ended: refreshed, then deleted
+        let a = FakeServer()
+        a.deleteReplies = [.rejected()]
+        let (first, _) = await signedInSession(a)
+        let deleted = await first.deleteAccount()
+        XCTAssertTrue(deleted)
+        XCTAssertEqual(a.deletes, ["fa1_old", "fa1_access-value"])
+        XCTAssertEqual(a.refreshes, ["fr1_old"])
+        // refused twice: not deleted, still signed in
+        let b = FakeServer()
+        b.deleteReply = .rejected()
+        let (second, _) = await signedInSession(b)
+        let refused = await second.deleteAccount()
+        XCTAssertFalse(refused)
+        XCTAssertEqual(second.line, AccountWords.deleteFailed)
+        XCTAssertTrue(second.signedIn)
+        // the refresh says the account is already deleted: that is the site's confirmation
+        let c = FakeServer()
+        c.deleteReply = .rejected()
+        c.refreshReply = .rejected(reason: "account_deleted")
+        let (third, _) = await signedInSession(c)
+        let gone = await third.deleteAccount()
+        XCTAssertTrue(gone)
+        XCTAssertEqual(third.state, .signedOut)
+        // the refresh ends the sign-in otherwise: never "deleted"; sign in again first
+        let d = FakeServer()
+        d.deleteReply = .rejected()
+        d.refreshReply = .rejected(reason: "expired")
+        let (fourth, _) = await signedInSession(d)
+        let notDeleted = await fourth.deleteAccount()
+        XCTAssertFalse(notDeleted)
+        XCTAssertEqual(fourth.line, AccountWords.deleteNeedsSignIn)
+        XCTAssertEqual(fourth.ended, .expired)
+    }
+
+    /// FERB.app asks the site at most every five minutes whether its sign-in still stands; a refused access token is
+    /// refreshed, so a deleted account elsewhere signs this Mac out with its reason.
+    // decision: REL-453, APP-1139
+    func testCheckFindsASignOutElsewherePromptly() async {
+        let rpc = AccountRPC()
+        signedIn(rpc, expires: 2_000_000_000)
+        let server = FakeServer()
+        let clock = Clock()
+        let account = AccountSession(vault: DaemonAccountVault(rpc: rpc), server: server, web: nil,
+                                     device: AccountDevice(id: "device-0123456789ab", version: "0.28.0"),
+                                     now: { clock.now }, pause: { _ in })
+        await account.load()
+        await account.check()
+        XCTAssertEqual(server.mes, ["fa1_old"])
+        XCTAssertTrue(server.refreshes.isEmpty, "a live access token isn't rotated")
+        clock.now += AccountSession.checkEvery - 1
+        await account.check()
+        XCTAssertEqual(server.mes.count, 1, "not again within five minutes")
+        clock.now += 1
+        server.meReply = .rejected()
+        server.refreshReply = .rejected(reason: "account_deleted")
+        var signedOut = 0
+        account.onSignedOut = { signedOut += 1 }
+        await account.check()
+        XCTAssertEqual(server.mes.count, 2)
+        XCTAssertEqual(account.state, .signedOut)
+        XCTAssertEqual(account.ended, .deleted)
+        XCTAssertEqual(signedOut, 1)
+        // offline: nothing changes
+        let quiet = FakeServer()
+        quiet.meReply = .unreachable
+        let other = AccountRPC()
+        signedIn(other, expires: 2_000_000_000)
+        let kept = session(other, quiet)
+        await kept.load()
+        await kept.check()
+        XCTAssertTrue(kept.signedIn)
     }
 
     // MARK: The plan
@@ -422,6 +650,49 @@ extension IntroControllerTests {
         XCTAssertTrue(web.opened.last?.absoluteString.contains("provider=apple") == true)
     }
 
+    /// Signed out by the site, the account step says why first (REL-453).
+    // decision: REL-453, APP-1139
+    func testTheAccountStepSaysWhyTheSiteSignedOut() async {
+        let t = tour()
+        let rpc = AccountTests.AccountRPC()
+        rpc.stored = ["account": AccountTests.grant.account.json,
+                      "tokens": AccountTokens(access: "fa1_old", accessExpiresAt: 0, refresh: "fr1_old").json]
+        let server = AccountTests.FakeServer()
+        server.refreshReply = .rejected(reason: "expired")
+        let account = AccountSession(vault: DaemonAccountVault(rpc: rpc), server: server, web: HeldWeb(),
+                                     device: AccountDevice(id: "device-0123456789ab", version: "0.28.0"))
+        await account.load()
+        await account.refresh()
+        t.controller.account = account
+        t.controller.start(beats: [.account, .home])
+        await eventually { t.notch.introLine?.text == AccountWords.endedExpired }
+        XCTAssertEqual(t.notch.introLine?.choices.map(\.id), [IntroCopy.Pick.accountGoogle, IntroCopy.Pick.accountApple])
+    }
+
+    /// The waiting step's Copy link puts the sign-in page's address on the clipboard and keeps waiting.
+    // decision: REL-453, APP-1139
+    func testTheAccountStepsWaitCopiesTheLink() async {
+        let t = tour()
+        let web = HeldWeb()
+        let account = AccountSession(vault: DaemonAccountVault(rpc: AccountTests.AccountRPC()), server: AccountTests.FakeServer(),
+                                     web: web, device: AccountDevice(id: "device-0123456789ab", version: "0.28.0"))
+        var copied: [String] = []
+        t.controller.copyText = { copied.append($0) }
+        t.controller.account = account
+        t.controller.start(beats: [.account, .home])
+        await t.pick(IntroCopy.Pick.accountGoogle)
+        await eventually { t.notch.introLine?.text == AccountWords.waiting }
+        await t.pick(IntroCopy.Pick.copyLink)
+        await eventually { t.notch.introLine?.detail == AccountWords.linkCopied }
+        XCTAssertEqual(copied.count, 1)
+        XCTAssertTrue(copied.first?.hasPrefix("https://ferb.kartikey.xyz/api/app/start?") == true)
+        XCTAssertTrue(copied.first?.contains("redirect=http://127.0.0.1:52345/callback") == true)
+        XCTAssertEqual(web.cancels, 0, "still waiting")
+        await t.pick(IntroCopy.Pick.cancel)
+        await eventually { t.notch.introLine?.text == AccountWords.cancelled }
+        XCTAssertEqual(web.cancels, 1)
+    }
+
     /// While the browser is open the step says so with Cancel; Cancel stops FERB waiting and the step stays.
     // decision: APP-1137, APP-1138
     func testTheAccountStepsWaitHasCancel() async {
@@ -433,7 +704,7 @@ extension IntroControllerTests {
         t.controller.start(beats: [.account, .home])
         await t.pick(IntroCopy.Pick.accountGoogle)
         await eventually { t.notch.introLine?.text == AccountWords.waiting }
-        XCTAssertEqual(t.notch.introLine?.choices.map(\.id), [IntroCopy.Pick.cancel])
+        XCTAssertEqual(t.notch.introLine?.choices.map(\.id), [IntroCopy.Pick.copyLink, IntroCopy.Pick.cancel])
         await t.pick(IntroCopy.Pick.cancel)
         await eventually { t.notch.introLine?.text == AccountWords.cancelled }
         XCTAssertEqual(web.cancels, 1)

@@ -167,9 +167,10 @@ public final class AccountModel {
     /// A sign-in finished: the account, and whether it is a different one than the last account signed in here (the
     /// app then forgets the Mac paired under the other one: phones pair only within one account, PHN-828).
     @ObservationIgnored public var onSignedIn: ((AccountInfo, Bool) -> Void)?
-    /// The site ended this sign-in (`invalid_grant` on a refresh, or a call refused after a refresh): a sign-out, which
-    /// the app handles as Sign out (it leaves the Mac too, kb PHN-828). The account here is already cleared.
-    @ObservationIgnored public var onSignedOutBySite: (() -> Void)?
+    /// The site ended this sign-in (`invalid_grant` on a refresh, or a call refused after a refresh), with the site's
+    /// reason (`account_deleted`, `expired`, `signed_out`, or nil). Only a deleted account makes the app leave its Mac;
+    /// otherwise it only asks to sign in again and stays paired (kb REL-453). The account here is already cleared.
+    @ObservationIgnored public var onSignedOutBySite: ((String?) -> Void)?
 
     @ObservationIgnored private let store: SecretStore
     @ObservationIgnored private let http: HttpClient
@@ -182,6 +183,9 @@ public final class AccountModel {
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var saved: SavedAccount?
     @ObservationIgnored private var refreshing: Task<Refresh, Never>?
+    /// `saved` is newer than the Keychain's item (a rotation the Keychain didn't take): saved again before anything.
+    @ObservationIgnored private var unsaved = false
+    @ObservationIgnored private var lastCheck: Date?
     /// Counts sign-ins and clears: an answer that arrives after either is dropped.
     @ObservationIgnored private var generation = 0
 
@@ -189,6 +193,10 @@ public final class AccountModel {
     static let lastItem = "account.last"
     /// Refresh when the access token has under this many seconds left.
     static let refreshMargin: Double = 60
+    /// The least time between two asks of the site at `check()` (kb REL-453).
+    public static let checkEvery: TimeInterval = 5 * 60
+    /// Keychain saves tried for a rotation before it waits in memory for the next refresh or check.
+    public static let saveTries = 3
 
     public init(store: SecretStore, http: HttpClient, web: WebSignIn? = nil, apple: AppleSignIn? = nil, prefs: Prefs,
                 version: String, deviceName: String? = nil, site: URL = AccountSite.url,
@@ -291,7 +299,7 @@ public final class AccountModel {
                 return
             }
             if let e = q["error"] {
-                problem = Note(e == "cancelled" ? "signin_cancelled" : e == "no_email" ? "signin_no_email" : "signin_failed")
+                problem = Note(Self.callbackWords[e] ?? "signin_failed")
                 return
             }
             guard let code = q["code"], !code.isEmpty else { problem = Note("signin_failed"); return }
@@ -304,7 +312,8 @@ public final class AccountModel {
     private func appleExchange(token: String, nonce: String, name: String?) async {
         let gen = generation
         var body: [String: Any] = ["identity_token": token, "nonce": nonce, "device": device]
-        if let name, !name.isEmpty { body["name"] = String(name.prefix(200)) }
+        // at most 200 characters as the site and the Mac's daemon count them (code points, kb REL-453)
+        if let name, !name.isEmpty { body["name"] = String(String.UnicodeScalarView(name.unicodeScalars.prefix(200))) }
         let reply = await post("api/app/apple", body, bearer: nil)
         guard gen == generation else { return }
         switch reply {
@@ -315,7 +324,7 @@ public final class AccountModel {
             } else if Self.error(data) == "no_email" {
                 problem = Note("signin_no_email")
             } else {
-                problem = Note(status >= 500 || status == 429 ? "signin_not_answering" : "signin_failed")
+                problem = Note(Self.statusWords(status))
             }
         }
     }
@@ -336,25 +345,53 @@ public final class AccountModel {
             if status == 200, let t = Self.tokens(body) {
                 keep(t, fresh: true)
             } else {
-                problem = Note(status >= 500 || status == 429 ? "signin_not_answering" : "signin_failed")
+                problem = Note(Self.statusWords(status))
             }
         }
     }
 
-    /// Keeps a token answer: the Keychain first (a sign-in that can't be kept didn't happen).
+    /// The site's callback errors in their own words (kb REL-453); any other is "signin_failed".
+    static let callbackWords: [String: String] = [
+        "cancelled": "signin_cancelled", "no_email": "signin_no_email", "account_conflict": "signin_account_conflict",
+        "slow_down": "signin_slow_down", "unavailable": "signin_not_answering", "not_ready": "signin_not_answering",
+    ]
+
+    static func statusWords(_ status: Int) -> String {
+        status == 429 ? "signin_slow_down" : status >= 500 ? "signin_not_answering" : "signin_failed"
+    }
+
+    /// The sign-in page's line when the site ended the sign-in, by its reason (kb REL-453).
+    public static func endedWords(_ reason: String?) -> String {
+        switch reason {
+        case "account_deleted": "signin_ended_deleted"
+        case "expired": "signin_ended_expired"
+        default: "signin_ended"
+        }
+    }
+
+    /// Keeps a token answer: the Keychain first for a new sign-in (one that can't be kept didn't happen). A rotation's
+    /// old refresh token is spent, so its new pair is used at once even when the Keychain didn't take it, and saved
+    /// again (a few tries now, then before the next refresh or check: kb REL-453).
     private func keep(_ t: TokenAnswer, fresh: Bool) {
         let s = SavedAccount(account: t.account, accessToken: t.accessToken,
                              accessExpiresAt: now().timeIntervalSince1970 + Double(t.expiresIn), refreshToken: t.refreshToken)
-        do {
-            try store.set(Self.item, try JSONEncoder().encode(s))
-        } catch {
-            AppLog.i("sign-in: the Keychain refused the account")
-            problem = Note("signin_failed")
-            return
+        if fresh {
+            do {
+                try store.set(Self.item, try JSONEncoder().encode(s))
+            } catch {
+                AppLog.i("sign-in: the Keychain refused the account")
+                problem = Note("signin_failed")
+                return
+            }
+            unsaved = false
+        } else {
+            saved = s
+            unsaved = true
+            saveAgain()
         }
         saved = s
         if account != s.account { account = s.account }
-        checkFailed = false
+        checkFailed = unsaved
         guard fresh else { return }
         generation += 1
         problem = nil
@@ -367,10 +404,38 @@ public final class AccountModel {
 
     enum Refresh: Equatable { case ok, offline, down, signedOut }
 
-    /// The app opened or came back: a refresh when the access token is about to end (none otherwise).
+    /// Saves `saved` again when the Keychain didn't take it; `checkFailed` while it still hasn't.
+    @discardableResult
+    private func saveAgain() -> Bool {
+        guard unsaved, let s = saved, let data = try? JSONEncoder().encode(s) else { return !unsaved }
+        for _ in 0..<Self.saveTries {
+            do {
+                try store.set(Self.item, data)
+                unsaved = false
+                checkFailed = false
+                return true
+            } catch {}
+        }
+        AppLog.i("sign-in: the Keychain didn't take the new tokens; kept in memory and tried again later")
+        checkFailed = true
+        return false
+    }
+
+    /// The app opened or came back: a refresh when the access token is about to end. At most every `checkEvery` the
+    /// site is also asked whether it still knows this sign-in (`/api/app/me`), so a sign-out or a deleted account
+    /// elsewhere shows when the app opens (kb REL-453); a refused access token is refreshed, so the site's reason
+    /// arrives.
     public func check() async {
-        guard let s = saved, s.accessExpiresAt - now().timeIntervalSince1970 < Self.refreshMargin else { return }
-        _ = await refresh()
+        guard let s = saved else { return }
+        saveAgain()
+        if s.accessExpiresAt - now().timeIntervalSince1970 < Self.refreshMargin {
+            guard await refresh() == .ok else { return }
+        }
+        if let last = lastCheck, now().timeIntervalSince(last) < Self.checkEvery { return }
+        lastCheck = now()
+        guard let token = saved?.accessToken else { return }
+        // the site refused the access token: a refresh, so its answer says why (or rotates a token ended early)
+        if case .answered(401, _) = await get("api/app/me", bearer: token) { _ = await refresh() }
     }
 
     /// One refresh at a time: a second caller waits for the first one's answer.
@@ -385,9 +450,13 @@ public final class AccountModel {
 
     private func refreshNow() async -> Refresh {
         guard let s = saved else { return .signedOut }
+        saveAgain()
         let gen = generation
-        let reply = await post("api/app/token", ["grant_type": "refresh_token", "refresh_token": s.refreshToken, "device": device],
-                               bearer: nil)
+        let body: [String: Any] = ["grant_type": "refresh_token", "refresh_token": s.refreshToken, "device": device]
+        var reply = await post("api/app/token", body, bearer: nil)
+        // no answer at all: the site may have rotated and the reply been lost; asked again at once, inside its grace,
+        // the same token gets the same new pair (kb REL-453)
+        if case .offline = reply, gen == generation { reply = await post("api/app/token", body, bearer: nil) }
         guard gen == generation, saved != nil else { return saved == nil ? .signedOut : .ok }
         switch reply {
         case .offline:
@@ -401,7 +470,7 @@ public final class AccountModel {
             }
             if status == 401, Self.error(body) == "invalid_grant" {
                 AppLog.i("sign-in: the site ended this sign-in")
-                signedOutBySite()
+                signedOutBySite(Self.json(body)?["reason"] as? String)
                 return .signedOut
             }
             checkFailed = true
@@ -435,7 +504,7 @@ public final class AccountModel {
                 if status == 401 {
                     // refused again after a refresh: the site no longer knows this sign-in
                     AppLog.i("sign-in: the site refused the account's token after a refresh")
-                    signedOutBySite()
+                    signedOutBySite(nil)
                     return .signedOut
                 }
                 return .answered(status, data)
@@ -480,15 +549,18 @@ public final class AccountModel {
         }
     }
 
-    private func signedOutBySite() {
+    private func signedOutBySite(_ reason: String?) {
         clearLocal()
-        onSignedOutBySite?()
+        problem = Note(Self.endedWords(reason))
+        onSignedOutBySite?(reason)
     }
 
     /// Signed out here: the account item goes (the last account's id stays, to tell a different one next time).
     public func clearLocal() {
         store.delete(Self.item)
         saved = nil
+        unsaved = false
+        lastCheck = nil
         account = nil
         generation += 1
         checkFailed = false
@@ -498,6 +570,19 @@ public final class AccountModel {
     // ---- the wire -------------------------------------------------------------------------------------------------------
 
     enum Reply { case answered(Int, Data), offline }
+
+    /// A GET with the bearer token (`/api/app/me`).
+    private func get(_ path: String, bearer: String) async -> Reply {
+        var r = URLRequest(url: site.appendingPathComponent(path))
+        r.setValue("application/json", forHTTPHeaderField: "accept")
+        r.setValue("Bearer \(bearer)", forHTTPHeaderField: "authorization")
+        do {
+            let (status, data) = try await http.send(r)
+            return .answered(status, data)
+        } catch {
+            return .offline
+        }
+    }
 
     private func post(_ path: String, _ body: [String: Any], bearer: String?) async -> Reply {
         var r = URLRequest(url: site.appendingPathComponent(path))

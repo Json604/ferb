@@ -1059,7 +1059,7 @@ impl Daemon {
                 // PHN-828: the site's keys this build pins (none until the owner makes the pair) and the Mac's account
                 account: ferb_daemon::phone::account::AccountCheck::pinned({
                     let a = account.clone();
-                    Arc::new(move || a.mac_account())
+                    Arc::new(move || a.mac_account_read())
                 }),
                 db: db.clone(),
                 clock: clock.clone(),

@@ -150,7 +150,8 @@ struct AccountSettingsPage: View {
                     .disabled(account.busy)
                     if let failure { Text(failure).font(.system(size: 12)).foregroundStyle(.secondary) }
                 } else {
-                    Text(account.state == .unknown ? "Checking your FERB account…" : "You're not signed in to FERB.")
+                    Text(account.state == .unknown ? "Checking your FERB account…"
+                         : account.ended?.words ?? "You're not signed in to FERB.")
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
             }

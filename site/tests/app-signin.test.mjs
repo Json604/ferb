@@ -1,6 +1,6 @@
 // decision: REL-449
 // decision: REL-452
-// decision: REL-452
+// decision: REL-454
 // The browser part of the apps' sign-in: /api/app/start and /api/app/callback.
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -144,19 +144,60 @@ test("every return address that isn't exactly the platform's own, and every bad 
   }
 });
 
-test("a provider that isn't set up answers start with a plain 503 page; so does a site without its settings", async () => {
+test("a provider that isn't set up answers a phone's start with a plain 503 page; so does a site without its settings", async () => {
   for (const [options, provider] of [[{ apple: false }, "apple"], [{ google: false }, "google"], [{ ready: false }, "google"]]) {
     const f = appFakes(options);
-    const r = await appStart(get(startUrl(startParams({ provider }))), f.deps);
+    const r = await appStart(get(startUrl(startParams({ provider, platform: "ios" }))), f.deps);
     assert.equal(r.status, 503, JSON.stringify(options));
     assert.match(r.headers.get("content-type"), /text\/html/);
     assert.doesNotMatch(await r.text(), /<script/i);
   }
 });
 
+// decision: REL-453
+test("FERB.app hears the start's errors at its loopback with its state, never an error page it can't see", async () => {
+  for (const [options, provider, error] of [
+    [{ apple: false }, "apple", "not_ready"],
+    [{ google: false }, "google", "not_ready"],
+    [{ ready: false }, "google", "unavailable"],
+  ]) {
+    const f = appFakes(options);
+    const r = await appStart(get(startUrl(startParams({ provider }))), f.deps);
+    assert.equal(r.status, 303, JSON.stringify(options));
+    assert.equal(r.headers.get("location"), `${RETURN.mac}?error=${error}&state=${APP_STATE}`);
+    assert.equal(r.headers.getSetCookie().length, 0);
+  }
+  // A site without its settings only redirects to a well-formed loopback address with a well-formed state.
+  const off = appFakes({ ready: false });
+  for (const params of [
+    startParams({ redirect: "http://localhost:52345/callback" }),
+    startParams({ redirect: "https://evil.example.com/callback" }),
+    startParams({ state: "short" }),
+    startParams({ platform: "ios" }),
+  ]) {
+    const r = await appStart(get(startUrl(params)), off.deps);
+    assert.equal(r.status, 503, JSON.stringify(params));
+    assert.equal(r.headers.get("location"), null);
+  }
+  // Too many sign-ins from one address, and a database that can't be reached.
+  const f = appFakes();
+  const at = () => withIp(get(startUrl(startParams())), "203.0.113.70");
+  for (let i = 0; i < 20; i++) await appStart(at(), f.deps);
+  assert.equal((await appStart(at(), f.deps)).headers.get("location"), `${RETURN.mac}?error=slow_down&state=${APP_STATE}`);
+  const down = appFakes();
+  down.store.fail();
+  assert.equal((await appStart(get(startUrl(startParams())), down.deps)).headers.get("location"), `${RETURN.mac}?error=unavailable&state=${APP_STATE}`);
+  // The provider's own address failing.
+  const broken = appFakes();
+  broken.deps.oidc.authorizationUrl = async () => {
+    throw Object.assign(new Error("down"), { code: "ETIMEDOUT" });
+  };
+  assert.equal((await appStart(get(startUrl(startParams())), broken.deps)).headers.get("location"), `${RETURN.mac}?error=unavailable&state=${APP_STATE}`);
+});
+
 test("start allows 20 sign-ins per IP in 10 minutes, and keeps the IP only as an HMAC", async () => {
   const f = appFakes();
-  const at = (ip) => withIp(get(startUrl(startParams())), ip);
+  const at = (ip) => withIp(get(startUrl(startParams({ platform: "ios" }))), ip);
   for (let i = 0; i < 20; i++) assert.equal((await appStart(at("203.0.113.7"), f.deps)).status, 303, `#${i + 1}`);
   const limited = await appStart(at("203.0.113.7"), f.deps);
   assert.equal(limited.status, 429);
@@ -164,7 +205,7 @@ test("start allows 20 sign-ins per IP in 10 minutes, and keeps the IP only as an
   assert.equal(limited.headers.getSetCookie().length, 0);
   assert.equal((await appStart(at("198.51.100.1"), f.deps)).status, 303, "another IP has its own count");
   // x-forwarded-for's first address when there is no x-real-ip.
-  const forwarded = new Request(`${SITE}${startUrl(startParams())}`, { headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.1" } });
+  const forwarded = new Request(`${SITE}${startUrl(startParams({ platform: "ios" }))}`, { headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.1" } });
   assert.equal((await appStart(forwarded, f.deps)).status, 429);
   for (const key of f.store.limits.keys()) {
     assert.doesNotMatch(key, /203\.0\.113|198\.51\.100/);
@@ -280,7 +321,8 @@ test("a missing, forged, expired or other-purpose cookie gets a plain page, neve
   assert.equal(f.calls.exchange.length, 0);
 });
 
-test("the provider's error goes back to the app as cancelled; an unverified email as no_email; an unconfirmed sign-in as failed", async () => {
+// decision: REL-453
+test("the person's no goes back to the app as cancelled, the provider's other errors and an unconfirmed sign-in as provider, an unverified email as no_email", async () => {
   const f = appFakes();
   const once = async (query) => {
     const start = await appStart(get(startUrl(startParams())), f.deps);
@@ -290,12 +332,14 @@ test("the provider's error goes back to the app as cancelled; an unverified emai
   };
   const back = (r) => r.headers.get("location");
   assert.equal(back(await once("error=access_denied&state=STATE")), `${RETURN.mac}?error=cancelled&state=${APP_STATE}`);
+  assert.equal(back(await once("error=server_error&state=STATE")), `${RETURN.mac}?error=provider&state=${APP_STATE}`);
+  assert.equal(back(await once("error=temporarily_unavailable&state=STATE")), `${RETURN.mac}?error=provider&state=${APP_STATE}`);
   f.claims = { sub: "google-sub-0001", email: "ada@example.com", email_verified: false };
   assert.equal(back(await once("code=c&state=STATE")), `${RETURN.mac}?error=no_email&state=${APP_STATE}`);
   f.claims = { sub: "google-sub-0001", email_verified: true };
   assert.equal(back(await once("code=c&state=STATE")), `${RETURN.mac}?error=no_email&state=${APP_STATE}`);
   f.claims = Object.assign(new Error("nonce mismatch"), { code: "OAUTH_JWT_CLAIM_COMPARISON_FAILED" });
-  assert.equal(back(await once("code=c&state=STATE")), `${RETURN.mac}?error=failed&state=${APP_STATE}`);
+  assert.equal(back(await once("code=c&state=STATE")), `${RETURN.mac}?error=provider&state=${APP_STATE}`);
   assert.equal(f.store.users.size, 0);
   assert.equal(f.store.codes.size, 0);
 });
@@ -328,7 +372,7 @@ test("Apple: an ID token whose nonce isn't this sign-in's is refused", async () 
     formPost("/api/app/callback", { code: "apple-code", state: location.searchParams.get("state") }, `ferb_app_signin=${cookies(start).ferb_app_signin.value}`),
     f.deps,
   );
-  assert.equal(r.headers.get("location"), `${RETURN.mac}?error=failed&state=${APP_STATE}`);
+  assert.equal(r.headers.get("location"), `${RETURN.mac}?error=provider&state=${APP_STATE}`);
   assert.equal(f.store.users.size, 0);
   assert.ok(f.logs.some((l) => /TOKEN_NONCE/.test(l)));
 });
@@ -358,7 +402,7 @@ test("Apple: no verified email is no_email; Apple's own error is cancelled; an a
   f.apple.tokenStatus = 400;
   s = await begin();
   r = await appCallback(formPost("/api/app/callback", { code: "c", state: s.state }, s.cookie), f.deps);
-  assert.match(r.headers.get("location"), /error=failed/);
+  assert.match(r.headers.get("location"), /error=provider/);
   assert.equal(f.store.users.size, 0);
 });
 
@@ -378,24 +422,25 @@ test("one account per person: the download list's row, then Google, then Apple w
   assert.equal(f.store.users.size, 1);
 });
 
-test("an email whose account is linked to another Google account is refused, not taken over", async () => {
+// decision: REL-453
+test("an email whose account is linked to another Google account is refused as account_conflict, not taken over", async () => {
   const f = appFakes();
   await browserSignIn(f);
   f.claims = { sub: "google-sub-9999", email: "ada@example.com", email_verified: true };
   const { back } = await browserSignIn(f);
-  assert.equal(back.searchParams.get("error"), "failed");
+  assert.equal(back.searchParams.get("error"), "account_conflict");
   assert.equal(f.store.users.size, 1);
   assert.equal([...f.store.users.values()][0].google_sub, "google-sub-0001");
 });
 
-test("a database that can't be reached sends the app back with failed, and the logs carry nothing personal", async () => {
+test("a database that can't be reached sends the app back with unavailable, and the logs carry nothing personal", async () => {
   const f = appFakes();
   const start = await appStart(get(startUrl(startParams())), f.deps);
   const state = new URL(start.headers.get("location")).searchParams.get("state");
   f.store.fail();
   const r = await appCallback(get(`/api/app/callback?code=c&state=${state}`, `ferb_app_signin=${cookies(start).ferb_app_signin.value}`), f.deps);
-  assert.equal(r.headers.get("location"), `${RETURN.mac}?error=failed&state=${APP_STATE}`);
+  assert.equal(r.headers.get("location"), `${RETURN.mac}?error=unavailable&state=${APP_STATE}`);
   assert.ok(f.logs.length > 0);
   for (const line of f.logs) assert.doesNotMatch(line, /ada|Ada|example\.com|google-code|google-sub/);
-  assert.equal((await appStart(get(startUrl(startParams())), f.deps)).status, 503, "the rate limit can't be checked");
+  assert.equal((await appStart(get(startUrl(startParams({ platform: "android" }))), f.deps)).status, 503, "the rate limit can't be checked");
 });

@@ -94,6 +94,7 @@ final class AppSetupController: NSObject {
         return session
     }()
     private var accountChecks: Timer?
+    private var accountWatchers: [NSObjectProtocol] = []
 
     /// Signed out while FERB.app runs (Sign out, a deleted account, the server's No to a refresh): the account step
     /// alone, now. A running tour has the step already or gets it at its end.
@@ -104,12 +105,24 @@ final class AppSetupController: NSObject {
 
     /// Once settled: the account's tokens are refreshed at launch and every few hours. Trouble reaching the server
     /// keeps the owner signed in; only the server's No signs out (APP-1138).
+    /// Also when FERB.app comes forward and when the Mac wakes, the site is asked whether the sign-in still stands (at
+    /// most every five minutes, `AccountSession.check`), so a sign-out or a deleted account elsewhere shows then
+    /// (REL-453) instead of at the next refresh, up to six hours later.
     private func checkAccount() {
         Task { @MainActor [account] in await account.refresh() }
         guard accountChecks == nil else { return }
         accountChecks = Timer.scheduledTimer(withTimeInterval: 6 * 60 * 60, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.account.refresh() }
         }
+        let check: (Notification) -> Void = { [weak self] _ in
+            Task { @MainActor in await self?.account.check() }
+        }
+        accountWatchers = [
+            NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
+                                                   queue: .main, using: check),
+            NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil,
+                                                              queue: .main, using: check),
+        ]
     }
 
     /// The packaged app's two programs: the `ferb` launcher (a script running the app's Python, or the Rust build's

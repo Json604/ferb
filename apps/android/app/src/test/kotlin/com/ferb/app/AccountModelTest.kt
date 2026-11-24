@@ -19,6 +19,7 @@ import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -276,6 +277,76 @@ class AccountModelTest {
         assertTrue(m.delete())
         assertNull(m.state.value.account)
         assertNull(store.kept)
+    }
+
+    // decision: REL-453, PHN-844
+    @Test
+    fun a_refresh_with_no_answer_is_sent_again_at_once_with_the_same_token() = runBlocking {
+        val m = model(signedIn(expiresAt = now))
+        http.reply("/api/app/token", 200, FakeHttp.tokens(access = "fa1_new-access"))
+        http.offlineTimes = 1
+        assertEquals(Answer.Ok("fa1_new-access"), m.access())
+        val sent = http.requests.filter { it.url.endsWith("/api/app/token") }
+        assertEquals(2, sent.size)
+        assertTrue(sent.all { it.body!!.contains("fr1_old-refresh") })
+        assertFalse(m.state.value.checkFailed)
+    }
+
+    // decision: REL-453, PHN-844
+    @Test
+    fun the_sites_no_says_why_and_only_a_deleted_account_is_told_as_deleted() = runBlocking {
+        for ((reason, words) in listOf("account_deleted" to R.string.signin_ended_deleted, "expired" to R.string.signin_ended_expired,
+            "signed_out" to R.string.signin_ended, null to R.string.signin_ended)) {
+            http.replies.clear()
+            val m = model(signedIn(expiresAt = now))
+            val heard = async(Dispatchers.Unconfined) { m.ended.first() }
+            http.reply("/api/app/token", 401, if (reason == null) """{"error":"invalid_grant"}""" else """{"error":"invalid_grant","reason":"$reason"}""")
+            assertTrue(m.access() is Answer.Refused)
+            assertNull(m.state.value.account)
+            assertEquals(words, m.state.value.note?.res)
+            assertEquals(reason, heard.await())
+        }
+    }
+
+    // decision: REL-453, PHN-844
+    @Test
+    fun a_rotation_the_store_didnt_take_is_used_and_saved_again_before_the_next_refresh() = runBlocking {
+        val store = object : com.ferb.app.model.AccountStore by MemoryAccountStore(SignedIn(INVENTED_ACCOUNT, Tokens("fa1_old-access", now, "fr1_old-refresh"))) {
+            var failing = 0
+            var kept: SignedIn? = null
+            override fun save(s: SignedIn) { if (failing > 0) { failing -= 1; throw java.io.IOException("full (invented)") }; kept = s }
+        }
+        val m = model(store)
+        store.failing = AccountModel.SAVE_TRIES
+        http.reply("/api/app/token", 200, FakeHttp.tokens(access = "fa1_new-access", refresh = "fr1_new-refresh"))
+        assertEquals(Answer.Ok("fa1_new-access"), m.access())
+        assertTrue("the store didn't take it", m.state.value.checkFailed)
+        assertNull(store.kept)
+        // the next use saves it first; the spent refresh token is never sent again
+        assertEquals(Answer.Ok("fa1_new-access"), m.access())
+        assertEquals("fr1_new-refresh", store.kept?.tokens?.refresh)
+        assertEquals(1, http.paths().count { it == "/api/app/token" })
+    }
+
+    // decision: REL-453, PHN-844
+    @Test
+    fun opening_asks_the_site_at_most_every_five_minutes_and_a_deletion_elsewhere_signs_out() = runBlocking {
+        val m = model(signedIn(expiresAt = now + 3_600_000))
+        http.reply("/api/app/me", 200, """{"account":{},"devices":[]}""")
+        m.check()
+        assertEquals(listOf("/api/app/me"), http.paths())
+        now += AccountModel.CHECK_EVERY_MS - 1
+        m.check()
+        assertEquals(1, http.paths().size)
+        now += 1
+        http.replies.clear()
+        http.reply("/api/app/me", 401, """{"error":"invalid_token"}""")
+        http.reply("/api/app/token", 401, """{"error":"invalid_grant","reason":"account_deleted"}""")
+        val heard = async(Dispatchers.Unconfined) { m.ended.first() }
+        m.check()
+        assertEquals(listOf("/api/app/me", "/api/app/me", "/api/app/token"), http.paths())
+        assertNull(m.state.value.account)
+        assertEquals("account_deleted", heard.await())
     }
 
     // decision: PHN-839

@@ -2,7 +2,11 @@
 // Android app sign in to one FERB account (a row of ferb_users) with Google or Apple. The app opens /api/app/start
 // in a browser with its own PKCE challenge and state; the provider answers /api/app/callback; the site hands the app
 // a one-time code at an allowlisted address; the app trades it with its verifier at /api/app/token for an access
-// token (1 hour) and a refresh token (180 days, REL-445; rotated on each use; a reused one ends the whole sign-in).
+// token (1 hour) and a refresh token (180 days, REL-445; rotated on each use). The rotation's new pair is derived from
+// the old refresh token (an HMAC with AUTH_SECRET), so the same old token presented again within REFRESH_GRACE seconds,
+// before its successor was used, gets the same pair back (a reply lost on the way, two refreshes racing); a reused one
+// after that ends the whole sign-in (REL-453, REL-454). A refused refresh says why (`reason`: signed_out, expired,
+// account_deleted), so an app asks to sign in again and keeps its pairing unless the account is gone.
 // The addresses (REL-452): FERB.app's loopback http://127.0.0.1:<port>/callback (RFC 8252 §7.3; the port is the
 // one FERB.app is listening on, so it is part of the request), the iPhone's ferb-auth://callback, Android's App Link.
 // The iPhone's Sign in with Apple can also be the system's own (/api/app/apple, PHN-841): Apple's identity token for
@@ -40,6 +44,10 @@ const ID_TOKEN_LIMIT = 8 * 1024;
 const CODE_SECONDS = 120;
 const ACCESS_SECONDS = 60 * 60;
 const REFRESH_SECONDS = 180 * 24 * 60 * 60; // owner, 2026-11-24 (REL-445)
+// owner, 2026-11-24 (REL-453): the previous refresh token is still answered, with the same new pair, this long.
+export const REFRESH_GRACE = 60;
+// The longest name kept, in characters (Unicode code points), on the site and in the daemon alike (REL-453).
+export const NAME_MAX = 200;
 // [most requests, per seconds]
 export const LIMITS = {
   start: [20, 10 * 60],
@@ -61,6 +69,19 @@ const BODY_LIMIT = 16 * 1024;
 
 export const sha256hex = (value) => createHash("sha256").update(value).digest("hex");
 export const s256 = (verifier) => createHash("sha256").update(verifier).digest("base64url");
+
+// The pair a refresh token rotates to: the same for the same token, unguessable without both it and AUTH_SECRET.
+export function successorOf(secret, refresh) {
+  const derive = (kind) => createHmac("sha256", secret).update(`ferb-app-rotate/v1.${kind}.${refresh}`).digest("base64url");
+  return { access: `fa1_${derive("access")}`, refresh: `fr1_${derive("refresh")}` };
+}
+
+// A display name as kept: no control characters, trimmed, at most NAME_MAX characters (never half a character). A
+// name never stops a sign-in: one too long is cut, anything else that isn't text is no name.
+export function keptName(name) {
+  if (typeof name !== "string") return "";
+  return [...name.replace(/[\u0000-\u001f\u007f]/g, " ").trim()].slice(0, NAME_MAX).join("").trim();
+}
 
 function same(a, b) {
   if (typeof a !== "string" || typeof b !== "string") return false;
@@ -96,7 +117,7 @@ const unavailablePage = () => signInPage(503, "FERB's sign-in isn't answering ri
 
 const unavailable = () => json(503, { error: "unavailable" });
 const invalidRequest = () => json(400, { error: "invalid_request" });
-const invalidGrant = () => json(401, { error: "invalid_grant" });
+const invalidGrant = (reason) => json(401, reason ? { error: "invalid_grant", reason } : { error: "invalid_grant" });
 const invalidToken = () => json(401, { error: "invalid_token" }, { "www-authenticate": 'Bearer error="invalid_token"' });
 const slowDown = (retryAfter) => json(429, { error: "slow_down" }, { "retry-after": String(retryAfter) });
 
@@ -137,8 +158,20 @@ export function appReady(request, deps) {
 
 // ---- GET /api/app/start ----
 
+// FERB.app's loopback with `error` and the app's state: only ever an address returnAllowed took for a Mac.
+const macError = (target, appState, error) => redirect(`${target}?${new URLSearchParams({ error, state: appState })}`);
+
+// A Mac sign-in the site isn't set up for: its loopback hears so, when the request names one well formed.
+function macUnavailable(request) {
+  const q = new URL(request.url).searchParams;
+  const target = q.get("redirect");
+  const appState = q.get("state") || "";
+  if (q.get("platform") !== "mac" || !APP_STATE.test(appState) || !returnAllowed("", "mac", target)) return null;
+  return macError(target, appState, "unavailable");
+}
+
 export async function appStart(request, deps) {
-  if (!deps.config?.ready) return unavailablePage();
+  if (!deps.config?.ready) return macUnavailable(request) || unavailablePage();
   const site = home(deps, request);
   const q = new URL(request.url).searchParams;
   const one = (name) => (q.getAll(name).length === 1 ? q.get(name) : null);
@@ -157,20 +190,22 @@ export async function appStart(request, deps) {
   ) {
     return signInPage(400, "This sign-in link isn't complete. Go back to FERB and try again.");
   }
+  // FERB.app waits at its loopback address: an error is sent there too, so FERB.app says it (REL-454).
+  const toMac = (error) => (platform === "mac" ? macError(target, appState, error) : null);
   if (provider === "google" ? !deps.oidc : !deps.apple) {
     const name = provider === "google" ? "Google" : "Apple";
-    return signInPage(503, `Signing in with ${name} isn't ready on FERB's site yet. Try again later.`);
+    return toMac("not_ready") || signInPage(503, `Signing in with ${name} isn't ready on FERB's site yet. Try again later.`);
   }
   try {
     const wait = await limit(deps, [[ipKey(deps, request, "start"), LIMITS.start]]);
     if (wait) {
-      return signInPage(429, "There have been a lot of sign-ins from here in the last few minutes. Wait a few minutes, then try again from FERB.", {
+      return toMac("slow_down") || signInPage(429, "There have been a lot of sign-ins from here in the last few minutes. Wait a few minutes, then try again from FERB.", {
         extra: { "retry-after": String(wait) },
       });
     }
   } catch (error) {
     deps.log(`app sign-in: the rate limit could not be checked (${why(error)})`);
-    return unavailablePage();
+    return toMac("unavailable") || unavailablePage();
   }
 
   const state = deps.random();
@@ -184,7 +219,7 @@ export async function appStart(request, deps) {
         : deps.apple.authorizationUrl({ redirectUri: site + CALLBACK, state, nonce });
   } catch (error) {
     deps.log(`app sign-in: ${provider} could not be reached (${why(error)})`);
-    return unavailablePage();
+    return toMac("unavailable") || unavailablePage();
   }
   const now = deps.now();
   const cookie = sign(deps.config.secret, {
@@ -223,7 +258,7 @@ async function googleIdentity(deps, request, signin, site) {
   return {
     sub: claims.sub,
     email: verified && typeof claims.email === "string" ? claims.email.trim().toLowerCase() : "",
-    name: typeof claims.name === "string" ? claims.name.trim().slice(0, 200) : "",
+    name: keptName(claims.name),
   };
 }
 
@@ -253,6 +288,7 @@ export async function appCallback(request, deps) {
     !returnAllowed(site, signin.pl, signin.r) ||
     !APP_STATE.test(signin.as || "")
   ) {
+    // No valid cookie, no trusted address to go back to (and FERB.app stops waiting when the cookie expires): a page.
     return signInPage(400, "That sign-in took too long, or started somewhere else. Go back to FERB and try again.", {
       cookies: [done],
     });
@@ -267,7 +303,12 @@ export async function appCallback(request, deps) {
   const params = await callbackParams(request);
   if ((request.method === "POST") !== (signin.pr === "apple")) return fail(`the answer did not come from ${signin.pr}`);
   if (!same(params.get("state"), signin.s)) return fail(`${signin.pr}'s state did not match`);
-  if (params.has("error")) return back({ error: "cancelled" });
+  // The person said no (access_denied, Apple's user_cancelled_authorize); any other error is the provider's.
+  if (params.has("error")) {
+    const said = params.get("error");
+    if (said === "access_denied" || said === "user_cancelled_authorize") return back({ error: "cancelled" });
+    return fail(`${signin.pr} answered with an error`, "provider");
+  }
 
   let identity;
   try {
@@ -276,13 +317,13 @@ export async function appCallback(request, deps) {
         ? await googleIdentity(deps, request, signin, site)
         : await appleIdentity(deps, params, signin, site);
   } catch (error) {
-    return fail(`${signin.pr} did not confirm the sign-in (${why(error)})`);
+    return fail(`${signin.pr} did not confirm the sign-in (${why(error)})`, "provider");
   }
   if (!identity.email) return fail(`${signin.pr} gave no verified email`, "no_email");
 
   try {
     const user = await deps.store.appUser({ provider: signin.pr, ...identity, at: at(now) });
-    if (!user) return fail(`that email's account is linked to another ${signin.pr} account`);
+    if (!user) return fail(`that email's account is linked to another ${signin.pr} account`, "account_conflict");
     const code = deps.random();
     await deps.store.createCode({
       hash: sha256hex(code),
@@ -292,12 +333,16 @@ export async function appCallback(request, deps) {
       challenge: signin.c,
       expiresAt: at(now + CODE_SECONDS),
     });
-    await deps.store.sweep(at(now)).catch((error) => deps.log(`app sign-in: old codes not removed (${why(error)})`));
+    await sweep(deps, now);
     return back({ code });
   } catch (error) {
-    return fail(`the account could not be saved (${why(error)})`);
+    return fail(`the account could not be saved (${why(error)})`, "unavailable");
   }
 }
+
+// Expired codes and tokens go on every sign-in and refresh (the store runs it at most every few minutes, bounded).
+const sweep = (deps, now) =>
+  deps.store.sweep(at(now)).catch((error) => deps.log(`app sign-in: old codes and tokens not removed (${why(error)})`));
 
 // ---- POST /api/app/token ----
 
@@ -328,27 +373,29 @@ function parseDevice(device) {
 
 const accountJson = (a) => ({ id: a.id, email: a.email, name: a.name || "", providers: [...(a.providers || [])] });
 
-async function issue(deps, userId, family, device) {
+// The pair (random for a new sign-in, `pair` for a rotation) issued at `issuedAt` (Unix seconds; a rotation's own time,
+// so its answer again within the grace is the same).
+async function issue(deps, userId, family, device, { pair, issuedAt } = {}) {
   const now = deps.now();
+  const from = issuedAt ?? now;
   await deps.store.recordDevice({ userId, deviceId: device.id, platform: device.platform, version: device.version, at: at(now) });
-  const access = `fa1_${deps.random()}`;
-  const refresh = `fr1_${deps.random()}`;
+  const { access, refresh } = pair || { access: `fa1_${deps.random()}`, refresh: `fr1_${deps.random()}` };
   await deps.store.issueTokens({
     accessHash: sha256hex(access),
     refreshHash: sha256hex(refresh),
     userId,
     family,
     deviceId: device.id,
-    at: at(now),
-    accessExpiresAt: at(now + ACCESS_SECONDS),
-    refreshExpiresAt: at(now + REFRESH_SECONDS),
+    at: at(from),
+    accessExpiresAt: at(from + ACCESS_SECONDS),
+    refreshExpiresAt: at(from + REFRESH_SECONDS),
   });
   const account = await deps.store.account(userId);
-  if (!account) return invalidGrant();
+  if (!account) return invalidGrant("account_deleted");
   return json(200, {
     access_token: access,
     token_type: "Bearer",
-    expires_in: ACCESS_SECONDS,
+    expires_in: Math.max(1, from + ACCESS_SECONDS - now),
     refresh_token: refresh,
     account: accountJson(account),
   });
@@ -378,15 +425,30 @@ export async function appToken(request, deps) {
       if (!granted || !same(s256(body.code_verifier), granted.challenge) || granted.platform !== device.platform) {
         return invalidGrant();
       }
-      return await issue(deps, granted.user_id, deps.random(), device);
+      const answer = await issue(deps, granted.user_id, deps.random(), device);
+      await sweep(deps, now);
+      return answer;
     }
     if (body.grant_type === "refresh_token") {
       if (typeof body.refresh_token !== "string") return invalidRequest();
       if (!REFRESH.test(body.refresh_token)) return invalidGrant();
-      const used = await deps.store.useRefresh(sha256hex(body.refresh_token), at(now));
+      const pair = successorOf(deps.config.secret, body.refresh_token);
+      const used = await deps.store.useRefresh(sha256hex(body.refresh_token), at(now), {
+        graceSeconds: REFRESH_GRACE,
+        successorHash: sha256hex(pair.refresh),
+      });
       if (used?.reused) deps.log("app token: a refresh token came back after it was rotated; that sign-in was ended");
-      if (!used || used.reused) return invalidGrant();
-      return await issue(deps, used.user_id, used.family, device);
+      if (used?.replay) deps.log("app token: a refresh token came back within its grace; the same pair was answered");
+      let answer;
+      if (!used) answer = invalidGrant();
+      else if (used.reused) answer = invalidGrant("signed_out");
+      else if (used.ended) answer = invalidGrant(used.ended);
+      else {
+        const issuedAt = Math.floor(new Date(used.used_at).getTime() / 1000);
+        answer = await issue(deps, used.user_id, used.family, device, { pair, issuedAt });
+      }
+      await sweep(deps, now);
+      return answer;
     }
     return invalidRequest();
   } catch (error) {
@@ -416,7 +478,8 @@ export async function appAppleNative(request, deps) {
   const device = parseDevice(body?.device);
   const token = body?.identity_token;
   const nonce = body?.nonce;
-  const name = body?.name ?? "";
+  // A display name only: one too long is cut, never a reason to refuse (REL-453).
+  const name = keptName(body?.name);
   if (
     !device ||
     device.platform !== "ios" ||
@@ -424,10 +487,7 @@ export async function appAppleNative(request, deps) {
     !token ||
     token.length > ID_TOKEN_LIMIT ||
     typeof nonce !== "string" ||
-    !ONE_TIME_CODE.test(nonce) ||
-    typeof name !== "string" ||
-    [...name].length > 200 ||
-    /[\u0000-\u001f\u007f]/.test(name)
+    !ONE_TIME_CODE.test(nonce)
   ) {
     return invalidRequest();
   }
@@ -455,12 +515,14 @@ export async function appAppleNative(request, deps) {
       deps.log("app apple: a nonce came back a second time; refused");
       return invalidGrant();
     }
-    const user = await deps.store.appUser({ provider: "apple", sub: claims.sub, email, name: name.trim(), at: at(now) });
+    const user = await deps.store.appUser({ provider: "apple", sub: claims.sub, email, name, at: at(now) });
     if (!user) {
       deps.log("app apple: that email's account is linked to another apple account");
       return invalidGrant();
     }
-    return await issue(deps, user.id, deps.random(), device);
+    const answer = await issue(deps, user.id, deps.random(), device);
+    await sweep(deps, now);
+    return answer;
   } catch (error) {
     deps.log(`app apple: the database could not be used (${why(error)})`);
     return unavailable();
@@ -522,7 +584,7 @@ export async function appSignOut(request, deps) {
 // POST /api/app/delete: the account row goes, and its codes, tokens and devices with it (ON DELETE CASCADE).
 export const appDelete = (request, deps) =>
   withAccount(request, deps, async (account) => {
-    await deps.store.deleteUser(account.id);
+    await deps.store.deleteUser(account.id, at(deps.now()));
     return json(200, { deleted: true });
   });
 
@@ -559,7 +621,14 @@ export function assetLinks(_request, deps) {
 }
 
 // ---- GET /app/callback (rewritten to /api/app/landing) ----
-// Android's sign-in returns here; the app normally opens before this page shows. A tap on the link opens it.
+// Android's sign-in returns here; the app normally opens before this page shows. A tap on the link opens it: an
+// intent link naming FERB's package (REL-454), because a browser that already shows this address treats a plain link
+// to it as a page and stays; the intent carries the same address, so the app reads the same callback.
+export function androidIntent(site, query) {
+  const url = new URL(site + ANDROID_RETURN);
+  return `intent://${url.host}${url.pathname}${query ? `?${query}` : ""}#Intent;scheme=https;package=${ANDROID_PACKAGE};end`;
+}
+
 export function appLanding(request, deps) {
   const site = deps.config?.siteUrl || new URL(request.url).origin;
   const q = new URL(request.url).searchParams;
@@ -568,7 +637,7 @@ export function appLanding(request, deps) {
     const value = q.get(name);
     if (value && /^[A-Za-z0-9_-]{1,128}$/.test(value)) kept.set(name, value);
   }
-  const link = `${site}${ANDROID_RETURN}${kept.size ? `?${kept}` : ""}`;
+  const link = androidIntent(site, kept.size ? String(kept) : "");
   return page(200, {
     title: "sign in",
     body: `<p><a class="download" href="${escapeHtml(link)}">Open FERB</a></p>

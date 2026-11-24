@@ -474,7 +474,13 @@
     <string name="signin_not_answering">FERB\'s sign-in isn\'t answering right now. Try again in a minute.</string>
     <!-- new: the server's other errors, and an account that gave no confirmed email -->
     <string name="signin_failed">FERB couldn\'t finish signing you in. Try again.</string>
-    <string name="signin_no_email">FERB needs a confirmed email address to sign you in. Try again and choose to share your email.</string>
+    <string name="signin_no_email">Google or Apple didn\'t share a verified email address for that account, and FERB needs one. Try again, or use another account.</string>
+    <!-- new (kb REL-453): each failure in its own words, and why the site ended the sign-in -->
+    <string name="signin_account_conflict">That email address already has a FERB account that signs in with a different Google or Apple account. Sign in with that one instead.</string>
+    <string name="signin_slow_down">There have been a lot of sign-ins from your network in the last few minutes. Wait a few minutes, then try again.</string>
+    <string name="signin_ended">Your sign-in to FERB on this phone ended. Sign in again to keep using FERB.</string>
+    <string name="signin_ended_expired">Your sign-in to FERB ended after 180 days without use. Sign in again to keep using FERB.</string>
+    <string name="signin_ended_deleted">Your FERB account was deleted on another device, so FERB on this phone signed out. Sign in to keep using FERB.</string>
     <string name="signin_signed_in_as">You\'re signed in as %1$s.</string>
     <!-- new: the account page's title -->
     <string name="account_title">Your account</string>

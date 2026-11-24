@@ -153,17 +153,21 @@ class AccountModel(
     val state: StateFlow<AccountUi> = _state.asStateFlow()
 
     @Volatile private var saved: SignedIn? = null
+    /** [saved] is newer than what the store holds (a rotation the store didn't take): saved again before anything. */
+    @Volatile private var unsaved = false
+    @Volatile private var lastCheckMs: Long? = null
     @Volatile private var pending: PendingSignIn? = null
     private val refreshing = Mutex()
     private val returning = Mutex()
 
-    private val _ended = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    private val _ended = kotlinx.coroutines.flow.MutableSharedFlow<String?>(extraBufferCapacity = 1)
 
     /**
-     * The server ended this sign-in (`invalid_grant` on a refresh, or a 401 after a fresh token): a sign-out (kb
-     * PHN-828), so the app unpairs as Sign out does. The account here is already gone when this fires.
+     * The server ended this sign-in (`invalid_grant` on a refresh, or a 401 after a fresh token), with the site's
+     * reason (`account_deleted`, `expired`, `signed_out`, or null). Only a deleted account unpairs the phone; otherwise
+     * it only asks to sign in again and stays paired (kb REL-453). The account here is already gone when this fires.
      */
-    val ended: kotlinx.coroutines.flow.SharedFlow<Unit> = _ended
+    val ended: kotlinx.coroutines.flow.SharedFlow<String?> = _ended
 
     /** Reads the kept account (once, at the start). Signed out when there is none or it can't be opened. */
     suspend fun load() {
@@ -205,12 +209,19 @@ class AccountModel(
         when {
             back.error == "cancelled" -> said(Note(R.string.signin_cancelled))
             back.error == "no_email" -> said(Note(R.string.signin_no_email))
+            back.error == "account_conflict" -> said(Note(R.string.signin_account_conflict))
+            back.error == "slow_down" -> said(Note(R.string.signin_slow_down))
+            back.error == "unavailable" || back.error == "not_ready" -> said(Note(R.string.signin_not_answering))
             code == null -> said(Note(R.string.signin_failed))
             else -> {
                 when (val r = withContext(io) { server.exchange(code, p.verifier) }) {
                     is Answer.Ok -> keep(r.value)
                     Answer.Offline -> said(Note(R.string.signin_unreachable))
-                    is Answer.Refused -> said(Note(if (r.status == 429 || r.status >= 500) R.string.signin_not_answering else R.string.signin_failed))
+                    is Answer.Refused -> said(Note(when {
+                        r.status == 429 -> R.string.signin_slow_down
+                        r.status >= 500 -> R.string.signin_not_answering
+                        else -> R.string.signin_failed
+                    }))
                 }
             }
         }
@@ -220,15 +231,20 @@ class AccountModel(
     /** The access token, refreshed first when under a minute is left. [force]: the server refused it; refresh now. */
     suspend fun access(force: Boolean = false): Answer<String> = refreshing.withLock {
         val s = saved ?: return Answer.Refused(401, SIGNED_OUT)
+        if (unsaved) saveAgain(s)
         if (!force && s.tokens.accessExpiresAtMs - now() > REFRESH_BEFORE_MS) return Answer.Ok(s.tokens.access)
-        when (val r = withContext(io) { server.refresh(s.tokens.refresh) }) {
+        var reply = withContext(io) { server.refresh(s.tokens.refresh) }
+        // no answer at all: the site may have rotated and the reply been lost; asked again at once, inside its grace,
+        // the same token gets the same new pair (kb REL-453)
+        if (reply is Answer.Offline) reply = withContext(io) { server.refresh(s.tokens.refresh) }
+        when (val r = reply) {
             is Answer.Ok -> {
                 keep(r.value)
                 Answer.Ok(r.value.tokens.access)
             }
             Answer.Offline -> { _state.update { it.copy(checkFailed = true) }; Answer.Offline }
             is Answer.Refused -> if (r.status == 401 && r.error == "invalid_grant") {
-                endedByServer()
+                endedByServer(r.reason)
                 Answer.Refused(401, SIGNED_OUT)
             } else {
                 _state.update { it.copy(checkFailed = true) }
@@ -237,8 +253,22 @@ class AccountModel(
         }
     }
 
-    /** At each open: the sign-in is still good (a refresh when due; the server's no signs out). */
-    suspend fun check() { if (saved != null) access() }
+    /**
+     * At each open: the sign-in is still good (a refresh when due; the server's no signs out). At most every
+     * [CHECK_EVERY_MS] the site is also asked whether it still knows this sign-in (`/api/app/me`), so a sign-out or a
+     * deleted account elsewhere shows when the app opens (kb REL-453); a refused access token is refreshed, so the
+     * site's reason arrives.
+     */
+    suspend fun check() {
+        if (saved == null) return
+        if (access() !is Answer.Ok) return
+        val last = lastCheckMs
+        if (last != null && now() - last < CHECK_EVERY_MS) return
+        lastCheckMs = now()
+        val token = saved?.tokens?.access ?: return
+        val r = withContext(io) { server.me(token) }
+        if (r is Answer.Refused && r.status == 401) access(force = true)
+    }
 
     /** The server's signed statement of this account for the phone whose link id is [endpoint] (kb PHN-828). */
     suspend fun assertion(endpoint: String): Answer<String> = authed { server.assertion(it, endpoint) }
@@ -278,23 +308,41 @@ class AccountModel(
             force = true
         }
         // a fresh token refused too: the server ended this sign-in
-        endedByServer()
+        endedByServer(null)
         return Answer.Refused(401, SIGNED_OUT)
     }
 
+    /**
+     * Keeps a token answer. A rotation's old refresh token is spent, so the new pair is used at once even when the store
+     * didn't take it; it is saved again (a few tries now, then before the next refresh or check: kb REL-453).
+     */
     private suspend fun keep(s: SignedIn) {
-        withContext(io) { runCatching { store.save(s) } }
         saved = s
-        _state.update { it.copy(known = true, account = s.account, step = SignInStep.IDLE, note = null, checkFailed = false) }
+        unsaved = true
+        val kept = saveAgain(s)
+        _state.update { it.copy(known = true, account = s.account, step = SignInStep.IDLE, note = null, checkFailed = !kept) }
     }
 
-    private suspend fun endedByServer() {
+    private suspend fun saveAgain(s: SignedIn): Boolean {
+        repeat(SAVE_TRIES) {
+            if (withContext(io) { runCatching { store.save(s) }.isSuccess }) {
+                if (saved === s) unsaved = false
+                return true
+            }
+        }
+        return false
+    }
+
+    private suspend fun endedByServer(reason: String?) {
         clearLocal()
-        _ended.tryEmit(Unit)
+        _state.update { it.copy(note = Note(endedWords(reason))) }
+        _ended.tryEmit(reason)
     }
 
     private suspend fun clearLocal() {
         saved = null
+        unsaved = false
+        lastCheckMs = null
         pending = null
         withContext(io) { runCatching { store.clear() } }
         _state.value = AccountUi(known = true)
@@ -311,6 +359,19 @@ class AccountModel(
 
         /** [access]'s refusal when there is no account (or the server ended it). */
         const val SIGNED_OUT = "signed_out"
+
+        /** The least time between two asks of the site at [check]. */
+        const val CHECK_EVERY_MS = 5 * 60_000L
+
+        /** Store saves tried for a token answer before it waits in memory for the next refresh or check. */
+        const val SAVE_TRIES = 3
+
+        /** The sign-in page's line when the site ended the sign-in, by its reason (kb REL-453). */
+        fun endedWords(reason: String?): Int = when (reason) {
+            "account_deleted" -> R.string.signin_ended_deleted
+            "expired" -> R.string.signin_ended_expired
+            else -> R.string.signin_ended
+        }
 
         fun b64(bytes: ByteArray): String = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
 

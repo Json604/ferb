@@ -50,8 +50,19 @@ pub struct MacAccount {
     pub email: String,
 }
 
-/// Reads the Mac's account now; `None` while FERB on this Mac isn't signed in.
-pub type MacAccountRead = Arc<dyn Fn() -> Option<MacAccount> + Send + Sync>;
+/// The Mac's sign-in couldn't be read now (the Keychain or FERB's secret helper failed): not the same as signed out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MacUnreadable;
+
+/// Reads the Mac's account now: `Ok(None)` while FERB on this Mac isn't signed in, `Err` when it can't be read now.
+pub type MacAccountRead = Arc<dyn Fn() -> Result<Option<MacAccount>, MacUnreadable> + Send + Sync>;
+
+/// An Apple private relay address (Hide My Email): each one is its own account to FERB.
+fn hide_my_email(email: &str) -> bool {
+    email
+        .to_ascii_lowercase()
+        .ends_with("@privaterelay.appleid.com")
+}
 
 /// What a statement says, once checked.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,6 +80,8 @@ pub enum AccountRefused {
     Unconfirmed(&'static str),
     /// FERB on this Mac isn't signed in.
     MacSignedOut,
+    /// FERB on this Mac couldn't read its sign-in now (REL-453): said as itself, never as signed out.
+    MacUnreadable,
     /// The phone and the Mac are signed in to different accounts.
     Mismatch {
         phone_email: String,
@@ -83,6 +96,8 @@ impl AccountRefused {
         match self {
             AccountRefused::Unconfirmed(_) => code::ACCOUNT_UNCONFIRMED,
             AccountRefused::MacSignedOut => code::MAC_SIGNED_OUT,
+            // nothing changed, try again: the phones' handling of account_unconfirmed, with its own words
+            AccountRefused::MacUnreadable => code::ACCOUNT_UNCONFIRMED,
             AccountRefused::Mismatch { .. } => code::ACCOUNT_MISMATCH,
         }
     }
@@ -92,6 +107,7 @@ impl AccountRefused {
         match self {
             AccountRefused::Unconfirmed(_) => "account_unconfirmed",
             AccountRefused::MacSignedOut => "mac_signed_out",
+            AccountRefused::MacUnreadable => "mac_account_unreadable",
             AccountRefused::Mismatch { .. } => "account_mismatch",
         }
     }
@@ -105,13 +121,29 @@ impl AccountRefused {
             AccountRefused::MacSignedOut => {
                 "FERB on this Mac isn't signed in yet. Sign in on the Mac, then scan a new code.".into()
             }
+            AccountRefused::MacUnreadable => "FERB on this Mac couldn't read its sign-in just now. Open FERB on \
+                                              the Mac, then scan a new code."
+                .into(),
             AccountRefused::Mismatch {
                 phone_email,
                 mac_email,
-            } => format!(
-                "This phone is signed in as {phone_email}, but FERB on this Mac is signed in as {mac_email}. Sign in \
-                 with the same account on both."
-            ),
+            } => {
+                let mut words = format!(
+                    "This phone is signed in as {phone_email}, but FERB on this Mac is signed in as {mac_email}. \
+                     Sign in with the same account on both."
+                );
+                // decision: REL-453 — a Hide My Email address is its own account: say so
+                if let Some(relay) = [phone_email, mac_email]
+                    .into_iter()
+                    .find(|e| hide_my_email(e))
+                {
+                    words.push_str(&format!(
+                        " {relay} is a Hide My Email address from Apple, so it's a separate account. To use it on \
+                         both, sign in with Apple on both, with the same Apple ID."
+                    ));
+                }
+                words
+            }
         }
     }
 }
@@ -158,9 +190,25 @@ impl AccountCheck {
         !self.keys.is_empty()
     }
 
-    /// The Mac's account now.
-    pub fn mac_account(&self) -> Option<MacAccount> {
+    /// The Mac's account now (`Err` when it can't be read now).
+    pub fn mac_account(&self) -> Result<Option<MacAccount>, MacUnreadable> {
         (self.mac)()
+    }
+
+    /// [`AccountCheck::check`] with the Mac's account as read: one that couldn't be read is refused as itself
+    /// (`MacUnreadable`), after the missing key and before the statement.
+    pub fn check_read(
+        &self,
+        statement: Option<&str>,
+        endpoint: &str,
+        now: i64,
+        mac: &Result<Option<MacAccount>, MacUnreadable>,
+    ) -> Result<Confirmed, AccountRefused> {
+        match mac {
+            Err(MacUnreadable) if !self.keys.is_empty() => Err(AccountRefused::MacUnreadable),
+            Err(MacUnreadable) => Err(AccountRefused::Unconfirmed("no_key")),
+            Ok(mac) => self.check(statement, endpoint, now, mac.as_ref()),
+        }
     }
 
     /// Checks the phone's statement for a pairing from `endpoint` at `now` (unix seconds) against `mac` (the Mac's
@@ -295,7 +343,7 @@ mod tests {
             assert!(kids.insert(*kid), "{kid} twice");
             assert!(!kid.trim().is_empty());
         }
-        let check = AccountCheck::pinned(Arc::new(|| None));
+        let check = AccountCheck::pinned(Arc::new(|| Ok(None)));
         assert_eq!(check.can_confirm(), !PINNED_KEYS.is_empty());
     }
 }

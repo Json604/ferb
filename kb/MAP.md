@@ -6,7 +6,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 389 | 15 | 47 |
+| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 390 | 15 | 47 |
 | daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 111 | 7 | 8 |
 | engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 23 | 4 | 0 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 134 | 5 | 62 |
@@ -14,10 +14,10 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | memory | Memory and memory import | `engine/runtime/memory` | 98 | 7 | 10 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 199 | 8 | 44 |
 | perception | Perception | `ferb/sense` | 28 | 3 | 1 |
-| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 393 | 12 | 21 |
+| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 394 | 12 | 21 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 17 | 5 | 0 |
 | prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 60 | 5 | 10 |
-| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 34 | 9 | 7 |
+| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 36 | 9 | 7 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 66 | 6 | 9 |
 | storage | Storage | `engine/runtime/store` | 36 | 5 | 4 |
 | tests | Tests | `tests` | 15 | 8 | 0 |

@@ -4,9 +4,11 @@
 //
 // The apps' accounts (REL-440, REL-441) live in the same table: a row's `id` is the FERB account id, and
 // `google_sub`/`apple_sub` link it to the provider accounts. Their own tables (APP_SCHEMA, the same statements as
-// site/sql/2026-11-24-app-accounts.sql) are made the first time an app endpoint needs them. Codes and tokens are only
-// ever stored as SHA-256 hex; the one-time code burn and the refresh rotation are single conditional UPDATEs, so two
-// requests racing for the same value can't both win.
+// site/sql/2026-11-24-app-accounts.sql) are made the first time an app endpoint needs them in each instance, unless the
+// database already carries this version's mark (APP_SCHEMA_VERSION, a comment on ferb_app_limits), so a statement
+// added later reaches a database made before it. Codes and tokens are only ever stored as SHA-256 hex; the one-time
+// code burn and the refresh rotation are single conditional UPDATEs, so two requests racing for the same value can't
+// both win.
 
 export const SCHEMA = `CREATE TABLE IF NOT EXISTS ferb_users (
   email text PRIMARY KEY,
@@ -62,7 +64,22 @@ export const APP_SCHEMA = [
   window_start timestamptz NOT NULL,
   count integer NOT NULL
 )`,
+  // A deleted account's sign-ins, as their SHA-256 only and tied to nothing, until they would have expired: so another
+  // device of that account is told the account was deleted, not only that its sign-in ended (REL-454).
+  `CREATE TABLE IF NOT EXISTS ferb_app_deleted (
+  token_hash text PRIMARY KEY,
+  expires_at timestamptz NOT NULL
+)`,
 ];
+
+// Raise it whenever APP_SCHEMA changes: a database without this mark runs every statement once more, then is marked.
+export const APP_SCHEMA_VERSION = 2;
+export const APP_SCHEMA_MARK = `COMMENT ON TABLE ferb_app_limits IS 'ferb app schema ${APP_SCHEMA_VERSION}'`;
+const MARK_TEXT = `ferb app schema ${APP_SCHEMA_VERSION}`;
+
+// The sweep runs at most this often per instance, and removes at most SWEEP_ROWS rows of each table per run.
+const SWEEP_MS = 10 * 60 * 1000;
+const SWEEP_ROWS = 500;
 
 // Which column links a row to each provider's account. Never built from a request.
 const SUB = { google: "google_sub", apple: "apple_sub" };
@@ -81,13 +98,18 @@ export function makeStore(sql) {
     await ensure();
     return sql.query(query, params);
   };
-  // The apps' tables: skipped once the last of them exists, else every statement in order (each is idempotent).
+  // The apps' tables: skipped when the database carries this version's mark, else every statement in order (each is
+  // idempotent) and then the mark. Once per instance.
   let appReady = null;
   const ensureApp = () => {
     appReady ??= (async () => {
-      const [found] = await sql.query("SELECT to_regclass('ferb_app_limits') IS NOT NULL AS ready", []);
-      if (found?.ready) return;
+      const [found] = await sql.query(
+        "SELECT obj_description(to_regclass('ferb_app_limits')::oid, 'pg_class') AS mark",
+        [],
+      );
+      if (found?.mark === MARK_TEXT) return;
       for (const statement of APP_SCHEMA) await sql.query(statement, []);
+      await sql.query(APP_SCHEMA_MARK, []);
     })().catch((error) => {
       appReady = null;
       throw error;
@@ -99,6 +121,7 @@ export function makeStore(sql) {
     return sql.query(query, params);
   };
   const one = async (query, params) => (await app(query, params))[0] || null;
+  let lastSweep = null;
   return {
     recordSignIn: ({ email, name, at }) =>
       run(
@@ -107,10 +130,15 @@ export function makeStore(sql) {
         [email, name, at],
       ),
     recordDownload: (email, at) => run("UPDATE ferb_users SET last_download_at = $2 WHERE email = $1", [email, at]),
+    // The owner's list: each account with its providers, last sign-in and how many Macs, iPhones and Android phones.
     listUsers: () =>
-      run(
-        `SELECT email, name, first_signin_at, last_download_at
-         FROM ferb_users ORDER BY first_signin_at DESC`,
+      app(
+        `SELECT u.email, u.name, u.first_signin_at, u.providers, u.last_signin_at,
+           count(d.device_id) FILTER (WHERE d.platform = 'mac')::int AS mac,
+           count(d.device_id) FILTER (WHERE d.platform = 'ios')::int AS ios,
+           count(d.device_id) FILTER (WHERE d.platform = 'android')::int AS android
+         FROM ferb_users u LEFT JOIN ferb_app_devices d ON d.user_id = u.id
+         GROUP BY u.email ORDER BY u.first_signin_at DESC`,
         [],
       ),
 
@@ -144,7 +172,17 @@ export function makeStore(sql) {
       );
     },
     account: (userId) => one("SELECT id, email, name, providers FROM ferb_users WHERE id = $1", [userId]),
-    deleteUser: async (userId) => (await app("DELETE FROM ferb_users WHERE id = $1 RETURNING id", [userId])).length > 0,
+    // The account's live sign-ins are noted in ferb_app_deleted (hashes only) first, then the row goes and its codes,
+    // tokens and devices with it.
+    deleteUser: async (userId, at) => {
+      await app(
+        `INSERT INTO ferb_app_deleted (token_hash, expires_at)
+         SELECT token_hash, expires_at FROM ferb_app_tokens WHERE user_id = $1 AND kind = 'refresh' AND expires_at > $2
+         ON CONFLICT (token_hash) DO NOTHING`,
+        [userId, at],
+      );
+      return (await app("DELETE FROM ferb_users WHERE id = $1 RETURNING id", [userId])).length > 0;
+    },
 
     createCode: ({ hash, userId, platform, redirect, challenge, expiresAt }) =>
       app(
@@ -176,22 +214,40 @@ export function makeStore(sql) {
         [userId],
       ),
 
+    // Idempotent: a rotation answered again within its grace (the same pair, derived from the old refresh token)
+    // writes nothing new.
     issueTokens: ({ accessHash, refreshHash, userId, family, deviceId, at, accessExpiresAt, refreshExpiresAt }) =>
       app(
         `INSERT INTO ferb_app_tokens (token_hash, kind, user_id, family, device_id, created_at, expires_at)
-         VALUES ($1, 'access', $3, $4, $5, $6, $7), ($2, 'refresh', $3, $4, $5, $6, $8)`,
+         VALUES ($1, 'access', $3, $4, $5, $6, $7), ($2, 'refresh', $3, $4, $5, $6, $8)
+         ON CONFLICT (token_hash) DO NOTHING`,
         [accessHash, refreshHash, userId, family, deviceId, at, accessExpiresAt, refreshExpiresAt],
       ),
-    // The refresh token's family when it was still usable (it is now used); else, when it had been used before,
-    // its whole family is revoked ({ reused: true }); else null.
-    useRefresh: async (hash, at) => {
+    // A refresh token presented at `at`:
+    //   { user_id, family, used_at }                 still usable: it is used now (used_at = at);
+    //   { user_id, family, used_at, replay: true }   used less than `graceSeconds` ago and its successor
+    //                                                (`successorHash`) neither used nor revoked: the same rotation again;
+    //   { reused: true }                             used before, outside that: its whole family is revoked now;
+    //   { ended: "signed_out" | "expired" | "account_deleted" }   why it can't be used; null when it is unknown.
+    useRefresh: async (hash, at, { graceSeconds = 0, successorHash = null } = {}) => {
       const used = await one(
         `UPDATE ferb_app_tokens SET used_at = $2
          WHERE token_hash = $1 AND kind = 'refresh' AND used_at IS NULL AND revoked_at IS NULL AND expires_at > $2
-         RETURNING user_id, family`,
+         RETURNING user_id, family, used_at`,
         [hash, at],
       );
       if (used) return used;
+      if (graceSeconds > 0 && successorHash) {
+        const again = await one(
+          `SELECT user_id, family, used_at FROM ferb_app_tokens
+           WHERE token_hash = $1 AND kind = 'refresh' AND revoked_at IS NULL AND expires_at > $2
+             AND used_at IS NOT NULL AND used_at > $2::timestamptz - make_interval(secs => $3::double precision)
+             AND NOT EXISTS (SELECT 1 FROM ferb_app_tokens
+                             WHERE token_hash = $4 AND (used_at IS NOT NULL OR revoked_at IS NOT NULL))`,
+          [hash, at, graceSeconds, successorHash],
+        );
+        if (again) return { ...again, replay: true };
+      }
       const revoked = await app(
         `UPDATE ferb_app_tokens SET revoked_at = $2
          WHERE family IN (SELECT family FROM ferb_app_tokens
@@ -200,7 +256,14 @@ export function makeStore(sql) {
          RETURNING token_hash`,
         [hash, at],
       );
-      return revoked.length > 0 ? { reused: true } : null;
+      if (revoked.length > 0) return { reused: true };
+      const row = await one(
+        `SELECT revoked_at IS NOT NULL AS revoked FROM ferb_app_tokens WHERE token_hash = $1 AND kind = 'refresh'`,
+        [hash],
+      );
+      if (row) return { ended: row.revoked ? "signed_out" : "expired" };
+      const gone = await one("SELECT 1 AS gone FROM ferb_app_deleted WHERE token_hash = $1 AND expires_at > $2", [hash, at]);
+      return gone ? { ended: "account_deleted" } : null;
     },
     accessUser: (hash, at) =>
       one(
@@ -233,11 +296,23 @@ export function makeStore(sql) {
     // Gives back one count (a send that failed, or a request another limit refused).
     release: (key) => app("UPDATE ferb_app_limits SET count = count - 1 WHERE key = $1 AND count > 0", [key]),
 
-    // Removes what can never be used again: expired codes and tokens, and rate-limit windows over a day old.
+    // Removes what can never be used again: expired codes, tokens and deleted accounts' sign-ins, and rate-limit
+    // windows over a day old. Cheap and bounded: at most once in SWEEP_MS per instance, SWEEP_ROWS rows per table.
     sweep: async (at) => {
-      await app("DELETE FROM ferb_app_codes WHERE expires_at < $1", [at]);
-      await app("DELETE FROM ferb_app_tokens WHERE expires_at < $1", [at]);
-      await app("DELETE FROM ferb_app_limits WHERE window_start < $1::timestamptz - interval '1 day'", [at]);
+      const ms = at.getTime();
+      if (lastSweep !== null && ms - lastSweep < SWEEP_MS) return;
+      lastSweep = ms;
+      for (const [table, key, when] of [
+        ["ferb_app_codes", "code_hash", "expires_at < $1"],
+        ["ferb_app_tokens", "token_hash", "expires_at < $1"],
+        ["ferb_app_deleted", "token_hash", "expires_at < $1"],
+        ["ferb_app_limits", "key", "window_start < $1::timestamptz - interval '1 day'"],
+      ]) {
+        await app(
+          `DELETE FROM ${table} WHERE ${key} IN (SELECT ${key} FROM ${table} WHERE ${when} LIMIT ${SWEEP_ROWS})`,
+          [at],
+        );
+      }
     },
   };
 }

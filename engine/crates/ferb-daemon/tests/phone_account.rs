@@ -12,8 +12,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use ferb_daemon::account::{Account, Seams as AccountSeams, KEYCHAIN_ACCOUNT};
-use ferb_daemon::areas_b::runtimes::keys::{HelperError, KeyHelper};
-use ferb_daemon::phone::account::{AccountCheck, AccountRefused, MacAccount};
+use ferb_daemon::areas_b::runtimes::keys::{HelperError, KeyFault, KeyHelper};
+use ferb_daemon::phone::account::{AccountCheck, AccountRefused, MacAccount, MacUnreadable};
 use ferb_identity::Secret;
 use ferb_rpc::phone_gate as code;
 use ferb_sanitize::redact::Redactor;
@@ -26,6 +26,9 @@ const MISMATCH_WORDS: &str =
                               ada@example.com. Sign in with the same account on both.";
 const SIGNED_OUT_WORDS: &str =
     "FERB on this Mac isn't signed in yet. Sign in on the Mac, then scan a new code.";
+const UNREADABLE_WORDS: &str =
+    "FERB on this Mac couldn't read its sign-in just now. Open FERB on the Mac, then \
+                                scan a new code.";
 const UNCONFIRMED_WORDS: &str =
     "FERB couldn't confirm which account this phone is signed in to. Check that the phone \
                                  is online, then scan a new code on the Mac.";
@@ -60,7 +63,7 @@ fn the_site_s_vector_verifies() {
             v["kid"].as_str().unwrap(),
             v["test_public_key_sec1_uncompressed_b64"].as_str().unwrap(),
         )],
-        Arc::new(|| None),
+        Arc::new(|| Ok(None)),
     );
     let (assertion, dev, now) = (
         v["assertion"].as_str().unwrap(),
@@ -84,7 +87,7 @@ fn the_site_s_vector_verifies() {
             v["kid"].as_str().unwrap(),
             v["test_public_key_spki_der_b64"].as_str().unwrap(),
         )],
-        Arc::new(|| None),
+        Arc::new(|| Ok(None)),
     );
     assert!(spki.verify(Some(assertion), dev, now).is_ok());
     let exp = v["payload"]["exp"].as_i64().unwrap();
@@ -99,7 +102,7 @@ fn the_site_s_vector_verifies() {
             "other",
             v["test_public_key_sec1_uncompressed_b64"].as_str().unwrap(),
         )],
-        Arc::new(|| None),
+        Arc::new(|| Ok(None)),
     );
     assert_eq!(other_kid.verify(Some(assertion), dev, now), Err("kid"));
 }
@@ -109,7 +112,7 @@ fn the_site_s_vector_verifies() {
 #[test]
 fn no_pinned_key_confirms_nothing() {
     let v = site_vector();
-    let none = AccountCheck::new(&[], Arc::new(|| Some(mac_account())));
+    let none = AccountCheck::new(&[], Arc::new(|| Ok(Some(mac_account()))));
     assert!(!none.can_confirm());
     assert_eq!(
         none.check(
@@ -247,6 +250,57 @@ async fn a_signed_out_mac_pairs_no_phone() {
     assert_eq!(n, code::MAC_SIGNED_OUT);
     assert_eq!(words, SIGNED_OUT_WORDS);
     assert_eq!(asked(&w), 0);
+}
+
+/// A Mac whose sign-in can't be read now (the Keychain failing) is never called signed out: its own refusal and
+/// words, nothing changed, the owner never asked; pairing and binding alike.
+// decision: REL-453, PHN-844
+#[tokio::test]
+async fn a_mac_whose_sign_in_can_t_be_read_says_so_not_signed_out() {
+    use std::sync::atomic::Ordering;
+    let w = world(None).await;
+    w.unreadable.store(true, Ordering::SeqCst);
+    let (n, words) = request(&w, "e1", Some(assertion(&w, "e1")))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (n, words.as_str()),
+        (code::ACCOUNT_UNCONFIRMED, UNREADABLE_WORDS)
+    );
+    assert_eq!(asked(&w), 0);
+    let journal = format!("{:?}", w.journal.lock().unwrap());
+    assert!(journal.contains("mac_account_unreadable"), "{journal}");
+    assert!(audit_text(&w).contains("link.pair_request link mac_account_unreadable"));
+    // read again: it pairs as usual
+    w.unreadable.store(false, Ordering::SeqCst);
+    assert!(request(&w, "e2", Some(assertion(&w, "e2"))).await.is_ok());
+    // a build with no key pinned still says it can't confirm anyone
+    let none = AccountCheck::new(&[], Arc::new(|| Err(MacUnreadable)));
+    assert_eq!(
+        none.check_read(None, "e1", 0, &Err(MacUnreadable)),
+        Err(AccountRefused::Unconfirmed("no_key"))
+    );
+}
+
+/// A Hide My Email address in a mismatch is named as its own account, with what to do.
+// decision: REL-453, PHN-844
+#[tokio::test]
+async fn a_mismatch_with_a_hide_my_email_address_says_it_is_a_separate_account() {
+    let w = world(None).await;
+    let mut claims = claims(&w, "e1");
+    claims["sub"] = json!("11111111-2222-4333-8444-555555555555");
+    claims["email"] = json!("x7k2p9@privaterelay.appleid.com");
+    let (n, words) = request(&w, "e1", Some(assertion_of(&site_key(), &claims)))
+        .await
+        .unwrap_err();
+    assert_eq!(n, code::ACCOUNT_MISMATCH);
+    assert_eq!(
+        words,
+        "This phone is signed in as x7k2p9@privaterelay.appleid.com, but FERB on this Mac is signed in as \
+         ada@example.com. Sign in with the same account on both. x7k2p9@privaterelay.appleid.com is a Hide My Email \
+         address from Apple, so it's a separate account. To use it on both, sign in with Apple on both, with the same \
+         Apple ID."
+    );
 }
 
 // ---- FERB.app's sign-in -----------------------------------------------------------------------------------------
@@ -414,6 +468,65 @@ fn the_sign_in_round_trips_through_the_keychain_and_its_tokens_stay_secret() {
         .unwrap()
         .iter()
         .all(|c| c.ends_with(KEYCHAIN_ACCOUNT)));
+}
+
+/// The Keychain failing is told apart from signed out (REL-453): `mac_account_read` is `Err`, then reads again.
+// decision: REL-453, PHN-844
+#[test]
+fn a_keychain_that_can_t_be_read_is_not_signed_out() {
+    #[derive(Default)]
+    struct Failing(std::sync::atomic::AtomicBool);
+    impl KeyHelper for Failing {
+        fn store(&self, _: &str, _: &Secret) -> Result<(), HelperError> {
+            Ok(())
+        }
+        fn lookup(&self, _: &str) -> Result<Option<Secret>, HelperError> {
+            if self.0.load(std::sync::atomic::Ordering::SeqCst) {
+                return Ok(None);
+            }
+            Err(HelperError::Fault(KeyFault {
+                class: "OSError".into(),
+                message: "the helper couldn't run".into(),
+            }))
+        }
+        fn delete(&self, _: &str) -> Result<bool, HelperError> {
+            Ok(false)
+        }
+    }
+    let helper = Arc::new(Failing::default());
+    let account = Account::new(AccountSeams {
+        helper: helper.clone(),
+        redactor: Arc::new(Redactor::new(&[], &[])),
+        journal: Arc::new(|_: &str, _: Value| {}),
+    });
+    assert_eq!(account.mac_account_read(), Err(MacUnreadable));
+    assert_eq!(account.mac_account(), None);
+    helper.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        account.mac_account_read(),
+        Ok(None),
+        "tried again, and signed out"
+    );
+}
+
+/// A name is never a reason to refuse a sign-in: up to 200 characters (not bytes) kept whole, a longer one cut to 200
+/// characters, one that isn't text dropped; the site keeps the same 200 characters.
+// decision: REL-453, PHN-844
+#[test]
+fn a_name_never_stops_a_sign_in() {
+    for (given, kept) in [
+        (json!("é".repeat(200)), json!("é".repeat(200))),
+        (json!("😀".repeat(250)), json!("😀".repeat(200))),
+        (json!("x".repeat(201)), json!("x".repeat(200))),
+        (json!(7), Value::Null),
+        (Value::Null, Value::Null),
+    ] {
+        let a = area(Arc::new(FakeKeychain::default()));
+        let mut p = sign_in(ACCOUNT_ID, ACCOUNT_EMAIL);
+        p["account"]["name"] = given.clone();
+        assert!(a.account.save(&p).is_ok(), "{given}");
+        assert_eq!(a.account.get().unwrap()["account"]["name"], kept);
+    }
 }
 
 /// What isn't a sign-in is refused in plain words, and nothing is stored.

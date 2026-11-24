@@ -24,13 +24,14 @@ use serde_json::{json, Map, Value};
 
 use crate::areas_b::core::refusal;
 use crate::areas_b::runtimes::keys::{HelperError, KeyHelper};
-use crate::phone::account::MacAccount;
+use crate::phone::account::{MacAccount, MacUnreadable};
 use crate::phone::Phones;
 
 /// The Keychain item's account (service "ferb").
 pub const KEYCHAIN_ACCOUNT: &str = "ferb.account";
 
-/// The longest values taken (the site's are far shorter).
+/// The longest values taken, in characters (Unicode scalar values; the site's are far shorter). A name longer than
+/// NAME_MAX is cut to it, never refused: the site keeps 200 characters too (REL-453), and a name never stops a sign-in.
 const ID_MAX: usize = 64;
 const EMAIL_MAX: usize = 320;
 const NAME_MAX: usize = 200;
@@ -174,11 +175,16 @@ impl Account {
     /// The Mac's FERB account now (PHN-828), read from the Keychain the first time; `None` while signed out or when
     /// the Keychain can't be read now (tried again next time). Blocking: call it off the async runtime.
     pub fn mac_account(&self) -> Option<MacAccount> {
+        self.mac_account_read().ok().flatten()
+    }
+
+    /// As [`Account::mac_account`], with a Keychain that can't be read now told apart from signed out (REL-453): the
+    /// phone is then told that, not that FERB on this Mac isn't signed in.
+    pub fn mac_account_read(&self) -> Result<Option<MacAccount>, MacUnreadable> {
         let mut cache = lock(&self.inner.cache);
         self.load(&mut cache)
-            .ok()
-            .flatten()
-            .map(|s| s.mac_account())
+            .map(|held| held.map(|s| s.mac_account()))
+            .map_err(|_| MacUnreadable)
     }
 
     /// What the Keychain holds, read once per run; the tokens go to the redactor on that first read.
@@ -339,20 +345,18 @@ fn checked(params: &Map<String, Value>) -> Result<Stored, String> {
     let text =
         |m: &Map<String, Value>, key: &str, max: usize, what: &str| -> Result<String, String> {
             match m.get(key) {
-                Some(Value::String(s)) if !s.trim().is_empty() && s.len() <= max => Ok(s.clone()),
+                Some(Value::String(s)) if !s.trim().is_empty() && s.chars().count() <= max => {
+                    Ok(s.clone())
+                }
                 _ => Err(format!("{what} must be text of at most {max} characters")),
             }
         };
     let id = text(account, "id", ID_MAX, "the account's id")?;
     let email = text(account, "email", EMAIL_MAX, "the account's email")?;
+    // decision: REL-453 — a display name only: cut to NAME_MAX characters, never a reason to refuse the sign-in
     let name = match account.get("name") {
-        None | Some(Value::Null) => Value::Null,
-        Some(Value::String(s)) if s.len() <= NAME_MAX => Value::String(s.clone()),
-        _ => {
-            return Err(format!(
-                "the account's name must be text of at most {NAME_MAX} characters"
-            ))
-        }
+        Some(Value::String(s)) => Value::String(s.chars().take(NAME_MAX).collect()),
+        _ => Value::Null,
     };
     let providers = match account.get("providers") {
         None | Some(Value::Null) => Vec::new(),

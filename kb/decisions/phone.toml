@@ -4430,3 +4430,14 @@ why = "PHN-840's order (cleared first, the site told in the background) showed t
 rejected = ["Clearing first and telling the site in the background (PHN-840's order): the failure line would arrive late, on another page, perhaps while a new sign-in had started", "Asking before Use another account: nothing is paired where it shows, so nothing is lost", "Only the account sheet from the signed-in line (Android's hidden tap): the owner didn't find it, and the iPhone had no such tap"]
 paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Account.kt", "apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Account.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppModel.swift"]
 live = ["LIVE-1203"]
+
+[PHN-844]
+title = "How phones and the pairing check do REL-453: the site's reason, a retry, a Keychain refusal"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For REL-453, with PHN-841, PHN-843, PHN-830. Phones: no answer to a refresh, sent again at once; account_deleted leaves the Mac as Sign out, any other site sign-out only asks to sign in again (with why) and stays paired; an unsaved rotation is used and saved again; on open, /api/app/me at most every 5 min. Daemon: a Keychain that can't be read is refused as mac_account_unreadable with its own words on the account_unconfirmed code; a Hide My Email address in a mismatch is named; a name is cut to 200 characters."
+why = "A site sign-out unpaired the phone even for a lost reply or 180 days unused; a refusal that was really an unreadable Keychain told the phone the Mac wasn't signed in."
+rejected = ["A new link code for an unreadable Keychain: a wire change in ferb-rpc, ferb-link and both phones for a case that means what account_unconfirmed means to the phone (try again)"]
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Account.kt", "apps/android/app/src/main/kotlin/com/ferb/app/model/AccountServer.kt", "apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Account.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppModel.swift", "engine/crates/ferb-daemon/src/account.rs", "engine/crates/ferb-daemon/src/phone/account.rs", "engine/crates/ferb-daemon/src/phone/mod.rs"]
+live = ["LIVE-1203", "LIVE-1204"]

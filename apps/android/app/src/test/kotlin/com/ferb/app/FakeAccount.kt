@@ -26,6 +26,8 @@ class FakeHttp : Http {
     /** Replies by path (`/api/app/token`, …), each used in turn; the last one stays. */
     val replies = HashMap<String, ArrayDeque<HttpReply>>()
     @Volatile var offline = false
+    /** The next this many requests find no network (then it answers again). */
+    @Volatile var offlineTimes = 0
 
     /** Holds each request until the test lets it go (one refresh at a time). */
     @Volatile var gate: java.util.concurrent.CountDownLatch? = null
@@ -40,6 +42,7 @@ class FakeHttp : Http {
         requests.add(request)
         gate?.await()
         if (offline) throw IOException("no network (invented)")
+        if (offlineTimes > 0) { offlineTimes -= 1; throw IOException("no network (invented)") }
         val path = request.url.removePrefix(com.ferb.app.model.Site.URL).substringBefore('?')
         val q = replies[path] ?: return HttpReply(404, """{"error":"not_found"}""")
         return if (q.size > 1) q.removeFirst() else q.first()

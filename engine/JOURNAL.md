@@ -12772,3 +12772,136 @@ online and offline; LIVE-1204 presses it under the refusal. STATUS's account row
 chooser shows in Android's Custom Tab and the iPhone's sheet after a sign-out (the site sends `prompt=select_account`;
 no test guards that line); that Apple's web page lets another Apple ID be chosen when the browser remembers one; the
 pending state's look on a real phone (the goldens show a still frame of the running mark).
+
+## 2026-11-24 · 220 · The account audit's fixes: a sign-in the site ends keeps the pairing, and every failure says why
+
+**The owner (REL-453).** An audit of the account system listed fourteen gaps; he answered "yes" to fixing all of them.
+His decision supersedes nothing: REL-445 states no reuse rule, PHN-828's "a phone that signs out is unpaired" is the
+person's own Sign out (unchanged), and APP-1138/PHN-841's sign-out and delete paths stand. The agent rulings are new
+and extend the old ones: REL-454 (site), APP-1139 (FERB.app), PHN-844 (phones and the daemon's pairing check). Builds on
+journal 219 (PHN-842, PHN-843).
+
+**The list, item by item.**
+1. *Reuse.* The site keeps only token hashes, so a rotation's pair is now derived: `successorOf(AUTH_SECRET, old
+   refresh) = fa1_/fr1_ + HMAC-SHA256("ferb-app-rotate/v1.access|refresh." + old)` (app.js), issued at the rotation's own
+   time. `useRefresh` (store.js): a fresh use as before; else, used under 60 s ago (`REFRESH_GRACE`), unrevoked, unexpired
+   and the derived refresh token neither used nor revoked: `{replay}`, and the same pair is answered again
+   (`issueTokens` is `ON CONFLICT DO NOTHING`, so a first request that died after marking the token used is finished by
+   the retry); else the family is revoked as before. Clients: a refresh with no answer is sent again at once with the
+   same token (Mac `rotate`, Android `access`, iPhone `refreshNow`); the Mac's 20 s request timeout stays (a longer one
+   could put the retry outside the grace; Android's is 15 s connect + 20 s read, so its retry starts within 35 s).
+   A sign-out by the site no longer unpairs: Android `ended` now carries the site's reason and FerbViewModel forgets the
+   Mac only for `account_deleted`; iPhone `onSignedOutBySite(reason)` the same; the Mac's `account.clear` never removed
+   phones. Save failures: Mac `saveUnsaved` (3 tries, then kept in memory, saved first at the next refresh/check/load,
+   and `load()` prefers it over the Keychain's spent token); Android `keep` uses the new pair at once and `saveAgain`
+   before the next refresh/check; iPhone `keep(fresh: false)` the same (it used to keep the old, spent token in memory
+   when the Keychain refused).
+2. *Expiry.* The same path: `reason: "expired"` (the row still there) asks to sign in again and keeps the pairing.
+3. *Names.* Site: `keptName` (code points, control characters to spaces, 200 max, cut) for Google, both Apple paths
+   (the native one no longer refuses a long name); apple.js and handlers.js cut by code points. Daemon: `checked()`
+   counts characters and cuts the name to 200 instead of refusing. iPhone sends at most 200 code points.
+4. *Mac words.* `AccountReply` gains `.unavailable` (5xx), `.slowDown` (429) and `rejected(reason:)`; `AccountCallback
+   .failed(String)` keeps the site's word. New lines: slowDown, noEmail(provider), accountConflict(provider),
+   providerFailed(provider), codeExpired, signInFailed. The site's callback now sends `provider` (the provider's own
+   error or an unconfirmed token; `access_denied`/`user_cancelled_authorize` stay `cancelled`), `account_conflict`, and
+   `unavailable` for a database failure.
+5. *Android landing.* `appLanding` links `intent://<host>/app/callback?code&state&error#Intent;scheme=https;
+   package=com.ferb.phone;end` (`androidIntent`).
+6. *Why the Mac was signed out.* `AccountEnded` (deleted, expired, ended) from the reason; the account step opens with
+   its words (`IntroCopy.accountEnded`), Settings → Account shows them. `phonesRemoved` no longer says "your other
+   account".
+7. *Delete on 401.* `deleteAccount`: a refused access token is refreshed and the delete sent once more; success only on
+   the site's `deleted` or a refresh refused as `account_deleted`; otherwise "FERB needs you to sign in again…".
+8. *Browser step.* A Mac start with a well-formed loopback address and state gets its errors there (303 to
+   `…/callback?error=not_ready|slow_down|unavailable&state=…`), also when the site isn't set up; a phone's start keeps
+   its page. A callback without a valid cookie still shows a page (no trusted address; FERB.app stops waiting when the
+   cookie expires). The waiting step offers Copy link (`pendingLink`, `IntroController.copyText`).
+9. *Same account.* The Mac's account step says "Use the same account on your Mac and your phone." (the phones already
+   said "Use the same account as on your Mac."). The daemon's mismatch adds a Hide My Email sentence when an email is
+   `@privaterelay.appleid.com`. `signin_no_email` no longer implies Hide My Email fails.
+10. *Prompt sign-out elsewhere.* Before: the Mac learned at launch or its 6-hourly refresh (up to 6 h); a phone at its
+    next refresh, i.e. when the 1 h access token ran out at an open. Now: FERB.app's `check()` on
+    `NSApplication.didBecomeActive` and `NSWorkspace.didWake`, the phones' `check()` at each open, each at most every
+    5 minutes, call `GET /api/app/me`; a 401 refreshes so the site's reason arrives. The delay is now until the device
+    is next used (5 minutes at most between asks), plus the Mac's 6-hourly refresh.
+11. *Cleanup.* `sweep` runs after the code grant, every refresh and the iPhone's Apple sign-in (and the callback as
+    before), at most every 10 minutes per instance, 500 rows per table, and also clears `ferb_app_deleted`.
+12. *Owner's list.* Columns email, name, provider(s), first sign-in, last sign-in, Mac · iPhone · Android; the line "N
+    people · M signed in in the last 30 days"; CSV `email,name,providers,first_signin_at,last_signin_at,mac,ios,android`.
+13. *Schema.* `ensureApp` reads `obj_description(to_regclass('ferb_app_limits')::oid, 'pg_class')`; unless it is
+    `ferb app schema 2` every statement runs again (each idempotent), then `COMMENT ON TABLE ferb_app_limits …`. The live
+    database (no comment) gets everything once, `ferb_app_deleted` included. The SQL file ends with the same comment.
+14. *Keychain.* `Account::mac_account_read` → `Err(MacUnreadable)` when the helper fails; `AccountCheck::check_read`
+    refuses it as `mac_account_unreadable` (journal and audit name) with its own words, on the link's
+    `account_unconfirmed` code (the phones already treat that as "nothing changed, try again"; no wire change).
+
+**New table.** `ferb_app_deleted (token_hash, expires_at)`: on Delete account the account's unexpired refresh-token
+hashes, tied to nothing, until they would have expired, so another device hears `account_deleted`. privacy.html says so.
+
+**Words** (owner-facing, new or changed; items 6 and 9 for his review before landing):
+- FERB.app: "There have been a lot of sign-ins from your network in the last few minutes. Wait a few minutes, then try
+  again." / "{Google|Apple} didn't share a verified email address for that account, and FERB needs one. Try again, or use
+  another account." / "That email address already has a FERB account that signs in with a different {Google|Apple}
+  account. Sign in with that {Google|Apple} account instead." / "{Google|Apple} didn't confirm the sign-in. Try again." /
+  "That sign-in ran out of time before FERB could finish it. Try again." / "FERB couldn't finish signing you in. Try
+  again." / "FERB needs you to sign in again before it can delete your account." / "Copy link" / "Link copied. Paste it
+  into your browser to continue."
+- FERB.app, item 6: "Your FERB account was deleted on another device, so FERB on this Mac signed out. Sign in to keep
+  using FERB." / "Your sign-in to FERB ended after 180 days without use. Sign in again to keep using FERB." / "Your
+  sign-in to FERB on this Mac ended. Sign in again to keep using FERB." / changed: "You're signed in as {email} now, so
+  FERB removed the phones paired under the account this Mac had before: {names}. Sign in on each phone as {email} and
+  pair it again."
+- FERB.app, item 9: the account step's detail "One FERB account for your Mac and your phone." → "Use the same account on
+  your Mac and your phone."
+- Phones (Android strings.xml, the iPhone's catalog from it): changed `signin_no_email` "Google or Apple didn't share a
+  verified email address for that account, and FERB needs one. Try again, or use another account."; new
+  `signin_account_conflict` "That email address already has a FERB account that signs in with a different Google or
+  Apple account. Sign in with that one instead."; `signin_slow_down` (as the Mac's); `signin_ended` "Your sign-in to FERB
+  on this phone ended. Sign in again to keep using FERB."; `signin_ended_expired`, `signin_ended_deleted` (as the
+  Mac's, "on this phone").
+- Daemon (the phone shows them): "FERB on this Mac couldn't read its sign-in just now. Open FERB on the Mac, then scan a
+  new code." and, item 9, after the mismatch: " {address} is a Hide My Email address from Apple, so it's a separate
+  account. To use it on both, sign in with Apple on both, with the same Apple ID." (both lines as the owner approved
+  them on 2026-11-25; the Mac's conflict line ends "Sign in with that one instead.")
+- Site: the owner's list "N people · M signed in in the last 30 days" and its headings; privacy.html "Only the scrambled
+  form of those sign-ins stays, tied to nothing else, until they would have expired, so your other devices can tell you
+  the account was deleted."
+
+**Evidence.**
+- site `npm test` (node_modules linked from the main checkout for the run, then removed): 114 passed, 0 failed. New or
+  changed: the same pair answered within 60 s and nothing written, both pairs working as one sign-in, the old token
+  after the new one's use or after 60 s ending the sign-in (`reason: signed_out`); a rotation whose answer died finished
+  by the retry; reasons signed_out, expired, account_deleted, none for an unknown token; tombstones only hashes, swept
+  at expiry; the sweep on refresh, code grant and the Apple path (not on a refused request; a failed sweep never changes
+  the answer); store SQL: the grace query, ON CONFLICT DO NOTHING, the tombstone insert before the delete, the bounded
+  sweep at most every 10 minutes, the schema re-run for a database without this version's mark (and once per instance);
+  names cut to 200 code points (emoji included) and never refused on the iPhone's path; a Mac start's not_ready,
+  unavailable, slow_down at its loopback and a phone's start still a page, nothing redirected for a malformed or
+  non-loopback address; callback errors provider, account_conflict, unavailable; the intent link; the owner's list and
+  CSV columns.
+- ferb-daemon: `cargo test -p ferb-daemon --tests` (35 test binaries, 0 failed; phone_account 17 with the new
+  Keychain-unreadable, Hide My Email, `mac_account_read` and name cases), `cargo clippy -p ferb-daemon -p ferbd
+  --all-targets -D warnings` clean, `cargo fmt --check` clean.
+- FERB.app `swift test` (after `source scripts/swiftpm-anonymous.sh`): 980 tests, 8 skipped, 1 expected failure
+  (TimerPillTests, XCTExpectFailure, unrelated), 0 unexpected. New in AccountTests: each failure's own words (and all
+  distinct), the site's reason for deleted/expired/ended with only the Keychain item cleared, a refresh with no answer
+  sent again at once, an unsaved rotation kept and saved and never the spent token sent, Delete on 401 (refresh then
+  delete; refused twice; account_deleted counts; expired doesn't), check() at most every 5 minutes signing out on a
+  deletion elsewhere; IntroControllerTests: the account step opens with the reason, Copy link copies the start address
+  and keeps waiting.
+- Android `./gradlew --offline --no-daemon :app:testDebugUnitTest :design:test`: 374 app tests, 0 failed; design 14
+  suites, 0 failed. New: a refresh retried at once, the reasons' words and the `ended` reason, an unsaved rotation used
+  and saved again, the open's /api/app/me at most every 5 minutes; the flow tests: an expired sign-in keeps the Mac, a
+  deleted account forgets it, a twice-refused token stays paired.
+- iPhone: `make_project.py --check`, `strings.py --check` clean; `xcodebuild test` (FERB scheme) on its own simulator
+  ("FERB iOS acctfix", deleted after): TEST SUCCEEDED (FerbAppTests 237, FERBUITests 8, FerbDesignTests 75,
+  FerbCoreTests 15 with 1 skipped, FerbMobileTests 4). The phone library was copied from the main checkout's build
+  (ferb-mobile-ffi doesn't build ferb-daemon, the only engine crate changed here), so `build-rust.sh` didn't run.
+- `tools/kb/run kb lock`, `kb gen`, `kb check`: ok. `git diff --check` clean.
+
+**Unverified.** Nothing deployed or installed; no real sign-in, refresh or deletion ran against the site. Not checked:
+that Postgres accepts `obj_description(to_regclass(...)::oid, 'pg_class')` and `COMMENT ON TABLE` as Neon's role (the
+SQL is checked only as text); that Chrome on Android opens the intent link into the installed app (and goes to Play when
+it isn't installed); that FERB.app's `didBecomeActive` fires often enough to matter for a notch app (the wake
+notification and the 6-hourly timer remain); that the browser follows the start's 303 to the loopback for errors as it
+does for codes; the words of items 6 and 9 await the owner's review.
