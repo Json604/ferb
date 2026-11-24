@@ -11721,3 +11721,60 @@ exceptions arrive and replay; that Vercel runs `npm run build` with the project'
 it) and serves `/vendor/` from the site's root; the toolbar launched from PostHog; Safari and Firefox. Two parallel
 changes may collide on IDs (REL-435..437, LIVE-1201, journal 201) and on REL-434 if the app sign-in work also
 touches it.
+
+## 2026-11-24 · 202 · The website counts every visit anonymously; PostHog in full still waits for OK
+
+**What the owner decided (REL-438).** On hearing that nothing loads until a visitor presses OK (journal 201): "but
+something should be counted, cause google analytics does that". REL-439 supersedes REL-437 (agent).
+
+**How.** `/analytics.js` now loads the pinned posthog-js on every page view and starts it with
+`cookieless_mode: "on_reject"` and `opt_out_capturing_by_default: true`. In this posthog-js (1.447.10) that makes a
+visitor whose consent is pending count as refused, and a refused visitor is captured cookieless: distinct id
+`$posthog_cookieless`, PostHog's storage turned off, no session recording or surveys. PostHog's servers turn that into
+a daily visitor by hashing team, IP, user agent and host with a salt that changes daily, and drop the IP before
+anything is stored (its docs: "Events sent with cookieless tracking lose their IP address before transformations
+run"). `before_send` also lets only `$pageview`, `$pageleave` and `continue with google clicked` out until OK, marked
+`$process_person_profile: false` with `$set`/`$set_once` removed, so autocapture, heatmaps, dead and rage clicks, web
+vitals, exceptions and `$set` (all started by PostHog regardless) never leave without OK. The Continue with Google
+event is sent in both modes. OK calls `opt_in_capturing()`, which switches the same PostHog to full in place (cookie,
+storage, recording, everything of journal 201) and sends `$opt_in`; a later page view starts in full from PostHog's
+own stored consent. No thanks after OK calls `opt_out_capturing()` then `clear_opt_in_out_capturing()`: back to
+pending (counted as refused), PostHog's cookie and localStorage gone, the tab's `ph_` sessionStorage keys removed. Do
+Not Track (PostHog's `respect_dnt` reports it as "denied") and Global Privacy Control (left "pending") never opt in,
+even over an earlier OK, and get no bar. Bar: "FERB counts visits anonymously. With your OK it also uses analytics and
+session recordings to improve the site." The privacy page's states: "Only the anonymous visit count is on in this
+browser." / "You haven't chosen yet, so only the anonymous visit count is on." / "Only the anonymous visit count is on:
+your browser asks sites not to track you (Do Not Track or Global Privacy Control)." Its analytics section now says
+what the anonymous count is and how (nothing stored, nothing recorded, the daily hash, no location), what OK adds, and
+that IP addresses aren't kept; only that section changed (the app sign-in work edits the rest of the page).
+
+**PostHog settings this needs** (in ~/Desktop/FERB-posthog-setup.md): Settings → Project → Web analytics → "Enable
+cookieless tracking" (otherwise PostHog drops the cookieless events), and Settings → Project → General → "IP data
+capture configuration" set to discard client IP data (project-wide; per PostHog's docs GeoIP still runs before the
+discard, so consented visits keep an approximate location; cookieless events have none). The privacy page's "the
+address itself isn't kept" depends on the second.
+
+**Evidence.**
+- `site/tests/analytics.test.mjs` (15 tests, REL-438/REL-439) with a fake PostHog that keeps a consent state and runs
+  events through the page's `before_send`: before an answer the pinned script loads, PostHog starts cookieless
+  (`on_reject`, opt-out by default) with no consent call, only the three anonymous events pass (as no person) and
+  nothing is stored; No thanks remembered with no consent call; OK opts in and every event passes; DNT and GPC, even
+  over an earlier OK, never opt in; an earlier OK starts in full (opts in only when PostHog lost its consent); an answer
+  given before PostHog starts is applied when it does; No after OK opts out and clears; the Google click is sent with
+  and without OK. `npm test`: 44 passed.
+- Chrome (isolated context, a local build pointed at a logging stand-in for PostHog on 127.0.0.1:8766; the served copy
+  only added `opt_out_useragent_filter: true`, since PostHog drops headless Chrome as a bot): before an answer the
+  stand-in received `$pageview` and `continue with google clicked` only, with `$posthog_cookieless`,
+  `$cookieless_mode: true`, `$process_person_profile: false`, and the browser kept no cookie, localStorage or
+  sessionStorage (dead clicks and heatmaps were held back); after OK, `$opt_in`, the click, `$$heatmap`,
+  `$dead_click`, `$pageleave`, `$web_vitals` under a real id with cookie and storage; the privacy page's Change → No
+  thanks returned to cookieless `$pageview` with only `ferb-analytics` left in storage; with Do Not Track and GPC set
+  and an earlier OK stored, no bar and only cookieless events. Recording didn't start locally (the stand-in's config
+  doesn't turn it on), as in journal 201.
+- `kb check` ok; `git diff --check` clean.
+
+**Unverified.** A real PostHog project: that cookieless events are kept once "Enable cookieless tracking" is on, show
+in Web analytics as daily visitors, and carry no location; OK's switch on a real project (recording starts). A full
+page view isn't sent at the moment of OK on that page (PostHog's `opt_in_capturing` didn't send one in Chrome), so a
+consented visit's first page view is the cookieless one. The bundle (739 KB, 229 KB gzipped) now loads on
+every page view, not only after OK.

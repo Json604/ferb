@@ -1,5 +1,6 @@
 // decision: REL-435
-// decision: REL-437
+// decision: REL-439
+// decision: REL-438
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,7 +11,7 @@ import { build, MARKER, PAGES, readAnalytics, withAnalytics } from "../build.mjs
 import { allowExternalScript, cleanUrl, excluded, settings, start, STRINGS } from "../analytics.js";
 import { admin, unsubscribe } from "../api/_lib/handlers.js";
 import { page } from "../api/_lib/http.js";
-import { banner, buttons, fakePage, fakePostHog, posthogScripts } from "./dom.mjs";
+import { banner, buttons, fakePage, loadPostHog, posthogScripts } from "./dom.mjs";
 import { fakeDeps, get } from "./support.mjs";
 
 const SITE = fileURLToPath(new URL("..", import.meta.url));
@@ -107,71 +108,102 @@ test("the server's pages (sign-in, download, unsubscribe, the owner's list) neve
   assert.equal(excluded("/apiary"), false);
 });
 
-test("analytics is off until the visitor says OK: nothing loads, nothing is stored, the question is asked", () => {
-  const { doc, win, store } = fakePage();
-  start(doc, win);
-  assert.equal(posthogScripts(doc).length, 0);
-  assert.equal(win.posthog, undefined);
-  assert.equal(store.size, 0);
-  const b = banner(doc);
-  assert.ok(b);
+// Every event PostHog could send, and the ones an anonymous visit may.
+const EVENTS = ["$pageview", "$pageleave", "continue with google clicked", "$autocapture", "$$heatmap", "$web_vitals", "$exception", "$dead_click", "$rageclick", "$snapshot", "$set", "$opt_in"];
+const ANONYMOUS = ["$pageview", "$pageleave", "continue with google clicked"];
+
+function sent(ph) {
+  return EVENTS.filter((name) => ph.send(name) !== null);
+}
+
+test("before an answer PostHog counts anonymously: cookieless, pinned script, only page views, leaves and the Google click", () => {
+  const page = fakePage();
+  start(page.doc, page.win);
+  const [script] = posthogScripts(page.doc);
+  assert.equal(script.src, "/vendor/posthog-js-1.0.0.js");
+  assert.equal(script.integrity, "sha384-test");
+  const { ph, calls, config } = loadPostHog(page);
+  assert.equal(calls[0][1], KEY);
+  assert.equal(config.api_host, "https://eu.i.posthog.com");
+  assert.equal(config.cookieless_mode, "on_reject");
+  assert.equal(config.opt_out_capturing_by_default, true);
+  assert.deepEqual(calls.slice(1), []);
+  assert.equal(ph.consent, "pending");
+  assert.deepEqual(sent(ph), ANONYMOUS);
+  assert.equal(ph.send("$pageview", { $process_person_profile: true }).properties.$process_person_profile, false);
+  assert.equal(page.store.size, 0);
+  const b = banner(page.doc);
   assert.ok(b.text.includes(STRINGS.banner));
   assert.deepEqual(buttons(b).map((n) => n.textContent), [STRINGS.ok, STRINGS.no]);
 });
 
-test("No thanks keeps PostHog unloaded and is remembered; OK loads the pinned script and starts PostHog", () => {
+test("No thanks keeps the anonymous count only and is remembered; OK turns PostHog fully on", () => {
   const no = fakePage();
   start(no.doc, no.win);
+  const off = loadPostHog(no);
   buttons(banner(no.doc))[1].click();
   assert.equal(no.store.get("ferb-analytics"), "no");
   assert.equal(banner(no.doc), null);
-  assert.equal(posthogScripts(no.doc).length, 0);
+  assert.deepEqual(off.calls.slice(1), []);
+  assert.deepEqual(sent(off.ph), ANONYMOUS);
   const again = fakePage({ stored: "no" });
   start(again.doc, again.win);
   assert.equal(banner(again.doc), null);
-  assert.equal(posthogScripts(again.doc).length, 0);
+  const later = loadPostHog(again);
+  assert.deepEqual(later.calls.slice(1), []);
+  assert.deepEqual(sent(later.ph), ANONYMOUS);
 
   const yes = fakePage();
   start(yes.doc, yes.win);
+  const on = loadPostHog(yes);
   buttons(banner(yes.doc))[0].click();
   assert.equal(yes.store.get("ferb-analytics"), "yes");
-  const [script] = posthogScripts(yes.doc);
-  assert.equal(script.src, "/vendor/posthog-js-1.0.0.js");
-  assert.equal(script.integrity, "sha384-test");
-  const { ph, calls } = fakePostHog();
-  yes.win.posthog = ph;
-  script.dispatch("load");
-  assert.equal(calls[0][0], "init");
-  assert.equal(calls[0][1], KEY);
-  assert.equal(calls[0][2].api_host, "https://eu.i.posthog.com");
+  assert.deepEqual(on.calls.slice(1), [["opt_in"]]);
+  assert.deepEqual(sent(on.ph), EVENTS);
   assert.equal(banner(yes.doc), null);
 });
 
-test("Do Not Track and Global Privacy Control count as No thanks, even over an earlier OK", () => {
+test("Do Not Track and Global Privacy Control mean the anonymous count only, with no question, even over an earlier OK", () => {
   for (const opts of [{ dnt: "1" }, { gpc: true }, { dnt: "1", stored: "yes" }, { gpc: true, stored: "yes" }]) {
-    const { doc, win, store } = fakePage(opts);
-    start(doc, win);
-    assert.equal(banner(doc), null, JSON.stringify(opts));
-    assert.equal(posthogScripts(doc).length, 0, JSON.stringify(opts));
-    assert.equal(store.get("ferb-analytics"), opts.stored);
+    const page = fakePage(opts);
+    start(page.doc, page.win);
+    assert.equal(banner(page.doc), null, JSON.stringify(opts));
+    // PostHog's own respect_dnt reports Do Not Track as "denied"; a GPC browser stays "pending". Neither is opted in.
+    const { ph, calls } = loadPostHog(page, { consent: opts.dnt ? "denied" : "pending" });
+    assert.deepEqual(calls.slice(1), [], JSON.stringify(opts));
+    assert.deepEqual(sent(ph), ANONYMOUS, JSON.stringify(opts));
+    assert.equal(page.store.get("ferb-analytics"), opts.stored);
   }
 });
 
-test("an earlier OK loads PostHog at once; blocked storage still asks and still honours the answer", () => {
+test("an earlier OK turns PostHog fully on at load; blocked storage still asks and still honours the answer", () => {
   const earlier = fakePage({ stored: "yes" });
   start(earlier.doc, earlier.win);
   assert.equal(banner(earlier.doc), null);
-  assert.equal(posthogScripts(earlier.doc).length, 1);
+  const kept = loadPostHog(earlier, { consent: "granted" });
+  assert.deepEqual(kept.calls.slice(1), []);
+  assert.deepEqual(sent(kept.ph), EVENTS);
+  const lost = fakePage({ stored: "yes" });
+  start(lost.doc, lost.win);
+  assert.deepEqual(loadPostHog(lost).calls.slice(1), [["opt_in"]]);
 
   const blocked = fakePage({ storageThrows: true });
   start(blocked.doc, blocked.win);
-  assert.equal(posthogScripts(blocked.doc).length, 0);
+  const b = loadPostHog(blocked);
   buttons(banner(blocked.doc))[0].click();
-  assert.equal(posthogScripts(blocked.doc).length, 1);
+  assert.deepEqual(b.calls.slice(1), [["opt_in"]]);
 });
 
-test("the privacy page's button asks again, and No thanks after OK opts PostHog out", () => {
-  const { doc, win, store } = fakePage({ stored: "yes" });
+test("an answer given before PostHog has started is applied when it starts", () => {
+  const page = fakePage();
+  start(page.doc, page.win);
+  buttons(banner(page.doc))[0].click();
+  assert.deepEqual(loadPostHog(page).calls.slice(1), [["opt_in"]]);
+});
+
+test("the privacy page's button asks again; No thanks after OK goes back to the anonymous count", () => {
+  const page = fakePage({ stored: "yes" });
+  const { doc, win, store } = page;
   const controls = doc.body.appendChild(doc.createElement("p"));
   controls.setAttribute("data-analytics-controls", "");
   controls.hidden = true;
@@ -182,43 +214,35 @@ test("the privacy page's button asks again, and No thanks after OK opts PostHog 
   start(doc, win);
   assert.equal(controls.hidden, false);
   assert.equal(state.textContent, STRINGS.on);
-  const { ph, calls } = fakePostHog();
-  win.posthog = ph;
-  posthogScripts(doc)[0].dispatch("load");
+  const { ph, calls } = loadPostHog(page, { consent: "granted" });
 
   change.click();
   buttons(banner(doc))[1].click();
   assert.equal(store.get("ferb-analytics"), "no");
-  assert.deepEqual(calls.slice(1), [["stop_recording"], ["opt_out"], ["set_config", { disable_persistence: true }]]);
+  assert.deepEqual(calls.slice(1), [["opt_out"], ["clear_consent"]]);
+  assert.equal(ph.consent, "pending");
+  assert.deepEqual(sent(ph), ANONYMOUS);
   assert.equal(state.textContent, STRINGS.off);
 
   change.click();
   buttons(banner(doc))[0].click();
-  assert.deepEqual(calls.slice(-2), [["set_config", { disable_persistence: false }], ["opt_in"]]);
+  assert.deepEqual(calls.at(-1), ["opt_in"]);
+  assert.deepEqual(sent(ph), EVENTS);
   assert.equal(posthogScripts(doc).length, 1);
 });
 
-test("Continue with Google is a named event, only after OK, and the link itself is left as it is", () => {
-  const { doc, win } = fakePage({ stored: "yes" });
-  const link = doc.body.appendChild(doc.createElement("a"));
-  link.setAttribute("href", "/api/auth/google?file=FERB-AppleSilicon.dmg");
-  const icon = link.appendChild(doc.createElement("svg"));
-  start(doc, win);
-  const { ph, calls } = fakePostHog();
-  win.posthog = ph;
-  posthogScripts(doc)[0].dispatch("load");
-  icon.click();
-  assert.deepEqual(calls.at(-1), ["capture", "continue with google clicked", { file: "FERB-AppleSilicon.dmg" }, { transport: "sendBeacon" }]);
-  assert.equal(link.getAttribute("href"), "/api/auth/google?file=FERB-AppleSilicon.dmg");
-
-  const off = fakePage({ stored: "no" });
-  const plain = off.doc.body.appendChild(off.doc.createElement("a"));
-  plain.setAttribute("href", "/api/auth/google?file=FERB-AppleSilicon.dmg");
-  start(off.doc, off.win);
-  const quiet = fakePostHog();
-  off.win.posthog = quiet.ph;
-  plain.click();
-  assert.deepEqual(quiet.calls, []);
+test("Continue with Google is a named event, counted with or without OK, and the link itself is left as it is", () => {
+  for (const stored of ["yes", "no", null]) {
+    const page = fakePage({ stored });
+    const link = page.doc.body.appendChild(page.doc.createElement("a"));
+    link.setAttribute("href", "/api/auth/google?file=FERB-AppleSilicon.dmg");
+    const icon = link.appendChild(page.doc.createElement("svg"));
+    start(page.doc, page.win);
+    const { calls } = loadPostHog(page, { consent: stored === "yes" ? "granted" : "pending" });
+    icon.click();
+    assert.deepEqual(calls.at(-1), ["capture", "continue with google clicked", { file: "FERB-AppleSilicon.dmg" }, { transport: "sendBeacon" }]);
+    assert.equal(link.getAttribute("href"), "/api/auth/google?file=FERB-AppleSilicon.dmg");
+  }
 });
 
 test("recordings mask every input, keep no request headers or bodies, and the cookie stays on this site", () => {
@@ -230,6 +254,8 @@ test("recordings mask every input, keep no request headers or bodies, and the co
   assert.equal(s.cross_subdomain_cookie, false);
   assert.equal(s.respect_dnt, true);
   assert.equal(s.person_profiles, "identified_only");
+  assert.equal(s.cookieless_mode, "on_reject");
+  assert.equal(s.opt_out_capturing_by_default, true);
 });
 
 test("PostHog runs no code from its servers except the toolbar the owner opens; settings come as data", () => {
@@ -257,7 +283,7 @@ test("addresses PostHog keeps lose sign-in codes, link tokens, PostHog ids and e
   assert.equal(cleanUrl("https://ferb.kartikey.xyz/#access_token=x"), "https://ferb.kartikey.xyz/");
   assert.equal(cleanUrl("https://ferb.kartikey.xyz/#download"), "https://ferb.kartikey.xyz/#download");
   assert.equal(cleanUrl("not a url"), "not a url");
-  const event = settings({ host: "https://eu.i.posthog.com" }).before_send({
+  const event = settings({ host: "https://eu.i.posthog.com" }, () => true).before_send({
     event: "$snapshot",
     properties: {
       $current_url: "https://ferb.kartikey.xyz/?t=x",

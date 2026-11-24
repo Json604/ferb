@@ -111,30 +111,44 @@ export const banner = (doc) => doc.body.querySelectorAll("div").find((n) => n.ge
 
 export const buttons = (node) => node.querySelectorAll("button");
 
-// PostHog as analytics.js sees it once its script has loaded.
-export function fakePostHog() {
+// PostHog as analytics.js sees it once its script has loaded: its consent state ("pending", "granted", "denied") and
+// the calls made to it. `send(event)` runs an event through the page's before_send as PostHog would before sending.
+export function fakePostHog({ consent = "pending" } = {}) {
   const calls = [];
+  let config = null;
   const ph = {
     __loaded: false,
-    optedOut: false,
-    init(key, config) {
-      calls.push(["init", key, config]);
+    consent,
+    init(key, cfg) {
+      config = cfg;
+      calls.push(["init", key, cfg]);
       ph.__loaded = true;
-      config.loaded?.(ph);
+      cfg.loaded?.(ph);
       return ph;
     },
-    has_opted_out_capturing: () => ph.optedOut,
+    get_explicit_consent_status: () => ph.consent,
     opt_in_capturing: () => {
       calls.push(["opt_in"]);
-      ph.optedOut = false;
+      ph.consent = "granted";
     },
     opt_out_capturing: () => {
       calls.push(["opt_out"]);
-      ph.optedOut = true;
+      ph.consent = "denied";
     },
-    stopSessionRecording: () => calls.push(["stop_recording"]),
-    set_config: (config) => calls.push(["set_config", config]),
+    clear_opt_in_out_capturing: () => {
+      calls.push(["clear_consent"]);
+      ph.consent = "pending";
+    },
     capture: (...args) => calls.push(["capture", ...args]),
+    send: (event, properties = {}) => config.before_send({ event, properties: { ...properties } }),
   };
   return { ph, calls };
+}
+
+// Starts a fake page's PostHog: the script analytics.js added has loaded.
+export function loadPostHog(page, options) {
+  const { ph, calls } = fakePostHog(options);
+  page.win.posthog = ph;
+  posthogScripts(page.doc)[0].dispatch("load");
+  return { ph, calls, config: calls[0][2] };
 }

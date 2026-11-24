@@ -100,32 +100,36 @@ record deleted, reply to any FERB email or ask through the contact below.</p>
 
 <h2 id="analytics">Analytics on this website</h2>
 <p>This website uses PostHog (posthog.com), an analytics service, to see how people use the website and to fix what
-doesn't work. It covers this website only: the FERB app and the extension send nothing to PostHog.</p>
-<p>PostHog runs only after you press OK on the question at the bottom of the page. Until you answer, and if you choose
-No thanks, PostHog isn't loaded, nothing is sent and nothing is stored except your answer, which stays in this browser.
-If your browser sends Do Not Track or Global Privacy Control, the website takes that as No thanks and doesn't ask. The
-pages for signing in, downloading and unsubscribing, and the list only FERB's maker sees, never load PostHog.</p>
-<p>After you press OK, PostHog collects, on this website's pages:</p>
+doesn't work. It covers this website only: the FERB app and the extension send nothing to PostHog. The pages for
+signing in, downloading and unsubscribing, and the list only FERB's maker sees, never load PostHog.</p>
+<p><strong>Every visit is counted anonymously.</strong> Before you answer the question at the bottom of the page, after
+No thanks, and when your browser sends Do Not Track or Global Privacy Control (the website then doesn't ask), PostHog
+counts only: the pages you open and leave and how far down you scroll, clicks on Continue with Google, the page that
+sent you here, and your browser, operating system, device type, screen size and language. Nothing is stored in your
+browser for this, nothing is recorded, and nothing names you. To tell one visit from another within a day, PostHog's
+servers combine your IP address and browser with a random value that changes every day and is deleted after that day;
+your IP address is removed before anything is kept, so these visits have no location, and the same visitor counts as
+new each day.</p>
+<p><strong>With your OK</strong>, PostHog also collects, on this website's pages:</p>
 <ul>
-  <li><strong>What you do on the page:</strong> the pages you open and leave, the links and buttons you click
-    (including Continue with Google), where you click, how far you scroll and clicks that do nothing, used for heatmaps
-    and counts.</li>
+  <li><strong>What you do on the page:</strong> the links and buttons you click, where you click, how far you scroll
+    and clicks that do nothing, used for heatmaps and counts.</li>
   <li><strong>Session recordings:</strong> a replay of the page as you use it: what the page shows, mouse movement,
     scrolling and clicks. Anything typed into a field is masked in the recording and never kept.</li>
   <li><strong>Speed and errors:</strong> how fast the page loads and responds (web vitals), the page's own requests'
     timings, and errors in the page's code.</li>
-  <li><strong>About your visit:</strong> your browser, operating system, device type and screen size, language, the
-    page that sent you here, and your IP address, from which PostHog works out an approximate location.</li>
+  <li><strong>About your visit:</strong> as above, plus an approximate location PostHog works out from your IP address;
+    the address itself isn't kept.</li>
 </ul>
-<p>To count visits from the same browser together, PostHog keeps a random identifier in a cookie and in this browser's
-storage, both for ferb.kartikey.xyz only. Addresses are stripped of sign-in codes, link tokens and email addresses
-before anything is sent.</p>
+<p>To count your visits from the same browser together, PostHog then keeps a random identifier in a cookie and in this
+browser's storage, both for ferb.kartikey.xyz only. Addresses are stripped of sign-in codes, link tokens and email
+addresses before anything is sent.</p>
 <p>PostHog processes this data for FERB under its own terms and privacy policy, and keeps it for as long as FERB's
 PostHog project is set to, within the limits of that project's plan. It is used only to improve this website, never
 sold, shared or used for advertising.</p>
 <p>To change your answer, use the button below, or clear this website's data in your browser. Choosing No thanks after
-OK stops PostHog in this browser and removes its cookie and stored identifier; to have what was already collected
-deleted, ask through the contact below.</p>
+OK stops the recordings and the rest in this browser and removes PostHog's cookie and stored identifier; the anonymous
+count goes on. To have what was already collected deleted, ask through the contact below.</p>
 <p data-analytics-controls hidden><span data-analytics-state></span>
   <button type="button" data-analytics-choice>Change your choice</button></p>
 

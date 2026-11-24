@@ -5140,10 +5140,10 @@ decisions = ["RUN-473", "ORCH-707"]
 sitting = "one sitting, about 10 minutes"
 
 [LIVE-1201]
-title = "PostHog on the website: asked first; recordings, heatmaps and events after OK; nothing after No"
+title = "PostHog on the website: an anonymous count for all; recordings, heatmaps and events after OK"
 area = "release"
-surface = "https://ferb.kartikey.xyz after the owner follows ~/Desktop/FERB-posthog-setup.md and redeploys; a Mac browser (private window, its network panel open) and a phone; his PostHog project"
-request = "Open the site: choose No thanks and browse both pages. On the privacy page, Change your choice, then OK; browse, type nothing, press Continue with Google and download. In PostHog look at Activity, the visit's recording, Heatmaps (Toolbar on the live page), Web vitals and Error tracking. Then open the site in a browser with Global Privacy Control on (Brave, or Firefox's setting), and open /api/admin."
-pass = "With No thanks no request goes to PostHog's host and there is no ph_ cookie; after OK, the visit's pageviews, clicks, web vitals and `continue with google clicked` appear, and its recording replays the pages; the GPC browser gets no question and sends nothing; /api/admin and the sign-in and download pages load no PostHog; nothing on the site looks or works differently apart from the bar at the foot of the page."
-decisions = ["REL-435", "REL-437"]
+surface = "ferb.kartikey.xyz redeployed after ~/Desktop/FERB-posthog-setup.md (cookieless tracking, IP discarding on); a Mac browser (private window, network panel) and a phone; his PostHog"
+request = "Open the site and browse without answering; then No thanks and browse both pages; press Continue with Google. On the privacy page, Change your choice, then OK; browse, type nothing, press Continue with Google and download. In PostHog look at Activity, Web analytics, the visit's recording, Heatmaps (Toolbar on the live page), Web vitals and Error tracking. Then open the site in a browser with Global Privacy Control on (Brave, or Firefox's setting), and open /api/admin."
+pass = "Without OK only page views, page leaves and `continue with google clicked` reach PostHog, cookieless, with no location, and the browser keeps no ph_ cookie or storage; after OK the visit's clicks, heatmaps, web vitals and events appear and its recording replays; the GPC browser gets no question and only the anonymous count; /api/admin and the sign-in and download pages load no PostHog; nothing on the site looks or works differently apart from the bar at the foot of the page."
+decisions = ["REL-435", "REL-438", "REL-439"]
 sitting = "website review after deployment"

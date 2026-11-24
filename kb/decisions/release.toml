@@ -451,9 +451,34 @@ live = ["LIVE-1167"]
 title = "Site analytics: asked first, PostHog loaded only after OK, pinned and bundled"
 by = "agent"
 date = 2026-11-24
-status = "active"
+status = "superseded"
+superseded_by = "REL-439"
 rule = "For REL-435. With POSTHOG_KEY/HOST set, the build adds /analytics.js to the static pages; it asks (OK / No thanks) and loads PostHog only after OK. DNT or GPC count as No. Until OK nothing is loaded, sent or kept but the answer; No after OK opts out and deletes PostHog's storage. posthog-js is pinned, bundled from /vendor/, hash-checked; only the toolbar may come from PostHog's servers. After OK: everything REL-435 asks, recordings mask all inputs and keep no request bodies or headers, URLs lose tokens and emails, cookie on the site's host only."
 why = "An IP address is personal data under the GDPR even without cookies and the site can't tell where a visitor is, so 'not loaded until OK' is the one state the privacy page can state plainly. Bundled and pinned: no other party sees visitors and no remote code bypasses the pin."
 rejected = ["PostHog loaded with opt_out_capturing_by_default: it still calls PostHog (flags, config) before any answer", "cookieless_mode on_reject: sends events for visitors who said no", "posthog-js from a CDN: one more party sees every visitor", "PostHog's remote config.js: code from its servers at run time"]
+paths = ["site/build.mjs", "site/analytics.js", "site/index.html", "site/privacy.html", "site/styles.css", "site/vercel.json", "site/package.json", "site/env.example", "site/.gitignore"]
+live = ["LIVE-1201"]
+
+[REL-438]
+title = "Visitors who haven't said OK to the website's analytics are still counted, anonymously"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "but something should be counted, cause google analytics does that"
+words_source = "Owner 2026-11-24, relayed verbatim by the coordinator, on hearing that nothing loads on the website until a visitor presses OK (REL-437)."
+rule = "For REL-435. Every visit to the website is counted, anonymously, as Google Analytics' consent mode does: also before the visitor answers, after No thanks, and with Do Not Track or Global Privacy Control. The full analytics and recordings still wait for OK."
+why = "To know how many people visit and start the download, not only those who agree to the rest."
+paths = ["site/analytics.js", "site/privacy.html"]
+live = ["LIVE-1201"]
+
+[REL-439]
+title = "Site analytics: an anonymous cookieless count for all, PostHog in full after OK; pinned, bundled"
+by = "agent"
+date = 2026-11-24
+status = "active"
+supersedes = ["REL-437"]
+rule = "For REL-435, REL-438. With POSTHOG_KEY/HOST set the static pages load /analytics.js and the pinned, bundled, hash-checked posthog-js. Until OK (and after No, and with DNT or GPC: no bar then) PostHog runs cookieless (on_reject, opt_out_capturing_by_default): nothing stored, no person, no recording; before_send passes only $pageview, $pageleave and continue with google clicked. OK opts in: everything REL-435 asks, inputs masked, no request bodies or headers. No after OK opts out and clears PostHog's storage. Only the toolbar may come from its servers."
+why = "Cookieless mode hashes IP, browser and host with a daily salt on PostHog's servers and drops the IP before storing: counts without storing anything here or naming anyone. One PostHog, switched by its own consent calls, so OK needs no reload."
+rejected = ["Nothing loaded until OK (REL-437): no count of visitors who never answer", "A second, anonymous-only PostHog instance: two copies and a reload to switch", "Autocapture, heatmaps and vitals in the anonymous count: more than a visit count without consent"]
 paths = ["site/build.mjs", "site/analytics.js", "site/index.html", "site/privacy.html", "site/styles.css", "site/vercel.json", "site/package.json", "site/env.example", "site/.gitignore"]
 live = ["LIVE-1201"]

@@ -1,8 +1,10 @@
-// The site's analytics (REL-435, REL-436). The build adds this script to the pages only when PostHog is set up, and
-// it loads PostHog only after the visitor presses OK on the banner. Before an answer, after "No thanks", and whenever
-// the browser sends Do Not Track or Global Privacy Control, nothing is loaded, stored or sent; the only thing kept is
-// the answer itself, in this browser. The site's own server pages (/api/: sign-in, download, unsubscribe and the
-// owner's list) carry no script at all.
+// The site's analytics (REL-435, REL-438, REL-439). The build adds this script to the pages only when PostHog is set
+// up. Every visit is counted anonymously: PostHog in cookieless mode, nothing stored in the browser, no person, no
+// recording, and only page views, page leaves and Continue with Google clicks (ANONYMOUS_EVENTS). That is all there
+// is before the visitor answers the bar, after "No thanks", and whenever the browser sends Do Not Track or Global
+// Privacy Control (no bar then). After OK, PostHog runs in full: its cookie and storage, autocapture, heatmaps, web
+// vitals, errors and session recordings. The only thing the site itself keeps is the answer, in this browser. The
+// site's server pages (/api/: sign-in, download, unsubscribe and the owner's list) carry no script at all.
 
 export const CHOICE_KEY = "ferb-analytics";
 
@@ -22,15 +24,18 @@ export const PRIVATE_PARAMS = [
   "session_state",
 ];
 
+// What an anonymous visit sends; every other event (clicks, heatmaps, vitals, errors, recordings) waits for OK.
+export const ANONYMOUS_EVENTS = ["$pageview", "$pageleave", "continue with google clicked"];
+
 export const STRINGS = {
-  banner: "FERB uses analytics and session recordings to improve the site.",
+  banner: "FERB counts visits anonymously. With your OK it also uses analytics and session recordings to improve the site.",
   details: "Details",
   ok: "OK",
   no: "No thanks",
   on: "Analytics and session recordings are on in this browser.",
-  off: "Analytics and session recordings are off in this browser.",
-  undecided: "You haven't chosen yet.",
-  refused: "Off: your browser asks sites not to track you (Do Not Track or Global Privacy Control).",
+  off: "Only the anonymous visit count is on in this browser.",
+  undecided: "You haven't chosen yet, so only the anonymous visit count is on.",
+  refused: "Only the anonymous visit count is on: your browser asks sites not to track you (Do Not Track or Global Privacy Control).",
 };
 
 export function refusesTracking(nav = {}, win = {}) {
@@ -107,11 +112,24 @@ export function allowExternalScript(script) {
   return /\/toolbar\.js$/.test(path) ? script : null;
 }
 
-// What PostHog does once the visitor has said OK.
-export function settings({ host }) {
+// Without the visitor's OK only ANONYMOUS_EVENTS leave the page, and none of them makes a person.
+export function anonymousOnly(event) {
+  if (!event || !ANONYMOUS_EVENTS.includes(event.event)) return null;
+  event.properties = { ...event.properties, $process_person_profile: false };
+  delete event.$set;
+  delete event.$set_once;
+  return event;
+}
+
+// How PostHog runs. Cookieless mode "on_reject" with opt_out_capturing_by_default: until PostHog is told the visitor
+// agreed (opt_in_capturing), it counts anonymously, hashing on its servers and storing nothing here; after it, it runs
+// in full. `full()` says whether the visitor has said OK (and the browser doesn't refuse tracking).
+export function settings({ host }, full = () => false) {
   return {
     api_host: host,
     defaults: "2026-08-30",
+    cookieless_mode: "on_reject",
+    opt_out_capturing_by_default: true,
     persistence: "localStorage+cookie",
     // The cookie stays on this site's own address, never the parent domain's other sites.
     cross_subdomain_cookie: false,
@@ -139,7 +157,7 @@ export function settings({ host }) {
     },
     mask_personal_data_properties: true,
     custom_personal_data_properties: PRIVATE_PARAMS,
-    before_send: cleanEvent,
+    before_send: (event) => cleanEvent(full() ? event : anonymousOnly(event)),
     prepare_external_dependency_script: allowExternalScript,
   };
 }
@@ -189,13 +207,13 @@ export function start(doc, win) {
   doc.addEventListener("click", (event) => {
     const link = event.target?.closest?.('a[href^="/api/auth/google"]');
     const ph = s.win.posthog;
-    if (!link || s.choice !== "yes" || !ph?.__loaded) return;
+    if (!link || !ph?.__loaded) return;
     const file = new URL(link.getAttribute("href"), "https://site.invalid").searchParams.get("file");
     ph.capture("continue with google clicked", { file }, { transport: "sendBeacon" });
   });
 
-  if (s.choice === "yes") load(s);
-  else if (s.choice === null) showBanner(s);
+  load(s);
+  if (s.choice === null) showBanner(s);
   return s;
 }
 
@@ -226,18 +244,21 @@ function decide(s, choice) {
   s.banner?.remove();
   s.banner = null;
   showState(s);
-  const ph = s.win.posthog;
-  if (choice === "yes") {
-    if (!ph?.__loaded) return load(s);
-    ph.set_config({ disable_persistence: false });
-    ph.opt_in_capturing();
-  } else if (ph?.__loaded) {
-    // Stop capture and recording, and remove PostHog's cookie and stored identifier from this browser (turning its
-    // storage off deletes the cookie and localStorage; the tab's own window ids go here). PostHog keeps only its
-    // opt-out mark.
-    ph.stopSessionRecording?.();
+  // PostHog not started yet: its `loaded` callback reads the answer.
+  if (s.win.posthog?.__loaded) follow(s, s.win.posthog);
+}
+
+const full = (s) => s.choice === "yes" && !s.refused;
+
+// Puts PostHog in the mode the answer asks for.
+function follow(s, ph) {
+  const granted = ph.get_explicit_consent_status() === "granted";
+  if (full(s) && !granted) ph.opt_in_capturing();
+  if (!full(s) && granted) {
+    // Back to the anonymous count: recording stops, and PostHog's cookie, storage and identifier go. Clearing the
+    // answer it kept leaves it where a visitor who never answered is, which counts as a refusal here.
     ph.opt_out_capturing();
-    ph.set_config({ disable_persistence: true });
+    ph.clear_opt_in_out_capturing();
     try {
       const session = s.win.sessionStorage;
       for (const k of Object.keys(session)) if (k.startsWith("ph_")) session.removeItem(k);
@@ -258,13 +279,7 @@ function load(s) {
   script.addEventListener("load", () => {
     const ph = s.win.posthog;
     if (!ph?.init) return;
-    ph.init(s.cfg.key, {
-      ...settings(s.cfg),
-      loaded: (instance) => {
-        // An earlier "No thanks" left PostHog's own opt-out mark; this OK replaces it.
-        if (instance.has_opted_out_capturing()) instance.opt_in_capturing();
-      },
-    });
+    ph.init(s.cfg.key, { ...settings(s.cfg, () => full(s)), loaded: (instance) => follow(s, instance) });
   });
   s.doc.head.appendChild(script);
 }
