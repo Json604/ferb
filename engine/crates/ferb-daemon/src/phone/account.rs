@@ -36,12 +36,12 @@ pub const MAX_LEN: usize = 4096;
 /// FERB's site's public keys for pairing statements, by kid: uncompressed SEC1 points (65 bytes, `04 ‖ X ‖ Y`) in
 /// standard base64. Rotation: add the new key, ship, then remove the old one.
 ///
-/// EMPTY in this build: the owner generates the key pair (the private half is the site's `APP_ASSERTION_KEY`, its kid
-/// `APP_ASSERTION_KID`) and pastes the public half here, as `("<kid>", "<base64 of the 65-byte point>")`. While it is
-/// empty this build can't confirm any phone's account, so every pairing is refused with `account_unconfirmed`.
-pub const PINNED_KEYS: &[(&str, &str)] = &[
-    // ("<APP_ASSERTION_KID>", "<uncompressed SEC1 public key, base64>"),
-];
+/// The private half is the site's `APP_ASSERTION_KEY` (its kid `APP_ASSERTION_KID`), made on the owner's Mac on
+/// 2026-11-24 and kept only in Vercel and his private backup; this is its public half (T-1306).
+pub const PINNED_KEYS: &[(&str, &str)] = &[(
+    "k2026-11",
+    "BFwknw8a+WbtX49dQ8PvZUtiAM5hNsGHcAXj+Wdrq2kPnS75CHKCYFSZf3+PZOo+/8z0/M9TDBAT9GKYDyBAlfY=",
+)];
 
 /// The FERB account FERB on this Mac is signed in to (FERB.app's `account.save`).
 #[derive(Clone, Debug, PartialEq, Eq)]

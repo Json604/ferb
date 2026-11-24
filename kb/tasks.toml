@@ -734,15 +734,6 @@ why = "Built and replayed on Sonnet (patch .local/checker-slim.patch, tables .lo
 decisions = ["ORCH-694"]
 after = []
 
-[T-1306]
-title = "Pin the pairing assertion's public key in the daemon once the owner made the key pair"
-area = "phone"
-kind = "build"
-status = "blocked"
-why = "PHN-830: the pinned list is empty until the owner makes the P-256 key (~/Desktop/FERB-app-signin-setup.md) and sets it in Vercel; until then every pairing is refused (account_unconfirmed). Add his public key (SEC1, base64) under his kid, with a test, and ship it."
-decisions = ["PHN-828", "PHN-830"]
-after = []
-
 [T-1309]
 title = "Later: redesign FERB.app's look from the FERB Glass lab"
 area = "app"
