@@ -189,6 +189,74 @@ async fn the_relay_test_says_exactly_what_is_wrong() {
     assert!(w.bridge.status()["own_relay"].is_null());
 }
 
+/// The phone's own relay state as its last `relay_state` event said it.
+fn phone_relay(p: &TestPhone) -> String {
+    p.seen
+        .lock()
+        .unwrap()
+        .events
+        .iter()
+        .rev()
+        .find(|e| e["type"] == "relay_state")
+        .and_then(|e| e["relay"]["state"].as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+// decision: PHN-208, PHN-425
+/// A change of network or the app back in front, while the public relay stands in for the owner's: the phone probes
+/// its relay at once and is back on it within seconds, not at the next `own_relay_probe_s` (here ten minutes).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_network_change_or_the_app_in_front_probes_the_own_relay_at_once() {
+    let shared = Relay::start(None, None).await;
+    let mut own = Relay::start(Some("tok"), None).await;
+    let w = World::start(Shared::Custom(vec![shared.spec()]), Some(own.spec()), true).await;
+    w.limits_set(&json!({"own_relay_fallback_after_s": 3, "own_relay_probe_s": 600, "redial_steps_s": [1, 1, 2], "dial_deadline_s": 3})).unwrap();
+    let p = w.paired_phone("phone").await;
+    assert_eq!(p.tier(), "own_relay");
+    assert_eq!(
+        p.phone.limits().own_relay_probe_s,
+        600,
+        "the phone took the Mac's limits"
+    );
+    for (how, nudge) in [("network", true), ("in front", false)] {
+        own.stop().await;
+        assert!(
+            wait(30, || phone_relay(&p) == "own_fallback").await,
+            "{how}: the phone never fell back: {}",
+            phone_relay(&p)
+        );
+        own.restart().await;
+        // nobody nudges: the next probe is ten minutes away, the fallback stays
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert_eq!(
+            phone_relay(&p),
+            "own_fallback",
+            "{how}: probed without a nudge"
+        );
+        let t = Instant::now();
+        if nudge {
+            p.phone.network_changed_to(Some("cellular")).await;
+        } else {
+            p.phone.set_active(true);
+        }
+        assert!(
+            wait(10, || matches!(
+                phone_relay(&p).as_str(),
+                "own" | "own_down"
+            ))
+            .await,
+            "{how}: still {} after the nudge",
+            phone_relay(&p)
+        );
+        println!("MEASURE {how} -> phone off the fallback: {:?}", t.elapsed());
+        assert!(
+            wait(20, || phone_relay(&p) == "own").await,
+            "{how}: the phone's relay connection did not come back: {}",
+            phone_relay(&p)
+        );
+    }
+}
+
 // decision: PHN-208, PHN-203, PHN-425, PHN-462, PHN-799
 #[tokio::test(flavor = "multi_thread")]
 async fn own_relay_down_falls_back_to_the_shared_relay_and_comes_back() {
@@ -233,6 +301,32 @@ async fn own_relay_down_falls_back_to_the_shared_relay_and_comes_back() {
     println!(
         "MEASURE own relay down -> phone working again on the shared relay: {:?}",
         t.elapsed()
+    );
+    // decision: PHN-418 (the owner's relay as the phone last learned it is in every phase it reported while the
+    // Mac couldn't be reached, and on the public relay, not only in a welcome's)
+    let url = own.spec().url;
+    assert_eq!(
+        p.phone.phase()["own_relay"],
+        json!(url),
+        "{}",
+        p.phone.phase()
+    );
+    let away: Vec<Value> = p
+        .seen
+        .lock()
+        .unwrap()
+        .events
+        .iter()
+        .filter(|e| e["type"] == "state" && (e["phase"] == "connecting" || e["phase"] == "waiting"))
+        .cloned()
+        .collect();
+    assert!(
+        !away.is_empty(),
+        "the phone never reported a phase away from the Mac"
+    );
+    assert!(
+        away.iter().all(|e| e["own_relay"] == json!(url)),
+        "{away:?}"
     );
     assert!(
         p.call("chat.status", json!({})).await.is_ok(),

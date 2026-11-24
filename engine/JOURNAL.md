@@ -13005,3 +13005,79 @@ buttons on a real phone or the Mac's notch (only renders); Apple's App Review of
 at 31 % of its height instead of Apple's 43 %; whether Google would class the centred-words, leading-G layout or FERB's
 own type as compliant (its guideline doesn't address either); the blur's look on real devices (Robolectric's native
 Skia and SwiftUI's renderer only). The temporary simulator "FERB iOS icons" was deleted after the runs.
+
+## 2026-11-25 · 222 · The phone shows the owner's relay in every phase, and falls back only after 30 s it watched
+
+**The owner.** On his Android phone, with his own relay set on the Mac: the Mac page showed "Connecting…", the note
+"Your relay can't be reached; the public relay is used until it is back." and, in the card, "Your own relay — Not
+set"; a few seconds later it corrected itself. "Not set" was false: the phone knows the relay from pairing and earlier
+welcomes.
+
+**"Not set": the cause.** `LinkStatus.own_relay_url` (ferb-mobile-ffi `link.rs`) is read from the link's current
+phase, and ferb-link's client put `own_relay` only in the online phase, copied from the welcome. In `connecting`,
+`waiting`, `stopped`, `paused` it was absent, so both apps (Android `Main.kt` `Mac`, the iPhone's `Tabs.swift`
+`MacPage`, and each one's own-relay sheet, all reading `ownRelayUrl`) showed "Not set" whenever the phone wasn't
+online, which is also when the fallback note shows. The relay itself was never forgotten: it is saved in the phone's
+state (`MacTarget.own`, from the pairing code, replaced by each welcome or pushed relay change in `learn_relay`) and the
+dial used it throughout.
+
+**"Not set": the fix.** One shared path in ferb-link's client: `Phone::phase()` and every `state` event carry
+`own_relay`, the saved relay's address (null with none set, or once the pairing is forgotten), in every phase; the
+online phase no longer copies it from the welcome (`learn_relay` saved the same value just before). ferb-mobile-ffi
+reads it as before, so both apps show the owner's relay while connecting, offline, stopped or on the public relay
+without any app change; the iPhone takes the same `LinkStatus.ownRelayUrl`. ferb-mobile's core ignores the field. The
+Mac's `link.status` `own_relay` is the bridge's own and is unchanged.
+
+**The fallback note while "Connecting…": the cause.** The note is the phone's own relay policy state (`relay_state`
+events, kept by ferb-mobile-ffi until the next one), independent of the link's phase. `RelayPolicy::run` (ferb-link
+`net.rs`) checks every 500 ms and falls back after `own_relay_fallback_after_s` (30) of the own relay not being a
+connected home relay; once fallen back it stays until a probe answers, every `own_relay_probe_s` (60). Two flaws, the
+first very likely what the owner saw (the phone opened after being frozen in the background, on a change to mobile
+data; inferred, no phone log read): `down_since` was wall time from the first check that saw the relay down, so a
+process frozen right after such a check fell back on the first check after it woke, counting the frozen minutes as
+unreachability; and a change of network or the app coming back to the front did nothing to the policy, so a fallback
+taken on the old network (or while frozen) lasted until the next 60 s probe, and an unreachability window begun on the
+old network carried over to the new one. PHN-208/PHN-425 mean 30 s of observed unreachability, so both are bugs under
+them (the coordinator's ruling: method ours, no owner question).
+
+**The fallback: the fix.** In `net.rs`, `DownWindow` counts only watched time: a gap between two checks longer than
+`WATCH_GAP` (5 s, ten ticks) starts the window again instead of counting toward it. `RelayPolicy::recheck()` makes the
+next check (within 500 ms) probe the own relay at once when in `own_fallback`, and otherwise start the window afresh.
+The phone calls it from `network_changed_to` and from `set_active(true)`, which both apps call on a change of network
+and on coming to the front (Android `AndroidSignals.kt`, the iPhone's `Signals.swift`). The Mac runs the same policy, so
+its window also ignores time it slept; nothing on the Mac calls `recheck`. No limit changed.
+
+**Evidence.** Checks by each crate's own manifest as `engine/gate.sh` runs them, in a worktree, through
+`ferb-test-guard` (build folder reached by a short link: the stand-in daemon's Unix socket path in
+`CARGO_TARGET_TMPDIR` passes macOS's 104-byte limit under the long worktree path): `cargo fmt --check` for the three
+phone crates; `cargo clippy --all-targets -D warnings` for ferb-link (`--features devrelay`) and ferb-mobile-ffi;
+`cargo test`: ferb-link 76 passed, 5 ignored, 0 failed (19 binaries); ferb-mobile-ffi 23 passed; ferb-mobile 109
+passed.
+- ferb-mobile-ffi `tests/link.rs` `the_status_carries_the_saved_own_relay_while_the_mac_cant_be_reached` (new): a
+  paired phone saved with an own relay, its Mac unreachable on 127.0.0.1: the status in `connecting` and `waiting`,
+  and every status the app heard, carries the relay; after Forget it is none. Against HEAD's `client.rs` it fails with
+  the owner's status exactly (`phase: Connecting, paired: true, own_relay_url: None`).
+- ferb-link `tests/relay.rs` `own_relay_down_falls_back_to_the_shared_relay_and_comes_back` (extended): every
+  `connecting`/`waiting` state event during the outage, and the phase on the public relay, carry the owner's relay.
+- ferb-link `net.rs` `only_watched_time_counts_toward_the_fallback` (new, unit): 30 s of 500 ms checks reach 30 s; a
+  check, ten frozen minutes, then a check: 0 s, and 30 s more of checks are needed; a gap of `WATCH_GAP` counts, one
+  past it restarts; `clear` restarts.
+- ferb-link `tests/relay.rs` `a_network_change_or_the_app_in_front_probes_the_own_relay_at_once` (new): the own relay
+  down, the phone falls back (3 s window), the relay comes back, with `own_relay_probe_s` 600 the phone stays on the
+  fallback for 3 s without a nudge; then `network_changed_to("cellular")` (first round) or `set_active(true)` (second
+  round) brings it off the fallback in 5.5 s both times and back on its relay. (Most of the 5.5 s is inferred to
+  be the probe itself on the test relays' plain HTTP, not measured step by step.) Not run against the code before the
+  change: without `recheck` the 600 s probe can't come within the test's 10 s.
+Android `:app:testDebugUnitTest` (`--offline --no-daemon`, host library rebuilt from this change): 374 tests, 0
+failures. (A first run, before the policy part, had 1 failure:
+`AccountFlowTest.the_macs_refusal_of_this_account_offers_another_account_and_signing_out_clears_it`, line 465, against
+FakePhone, which this change doesn't touch; the class alone then passed 19/19, and this full run passed it. I infer a
+timing flake, not proved.) The iPhone has no
+change (it reads the same field and calls the same `setActive`/`networkChanged`), so `apps/ios/tools/build.sh test`
+didn't run. `tools/kb/run kb check`: ok; no kb change (no ruling of the owner's changed).
+
+**Unverified.** No device, no install, no live check: the owner's own-relay pages while connecting and on the fallback
+are not seen on a real phone, nor a real freeze and thaw (the frozen gap is tested on the window alone, with made-up
+instants; the loop's use of it is read, not run frozen). The 3:40 sequence is inferred from the code, not from the
+phone's log. A probe made at the very moment of a network change can fail if the new network isn't usable yet; the
+next one is then the regular `own_relay_probe_s` later (or the next change or opening).

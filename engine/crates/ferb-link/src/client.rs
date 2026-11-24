@@ -438,12 +438,33 @@ impl Phone {
         if let Some(allowed) = can.filter(|c| could != Some(*c)) {
             self.emit(json!({"type": "bulk", "allowed": allowed, "tier": v["tier"]}));
         }
-        let mut e = v;
+        let mut e = self.with_own_relay(v);
         e["type"] = json!("state");
         self.emit(e);
     }
+    /// Where the link is. Every phase carries `own_relay`: the owner's relay as this phone last learned it from the
+    /// Mac (the pairing code, then each welcome or relay change, as saved), or null when none is set or no Mac is
+    /// paired. So the app shows the owner's relay while connecting, offline or on the public relay too, not only
+    /// once a welcome came (kb PHN-418, PHN-425).
     pub fn phase(&self) -> Value {
-        self.inner.phase.lock().unwrap().clone()
+        let v = self.inner.phase.lock().unwrap().clone();
+        self.with_own_relay(v)
+    }
+    /// The phase with the saved own relay's address in `own_relay` (null without one).
+    fn with_own_relay(&self, mut v: Value) -> Value {
+        let own = self
+            .inner
+            .state
+            .lock()
+            .unwrap()
+            .mac
+            .as_ref()
+            .and_then(|m| m.own.as_ref())
+            .map(|o| o.url.clone());
+        if let Some(m) = v.as_object_mut() {
+            m.insert("own_relay".into(), json!(own));
+        }
+        v
     }
     pub fn is_online(&self) -> bool {
         self.inner.online.lock().unwrap().is_some()
@@ -560,8 +581,10 @@ impl Phone {
             self.drop_conn();
             self.set_phase(json!({"phase": "paused"}));
         } else {
-            // the app was opened: a session that is on a relay is worth starting over again
+            // the app was opened: a session that is on a relay is worth starting over again, and the owner's relay is
+            // looked at afresh (probed at once when the public relay stands in for it)
             self.arm("opened");
+            self.inner.policy.recheck();
         }
         self.inner.wake.notify_one();
     }
@@ -580,6 +603,8 @@ impl Phone {
             .handovers
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.ep().network_change().await;
+        // the owner's relay is looked at afresh on the new network (probed at once during a fallback)
+        self.inner.policy.recheck();
         self.inner.wake.notify_one();
         self.arm("network");
     }
@@ -1364,7 +1389,7 @@ impl Phone {
             + 1;
         self.set_phase(json!({"phase": "online", "tier": welcome["tier"], "tier_words": welcome["tier_words"], "device": welcome["device"],
                               "mac": {"level": mac_level, "build": welcome["build"], "older": mac_level < self.inner.cfg.level, "newer": mac_level > self.inner.cfg.level},
-                              "relay": welcome["relay"]["state"], "own_relay": welcome["relay"]["own"]["url"], "session": session, "proved": proved}));
+                              "relay": welcome["relay"]["state"], "session": session, "proved": proved}));
         if moved {
             // calls that waited for the move go out now, on this connection
             self.inner.swap.send_replace(false);

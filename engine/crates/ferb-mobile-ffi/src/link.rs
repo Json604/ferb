@@ -111,7 +111,9 @@ pub struct LinkStatus {
     pub bulk_allowed: bool,
     /// A call went unanswered and the link is checking the connection.
     pub slow: bool,
-    /// The owner's relay, when the Mac set one (the Mac's setting: FERB on the Mac changes it).
+    /// The owner's relay, when the Mac set one (the Mac's setting: FERB on the Mac changes it), in every phase: the
+    /// one this phone last learned from the Mac (pairing code or last welcome, as saved), so it shows while connecting,
+    /// offline or on the public relay too; none once the Mac removes it or the pairing is forgotten.
     pub own_relay_url: Option<String>,
     /// The Mac's "Always use my relay" (PHN-453): with the owner's relay in use, no direct path is tried.
     pub own_relay_always: bool,

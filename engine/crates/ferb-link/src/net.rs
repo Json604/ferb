@@ -528,6 +528,39 @@ pub enum RelayState {
     OwnFallback { error: Option<LinkError> },
 }
 
+/// How long the own relay has been seen unreachable, counting only time the policy watched (kb PHN-208, PHN-425:
+/// 30 s of observed failure). A gap between two checks longer than [`WATCH_GAP`] (the process was frozen or the
+/// device asleep; the checks are 500 ms apart) starts the window again instead of counting toward it: what happened
+/// while nobody looked is not known, and the relay usually answers again within seconds of the process waking.
+#[derive(Debug, Default, Clone)]
+pub struct DownWindow {
+    since: Option<Instant>,
+    last: Option<Instant>,
+}
+
+/// The longest gap between two checks that still counts as watching (ten 500 ms ticks).
+pub const WATCH_GAP: Duration = Duration::from_secs(5);
+
+impl DownWindow {
+    /// A check at `now` found the own relay unreachable: how long it has been, as watched.
+    pub fn down(&mut self, now: Instant) -> Duration {
+        let watched = self
+            .last
+            .is_some_and(|l| now.saturating_duration_since(l) <= WATCH_GAP);
+        let since = match self.since {
+            Some(s) if watched => s,
+            _ => now,
+        };
+        self.since = Some(since);
+        self.last = Some(now);
+        now.saturating_duration_since(since)
+    }
+    /// The relay answered, or the window starts afresh (a change of network, the app back in front).
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
 pub struct RelayPolicy {
     cfg: Mutex<NetConfig>,
     ep: Mutex<Endpoint>,
@@ -540,6 +573,8 @@ pub struct RelayPolicy {
     /// it last knew it and is handed the setting there (kb NET-20). Nothing else uses it.
     beacon: Mutex<Option<Endpoint>>,
     beacon_changed: tokio::sync::watch::Sender<u64>,
+    /// Set by [`RelayPolicy::recheck`], taken by the next check.
+    recheck: std::sync::atomic::AtomicBool,
 }
 
 impl RelayPolicy {
@@ -557,6 +592,7 @@ impl RelayPolicy {
             generation: tokio::sync::watch::channel(0).0,
             beacon: Mutex::new(None),
             beacon_changed: tokio::sync::watch::channel(0).0,
+            recheck: Default::default(),
         }))
     }
     /// The current endpoint. Hold it only for one operation; it is replaced when the relay set changes.
@@ -713,6 +749,15 @@ impl RelayPolicy {
         Ok(())
     }
 
+    /// The phone's network changed or the app came back to the front: the next check (within 500 ms) probes the own
+    /// relay at once when the shared relays stand in for it, so a relay that answers on the new network is back in
+    /// seconds rather than at the next `own_relay_probe_s`; otherwise the window of unreachability starts afresh,
+    /// since what was seen on the old network says nothing about the new one (kb PHN-208, PHN-425).
+    pub fn recheck(&self) {
+        self.recheck
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
     /// Watches the home relay and applies the fallback rule. The values are read on every turn so a settings change
     /// applies at once: (fall back after, probe every, fallback allowed, always use my relay).
     pub async fn run(
@@ -720,12 +765,18 @@ impl RelayPolicy {
         limits: impl Fn() -> (Duration, Duration, bool, bool) + Send + 'static,
         stop: impl Fn() -> bool + Send + 'static,
     ) {
-        let mut down_since: Option<Instant> = None;
+        let mut down = DownWindow::default();
         let mut last_probe = Instant::now();
         loop {
             tokio::time::sleep(Duration::from_millis(500)).await;
             if stop() {
                 return;
+            }
+            let recheck = self
+                .recheck
+                .swap(false, std::sync::atomic::Ordering::SeqCst);
+            if recheck {
+                down.clear();
             }
             let (fallback_after, probe_every, allow, relay_only) = limits();
             let _ = self.set_relay_only(relay_only).await;
@@ -734,13 +785,13 @@ impl RelayPolicy {
                 self.set_state(RelayState::Shared {
                     connected: !home_relays(&ep).is_empty(),
                 });
-                down_since = None;
+                down.clear();
                 continue;
             };
             let Ok(own_url) = own.parsed() else { continue };
             if let RelayState::OwnFallback { .. } = self.state() {
                 // the own relay is tried again by a plain test; when it answers, the shared relays go
-                if last_probe.elapsed() >= probe_every {
+                if recheck || last_probe.elapsed() >= probe_every {
                     last_probe = Instant::now();
                     if crate::relaytest::test(&own, ep.secret_key().clone())
                         .await
@@ -748,17 +799,17 @@ impl RelayPolicy {
                         && self.rebuild(true).await.is_ok()
                     {
                         self.set_state(RelayState::OwnDown { error: None });
-                        down_since = None;
+                        down.clear();
                     }
                 }
                 continue;
             }
             if home_relays(&ep).contains(&own_url) {
                 self.set_state(RelayState::Own);
-                down_since = None;
+                down.clear();
                 continue;
             }
-            let since = *down_since.get_or_insert_with(Instant::now);
+            let down_for = down.down(Instant::now());
             let error = home_problem(&ep).map(|(denied, why)| {
                 if denied {
                     LinkError::new(errors::OWN_RELAY_ACCESS_DENIED, format!("Your relay refused this device ({why})."))
@@ -768,7 +819,7 @@ impl RelayPolicy {
                         .allow("Check that the relay server is running; FERB's Test button says what is wrong")
                 }
             });
-            if allow && since.elapsed() >= fallback_after {
+            if allow && down_for >= fallback_after {
                 if self.rebuild(false).await.is_ok() {
                     last_probe = Instant::now();
                     self.set_state(RelayState::OwnFallback { error });
@@ -952,4 +1003,58 @@ pub async fn wait_home(ep: &Endpoint, d: Duration) -> bool {
     })
     .await
     .is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TICK: Duration = Duration::from_millis(500);
+
+    // decision: PHN-208, PHN-425
+    #[test]
+    fn only_watched_time_counts_toward_the_fallback() {
+        let t0 = Instant::now();
+        // watched without a break: 30 s of checks reach 30 s
+        let mut w = DownWindow::default();
+        let mut now = t0;
+        let mut seen = Duration::ZERO;
+        for _ in 0..=60 {
+            seen = w.down(now);
+            now += TICK;
+        }
+        assert_eq!(seen, Duration::from_secs(30));
+
+        // seen down once, then the process was frozen for ten minutes: the first check after it starts again
+        let mut w = DownWindow::default();
+        assert_eq!(w.down(t0), Duration::ZERO);
+        let thawed = t0 + Duration::from_secs(600);
+        assert_eq!(
+            w.down(thawed),
+            Duration::ZERO,
+            "the frozen minutes don't count"
+        );
+        // and the fallback comes only after 30 s more of watching
+        let mut now = thawed;
+        for _ in 0..59 {
+            now += TICK;
+            assert!(w.down(now) < Duration::from_secs(30));
+        }
+        assert_eq!(w.down(now + TICK), Duration::from_secs(30));
+
+        // a gap of up to WATCH_GAP (a slow check) still counts; one past it does not
+        let mut w = DownWindow::default();
+        w.down(t0);
+        assert_eq!(w.down(t0 + WATCH_GAP), WATCH_GAP);
+        let mut w = DownWindow::default();
+        w.down(t0);
+        assert_eq!(w.down(t0 + WATCH_GAP + TICK), Duration::ZERO);
+
+        // a change of network clears what was seen on the old one
+        let mut w = DownWindow::default();
+        w.down(t0);
+        w.down(t0 + Duration::from_secs(4));
+        w.clear();
+        assert_eq!(w.down(t0 + Duration::from_secs(5)), Duration::ZERO);
+    }
 }

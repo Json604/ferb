@@ -512,3 +512,78 @@ fn files_the_preview_the_status_and_the_lock_through_the_real_link() {
     drop(w);
     drop(relay);
 }
+
+// decision: PHN-418
+// decision: PHN-425
+/// The owner's relay the phone learned from the Mac is in the status in every phase, not only once a welcome came:
+/// a paired phone whose Mac can't be reached shows it while connecting and waiting, until the pairing is forgotten.
+#[test]
+fn the_status_carries_the_saved_own_relay_while_the_mac_cant_be_reached() {
+    let app = Arc::new(App::default());
+    let config = LinkConfig {
+        state: None,
+        name: "Invented phone".into(),
+        app: "test".into(),
+        unlock_pub: None,
+        device_pub: None,
+        strong_pub: None,
+        segmentation_offload: true,
+        // nothing listens on the discard port: no relay, no Mac, and the link stays on 127.0.0.1
+        dev_shared_relays: vec!["http://127.0.0.1:9".into()],
+        dev_force_relay: false,
+        dev_portmapper: false,
+    };
+    // a Mac's id nobody answers for: another link's; this phone's key: a fresh link's, as it handed it over
+    let (keyed, other_app) = (Arc::new(App::default()), Arc::new(App::default()));
+    let other = Link::start(config.clone(), other_app.clone(), None).unwrap();
+    let mac_id = other.endpoint_id();
+    other.shutdown();
+    let mine = Link::start(config.clone(), keyed.clone(), None).unwrap();
+    assert!(wait(5, || !keyed.states.lock().unwrap().is_empty()));
+    mine.shutdown();
+    let fresh: Value = serde_json::from_slice(&keyed.states.lock().unwrap()[0]).unwrap();
+    let own = "https://127.0.0.1:9";
+    let saved = json!({
+        "key": fresh["key"],
+        "mac": {"id": mac_id, "relays": [], "own": {"url": own, "token": "invented-token"}, "paired": true},
+    });
+    let link = Link::start(
+        LinkConfig {
+            state: Some(saved.to_string().into_bytes()),
+            ..config
+        },
+        app.clone(),
+        None,
+    )
+    .unwrap();
+    assert!(
+        wait(20, || matches!(
+            link.status().phase,
+            LinkPhase::Connecting | LinkPhase::Waiting
+        )),
+        "{:?}",
+        link.status()
+    );
+    let st = link.status();
+    assert_eq!(st.path, LinkPath::Offline);
+    assert_eq!(st.own_relay_url.as_deref(), Some(own), "{st:?}");
+    // every status the app heard while the Mac couldn't be reached said it, whatever the phase
+    assert!(wait(20, || app
+        .statuses
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|s| s.phase == LinkPhase::Waiting)));
+    let heard = app.statuses.lock().unwrap().clone();
+    assert!(
+        heard
+            .iter()
+            .all(|s| s.own_relay_url.as_deref() == Some(own)),
+        "{heard:?}"
+    );
+    // forgotten: no Mac, no relay of its
+    link.forget().unwrap();
+    assert!(wait(5, || link.status().phase == LinkPhase::Idle));
+    assert_eq!(link.status().own_relay_url, None);
+    link.shutdown();
+}
