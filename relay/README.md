@@ -42,7 +42,20 @@ stays on the sender's Mac.
 
 Rate limit, per sender address, counted apart for files and for issues: at most 2 a minute in each Cloudflare location
 (the `REPORT_LIMIT` binding, whose window can only be 10 or 60 seconds), plus 5 per 10 minutes in each running Worker
-instance.
+instance. A request is counted against the address it connected from (`CF-Connecting-IP`) and, when it came through
+the owner's site, also against the visitor's address the site forwards (`X-Real-IP`, which Vercel sets itself): a
+sender has one allowance whichever way it came, and an `X-Real-IP` a direct caller makes up never lifts the limit on
+its own address. Requests through the site also share the allowance of the site's own address; when that is used up,
+FERB's Send moves on to the relay's own address.
+
+## Its address: the owner's domain first
+
+FERB sends to `https://ferb.kartikey.xyz/reports` first (REL-447, REL-448): the site (`site/vercel.json`) forwards
+exactly `/reports/file` and `/reports/report` to this Worker as a proxy (a rewrite, never a redirect, which would
+lose the upload's body). When a step doesn't go through there (no answer, the site's
+own error, or any refusal), FERB asks the Worker's own address next, `https://ferb-reports.ferb-reports.workers.dev`,
+and never any other (`RELAY_URLS` in `engine/crates/ferb-daemon/src/areas_b/reports.rs`). Moving the relay later
+means changing the site's rewrite; installed copies follow without an update.
 
 ## Give the token access to the repo's contents (owner, once)
 
@@ -66,14 +79,16 @@ npx wrangler deploy                   # prints the address, e.g. https://ferb-re
 npx wrangler secret put GITHUB_TOKEN  # paste the fine-grained token (Issues and Contents: read and write, ferb-reports only)
 ```
 
-FERB's address for it is `https://ferb-reports.<your-subdomain>.workers.dev`: it goes into
-`engine/crates/ferb-daemon/src/areas_b/reports.rs` as `RELAY_URL` (a config `[feedback] relay_url` overrides it on one
-Mac; an address ending in `/report`, as the first relay used, works too).
+The Worker's own address, `https://ferb-reports.<your-subdomain>.workers.dev`, is FERB's second address
+(`RELAY_FALLBACK` in `engine/crates/ferb-daemon/src/areas_b/reports.rs`) and the destination of the site's rewrite in
+`site/vercel.json`; a new address changes both. A config `[feedback] relay_url` replaces both on one Mac (an address
+ending in `/report`, as the first relay used, works too). After a deploy of the site, the two requests below can be
+sent to `https://ferb.kartikey.xyz/reports` as well.
 
 ## Test with two requests
 
 ```sh
-RELAY=https://ferb-reports.<your-subdomain>.workers.dev
+RELAY=https://ferb.kartikey.xyz/reports      # through the site; or the Worker's own address
 BODY="{\"message\":\"Relay test\",\"content\":\"$(printf 'hello from curl\n' | base64)\"}"
 curl -sS -X POST "$RELAY/file?kind=diagnostic&report_id=relay-test-1" -H 'Content-Type: application/json' -d "$BODY"
 # → {"ok":true,"ticket":"…"}; paste the ticket below

@@ -205,9 +205,9 @@ pub struct Deps {
     pub session_ok: Option<SessionCheck>,
     /// The in-process bus `logs.subscribe` reads (every published event, redacted once).
     pub bus: ferb_core::bus::Bus,
-    /// `reports.RELAY_URL`: the developer's report relay when config names none ("" in a daemon started for a
-    /// test: nothing reaches the deployed relay, as conftest's `no_report_relay`).
-    pub relay_default: String,
+    /// `reports.RELAY_URLS`: the developer's report relay's addresses, in order, when config names none (REL-448;
+    /// none in a daemon started for a test: nothing reaches the deployed relay, as conftest's `no_report_relay`).
+    pub relay_defaults: Vec<String>,
     /// The snapshot facts for `doctor.check`: (snapshots on, the last failure).
     pub snapshots: Arc<dyn Fn() -> (bool, Value) + Send + Sync>,
     /// The tools' parts (the supervisor, once built: a delegated conversation's changes).

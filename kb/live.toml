@@ -5177,3 +5177,12 @@ request = "Sign the Mac in as account A. Pair a phone signed in as B; then sign 
 pass = "B is refused with the message naming both emails and the Mac never asks; A pairs after the Mac's Yes as before; signing the Mac in as B removes the phone with one notice naming it; a phone signing out is gone from Settings → Phone."
 decisions = ["PHN-828", "PHN-830", "PHN-102"]
 sitting = "phone sign-in check after deployment"
+
+[LIVE-1205]
+title = "Send to developer goes through the owner's domain"
+area = "release"
+surface = "https://ferb.kartikey.xyz after the owner deploys site/ (and the relay with npx wrangler deploy in relay/), then FERB.app built with this engine; the private ferb-reports repo"
+request = "Send relay/README.md's two test requests to https://ferb.kartikey.xyz/reports; then in FERB.app make a task fail, press Send to developer and Send; then send a report close to 25 MB (LIVE-4); then Send once more with the site's rewrite briefly broken or with ferb.kartikey.xyz blocked in /etc/hosts."
+pass = "The two requests through the domain answer {\"ok\":true,...} and file one issue (Vercel's External Origins shows them); each Send in FERB.app shows Sent with one issue and its linked file; the 25 MB report goes through (through the domain or, if the site refuses it, through the Worker's own address); with the domain unreachable Send still says Sent."
+decisions = ["REL-447", "REL-448"]
+sitting = "website review after deployment"

@@ -472,16 +472,8 @@ async fn reports_send(d: Deps, p: Params) -> Result<Map<String, Value>, HandlerE
     let title = ferb_daemon::shared::text(&p, "title");
     let app_version = ferb_daemon::shared::text(&p, "app_version");
     let attempt = async {
-        // RELAY_URL replaced by the daemon's own (a test daemon's is empty: never the owner's deployed relay)
-        let configured = if ferb_py::value::truthy(&configured) {
-            configured
-        } else {
-            Value::String(d.relay_default.clone())
-        };
-        if !ferb_py::value::truthy(&configured) {
-            return Err(reports::ReportError::Unsent(reports::NOT_SET_UP.into()));
-        }
-        let url = reports::relay_url(&configured)?;
+        // RELAY_URLS replaced by the daemon's own (a test daemon's are none: never the owner's deployed relay)
+        let urls = reports::relay_urls(&configured, &d.relay_defaults)?;
         let (path2, dd) = (path.clone(), d.clone());
         let (title, app_version) = (title.clone(), app_version.clone());
         let out = tokio::task::spawn_blocking(move || {
@@ -501,8 +493,8 @@ async fn reports_send(d: Deps, p: Params) -> Result<Map<String, Value>, HandlerE
         .map_err(|e| reports::ReportError::Fault(e.to_string()))??;
         let http = reports::ReqwestRelay::new(reports::SEND_TIMEOUT_S)
             .map_err(reports::ReportError::Unsent)?;
-        let id = reports::send(
-            &url,
+        let id = reports::send_to(
+            &urls,
             &out,
             &http,
             &d.facts.version,

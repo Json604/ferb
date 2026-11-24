@@ -60,7 +60,7 @@ pub fn control(d: &Arc<crate::compose::Daemon>, req: &Value, what: &str) -> Resu
 }
 
 pub fn group_c(config: &Value, d: &mut Deps) {
-    d.relay_default = String::new();
+    d.relay_defaults = Vec::new();
     if config["group_c"] == "recorder" {
         d.mac = Arc::new(RecorderMac);
         d.facts.version = "0.27.3".into();

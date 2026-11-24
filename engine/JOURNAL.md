@@ -12031,3 +12031,74 @@ What it would take:
 - Android's box still offers + in the temporary chat. A file picked there waits as a chip and is not sent with the
   words. The iPhone hides + there. Not changed.
 - No streaming (above).
+
+## 2026-11-24 · 209 · Send to developer goes to the owner's domain first: ferb.kartikey.xyz/reports, a site rewrite
+
+**What the owner decided.** "ok lets do this" (2026-11-24, relayed verbatim), told that the report relay's address
+could move to his domain so shipped copies never depend on a workers.dev address: REL-447 (owner). How, REL-448
+(agent), the REL-432 way and with no DNS work for him: the site forwards the relay's two requests to the existing
+Worker, and every build carries an ordered list, the owner's domain first.
+
+**Changed.**
+- `site/vercel.json:37-40`: a rewrite (never a redirect: the upload's body) of exactly `/reports/:step(file|report)`
+  to `https://ferb-reports.ferb-reports.workers.dev/:step`. Nothing else under /reports reaches the Worker, and no
+  `headers` block is added (the relay answers `Cache-Control: no-store` itself; `feed.test.mjs` asserts no headers).
+- `engine/crates/ferb-daemon/src/areas_b/reports.rs:32-39`: `RELAY_URL` is now `https://ferb.kartikey.xyz/reports`,
+  `RELAY_FALLBACK` the Worker's own address, `RELAY_URLS` both in order. `relay_urls` (:1156) gives the list: config
+  `[feedback] relay_url` alone when set, else the build's defaults, none in a test daemon ("isn't set up yet").
+  `send_to` (:1758) runs one Send over the list: each step (the file with its conflict retries, then the issue) starts
+  at the address that took the step before and moves to the next only when this one didn't take it (no answer, an
+  answer that isn't the relay's, or any refusal); a failed Send reports the last address's reason; one deadline for
+  the whole Send. `send(base)` (:1732) is `send_to` with one address, so the Python fixtures run unchanged.
+- `engine/crates/ferbd`: `Deps.relay_default: String` became `relay_defaults: Vec<String>` (areas_c/mod.rs:210),
+  filled from `RELAY_URLS` (compose/group_c.rs:269) and empty in the test stand-ins (standins_c.rs:63);
+  `reports.send` uses `relay_urls` and `send_to` (areas_c/records.rs:476,496).
+- `relay/worker.mjs:127-146`: the rate limit counts a request against its connecting address (`CF-Connecting-IP`),
+  first, and then, when present and shaped like an address, the visitor address the site forwards (`X-Real-IP`,
+  which Vercel sets itself and documents as overwritten against spoofing), under the same key per address. Through
+  the site every request reaches the Worker from Vercel's addresses, so `CF-Connecting-IP` alone would have limited
+  no sender by their own address; a direct caller's made-up `X-Real-IP` never lifts its own limit (it is counted
+  after the connecting address). `relay/README.md` says where FERB sends and how the limit counts.
+- FERB.app and the phones: nothing. The app never holds the address (`FailureReport.swift:7`, `reports.send` over
+  RPC); the phones send no reports (no `reports.send` in apps/android, apps/ios or ferb-mobile-ffi).
+
+**Why every refusal moves on, not only "no answer".** A proxy can lose what the relay needs and the relay then
+refuses for a reason the Worker's own address wouldn't have: a dropped query (400), a body re-sent chunked without
+`Content-Length` (411), Vercel's 120-second proxied-request limit (its 504), Vercel's firewall, or the site's own
+address using up the shared allowance (429). When the refusal is the relay's own (GitHub down, a bad ticket, the
+sender's own limit), the Worker's address answers the same once more. A domain timeout after GitHub already saved the
+file leaves one unlinked file in the private repo when the second address saves it again.
+
+**Named difference from Python.** `relay_url("")`/`relay_url(None)` gives `RELAY_URL`, now the owner's domain; the
+recorded Python answer is the workers.dev address. `the_relay_address_rules_match_python` names it (REL-448) and
+asserts the recorded value is `RELAY_FALLBACK`.
+
+**kb.** REL-447 (owner) and REL-448 (agent) in release; LIVE-1205; T-1267 keeps only "a first release on ferb-update;
+his and the friend's copies updated by hand once" (now a chore, its question answered). DMN-31's "reports.RELAY_URL"
+now reads as the first of `RELAY_URLS` (REL-448).
+
+**Evidence.** `cargo test -p ferb-daemon --test b_reports`: 14 passed, among them
+`a_build_sends_to_the_owners_domain_first_then_the_relays_own_address_and_nothing_else`,
+`a_send_through_the_owners_domain_never_asks_the_relays_own_address`,
+`a_step_the_owners_domain_doesnt_take_goes_to_the_relays_own_address` (unreachable, the site's error page, a relay
+411, a timeout; and the issue moving after the file went through the domain),
+`when_no_address_takes_it_the_send_says_the_last_ones_reason`, and
+`the_real_client_moves_to_the_next_address_when_the_first_cant_be_reached` (reqwest against a closed port, then a
+relay on 127.0.0.1). `node relay/test.mjs`: 14 passed (two new: the site's forwarded address limits each sender; a
+made-up one never lifts a direct caller's limit). `node --test site/tests/*.test.mjs`: 103 passed (3 new in
+`site/tests/reports.test.mjs`; run with the main checkout's site/node_modules linked in for the analytics build test,
+then unlinked). `cargo test -p ferbd --test areas_c` (the recorded RPC replay, `reports.send` included): 3 passed.
+`engine/gate.sh fmt` ok; `cargo clippy -p ferb-daemon -p ferbd --all-targets --locked -- -D warnings` ok (not the
+whole workspace's lint or test run). `kb lock`, `kb gen`, `kb check` ok; `git diff --check` clean.
+
+**Goes live** when the owner next deploys the site from site/ (Vercel CLI) and installs a FERB build with this engine.
+Until the relay is redeployed (`cd relay && npx wrangler deploy`), requests through the site are limited by Vercel's
+addresses only, shared by everyone sending through the site; FERB's Send then moves on to the Worker's own address
+on a 429, so it still goes through.
+
+**Unverified.** Nothing ran against Vercel, Cloudflare or GitHub. From Vercel's documentation, not seen: that an
+external rewrite keeps POST, its body, the query string and `Content-Length`; that it sets the Worker's host; that it
+forwards `X-Real-IP` with the visitor's address and Cloudflare passes it on; whether it caps a proxied body below the
+relay's 33 MB (only Functions' 4.5 MB is documented; a cap would send big reports to the Worker's own address); that
+its firewall lets FERB's POSTs through. LIVE-1205 checks them. Installed copies built before this keep sending to
+the workers.dev address directly, which still works.

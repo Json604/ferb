@@ -554,6 +554,8 @@ async fn the_real_client_sends_the_relays_bytes() {
 }
 
 // decision: DMN-31
+// decision: REL-448 (named difference: with no address configured, Python's RELAY_URL was the relay's workers.dev
+// address; a build's first address is now the owner's domain)
 #[test]
 fn the_relay_address_rules_match_python() {
     let mut d = Diffs(vec![], 0);
@@ -562,9 +564,201 @@ fn the_relay_address_rules_match_python() {
             Ok(u) => json!({"url": u}),
             Err(e) => error_value(&e),
         };
-        d.check(&format!("relay_url {}", case[0]), &case[1], &got);
+        let want = if case[0] == "" || case[0].is_null() {
+            assert_eq!(case[1], json!({"url": reports::RELAY_FALLBACK}));
+            json!({"url": reports::RELAY_URL})
+        } else {
+            case[1].clone()
+        };
+        d.check(&format!("relay_url {}", case[0]), &want, &got);
     }
     d.done("relay_url");
+}
+
+// decision: REL-447, REL-448
+#[test]
+fn a_build_sends_to_the_owners_domain_first_then_the_relays_own_address_and_nothing_else() {
+    assert_eq!(
+        reports::RELAY_URLS,
+        [
+            "https://ferb.kartikey.xyz/reports",
+            "https://ferb-reports.ferb-reports.workers.dev"
+        ]
+    );
+    let defaults: Vec<String> = reports::RELAY_URLS.iter().map(|u| u.to_string()).collect();
+    assert_eq!(
+        reports::relay_urls(&json!(""), &defaults),
+        Ok(defaults.clone())
+    );
+    // the owner's own address on one Mac replaces the list: only that one is asked
+    assert_eq!(
+        reports::relay_urls(&json!("https://relay.example.org/r/report"), &defaults),
+        Ok(vec!["https://relay.example.org/r".to_owned()])
+    );
+    // a daemon started for a test has none: nothing reaches the deployed relay
+    assert_eq!(
+        reports::relay_urls(&json!(""), &[]),
+        Err(ReportError::Unsent(reports::NOT_SET_UP.into()))
+    );
+    assert_eq!(
+        reports::relay_urls(&json!("http://relay.example.org"), &defaults),
+        Err(ReportError::Unsent(
+            "The report relay address in config.toml ([feedback] relay_url) isn't a valid https address".into()
+        ))
+    );
+}
+
+/// A relay at each of several addresses: what each answers (by request, in turn), and every request's address and
+/// path in order.
+type Answer<T> = Result<(u16, T), PostError>;
+
+struct Addresses {
+    answers: Mutex<Vec<(String, Answer<String>)>>,
+    seen: Mutex<Vec<String>>,
+}
+
+impl Addresses {
+    fn new(answers: Vec<(&str, Answer<&str>)>) -> Addresses {
+        Addresses {
+            answers: Mutex::new(
+                answers
+                    .into_iter()
+                    .map(|(h, a)| (h.to_owned(), a.map(|(s, b)| (s, b.to_owned()))))
+                    .collect(),
+            ),
+            seen: Mutex::new(vec![]),
+        }
+    }
+    fn seen(&self) -> Vec<String> {
+        self.seen.lock().unwrap().clone()
+    }
+}
+
+impl RelayHttp for Addresses {
+    fn post<'a>(
+        &'a self,
+        url: &'a str,
+        _body: &'a [u8],
+        _headers: &'a [(&'a str, String)],
+    ) -> BoxFuture<'a, Result<(u16, Vec<u8>), PostError>> {
+        Box::pin(async move {
+            let at = url.split('?').next().unwrap().to_owned();
+            self.seen.lock().unwrap().push(at.clone());
+            let mut q = self.answers.lock().unwrap();
+            let i = q
+                .iter()
+                .position(|(prefix, _)| at.starts_with(prefix.as_str()))
+                .unwrap_or_else(|| panic!("no answer left for {at}"));
+            let (_, answer) = q.remove(i);
+            answer.map(|(s, b)| (s, b.into_bytes()))
+        })
+    }
+}
+
+const DOMAIN: &str = "https://ferb.kartikey.xyz/reports";
+const OWN: &str = "https://ferb-reports.ferb-reports.workers.dev";
+const TICKET: &str = r#"{"ok": true, "ticket": "t-1"}"#;
+const FILED: &str = r#"{"ok": true, "report_id": "r-9"}"#;
+
+async fn send_both(relay: &Addresses) -> Result<String, ReportError> {
+    let out = outgoing(&fixture()["send"][0]["outgoing"]);
+    reports::send_to(
+        &[DOMAIN.to_owned(), OWN.to_owned()],
+        &out,
+        relay,
+        "0.28.0",
+        30.0,
+        0.0,
+    )
+    .await
+}
+
+// decision: REL-448
+#[tokio::test]
+async fn a_send_through_the_owners_domain_never_asks_the_relays_own_address() {
+    let relay = Addresses::new(vec![
+        (DOMAIN, Ok((200, TICKET))),
+        (DOMAIN, Ok((200, FILED))),
+    ]);
+    assert_eq!(send_both(&relay).await, Ok("r-9".to_owned()));
+    assert_eq!(
+        relay.seen(),
+        [format!("{DOMAIN}/file"), format!("{DOMAIN}/report")]
+    );
+}
+
+// decision: REL-448
+#[tokio::test]
+async fn a_step_the_owners_domain_doesnt_take_goes_to_the_relays_own_address() {
+    // unreachable, an answer that isn't the relay's (the site's own error page), the relay's refusal (a proxy that
+    // lost the body's length), and a timeout: each time the relay's own address takes the file, and the issue
+    // follows it there without asking the domain again
+    let failures: Vec<Answer<&str>> = vec![
+        Err(PostError::Failed("ConnectError".into())),
+        Ok((504, "An error occurred with this application.")),
+        Ok((
+            411,
+            r#"{"ok": false, "error": "Content-Length is required"}"#,
+        )),
+        Err(PostError::Timeout),
+    ];
+    for failure in failures {
+        let relay = Addresses::new(vec![
+            (DOMAIN, failure),
+            (OWN, Ok((200, TICKET))),
+            (OWN, Ok((200, FILED))),
+        ]);
+        assert_eq!(send_both(&relay).await, Ok("r-9".to_owned()));
+        assert_eq!(
+            relay.seen(),
+            [
+                format!("{DOMAIN}/file"),
+                format!("{OWN}/file"),
+                format!("{OWN}/report")
+            ]
+        );
+    }
+    // the file through the domain, the issue refused there: the relay's own address files it with the same ticket
+    let relay = Addresses::new(vec![
+        (DOMAIN, Ok((200, TICKET))),
+        (DOMAIN, Ok((502, "Bad gateway"))),
+        (OWN, Ok((200, FILED))),
+    ]);
+    assert_eq!(send_both(&relay).await, Ok("r-9".to_owned()));
+    assert_eq!(
+        relay.seen(),
+        [
+            format!("{DOMAIN}/file"),
+            format!("{DOMAIN}/report"),
+            format!("{OWN}/report")
+        ]
+    );
+}
+
+// decision: REL-448
+#[tokio::test]
+async fn when_no_address_takes_it_the_send_says_the_last_ones_reason() {
+    let relay = Addresses::new(vec![
+        (DOMAIN, Ok((504, "Gateway timeout"))),
+        (
+            OWN,
+            Ok((
+                429,
+                r#"{"ok": false, "error": "too many reports from this network"}"#,
+            )),
+        ),
+    ]);
+    assert_eq!(
+        send_both(&relay).await,
+        Err(ReportError::Unsent(
+            "Too many reports were sent from this network just now; try again in a few minutes"
+                .into()
+        ))
+    );
+    assert_eq!(
+        relay.seen(),
+        [format!("{DOMAIN}/file"), format!("{OWN}/file")]
+    );
 }
 
 // decision: DMN-28
@@ -693,4 +887,36 @@ fn a_report_over_25_mb_is_cut_to_fit() {
     }
     let summary = reports::summarize(&text, &note, reports::SUMMARY_CHARS);
     assert!(summary.starts_with("[Shortened") && summary.contains("Errors (1)"));
+}
+
+// decision: REL-448
+#[tokio::test]
+async fn the_real_client_moves_to_the_next_address_when_the_first_cant_be_reached() {
+    let closed = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let (url, seen) = local_relay(vec![(200, TICKET.into()), (200, FILED.into())]).await;
+    let out = outgoing(&fixture()["send"][0]["outgoing"]);
+    let relay = ReqwestRelay::new(10.0).unwrap();
+    let got = reports::send_to(
+        &[format!("http://127.0.0.1:{closed}"), url],
+        &out,
+        &relay,
+        "0.28.0",
+        30.0,
+        0.0,
+    )
+    .await;
+    assert_eq!(got, Ok("r-9".to_owned()));
+    let firsts: Vec<String> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(head, _)| head.lines().next().unwrap().to_owned())
+        .collect();
+    assert_eq!(firsts.len(), 2);
+    assert!(firsts[0].starts_with("POST /file?kind="), "{firsts:?}");
+    assert_eq!(firsts[1], "POST /report HTTP/1.1");
 }

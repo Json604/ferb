@@ -29,8 +29,14 @@ use regex::Regex;
 use rusqlite::types::Value as Sql;
 use serde_json::{json, Map, Value};
 
-/// Where Send sends a report (owner, 2026-11-01): the developer's relay; config `[feedback] relay_url` overrides it.
-pub const RELAY_URL: &str = "https://ferb-reports.ferb-reports.workers.dev";
+/// Where Send sends a report (owner, 2026-11-01): the developer's relay, at its address under the owner's domain
+/// (REL-447, REL-448: the site forwards `/reports/file` and `/reports/report` to the relay); config
+/// `[feedback] relay_url` overrides it.
+pub const RELAY_URL: &str = "https://ferb.kartikey.xyz/reports";
+/// The relay's own address, asked only after RELAY_URL didn't take a step (REL-448, as REL-432's feeds).
+pub const RELAY_FALLBACK: &str = "https://ferb-reports.ferb-reports.workers.dev";
+/// The addresses a shipped build sends to, in order (REL-448): the owner's domain first, then the relay's own.
+pub const RELAY_URLS: [&str; 2] = [RELAY_URL, RELAY_FALLBACK];
 pub const NOT_SET_UP: &str = "Sending reports to the developer isn't set up yet";
 /// One sent report file at most (owner, 2026-11-01; relay/worker.mjs MAX_REPORT).
 pub const MAX_REPORT_BYTES: usize = 25_000_000;
@@ -1144,6 +1150,22 @@ pub fn relay_url(configured: &Value) -> Result<String> {
     Ok(format!("{}://{}{path}", parts.scheme, parts.netloc))
 }
 
+/// The addresses a Send tries, in order (DMN-31, REL-448): config `[feedback] relay_url` alone when it names one (the
+/// owner's choice on that Mac, no other), else `defaults` (RELAY_URLS in a shipped build; none in a test daemon:
+/// "isn't set up yet"). Each by `relay_url`'s rules.
+pub fn relay_urls(configured: &Value, defaults: &[String]) -> Result<Vec<String>> {
+    if truthy(configured) {
+        return Ok(vec![relay_url(configured)?]);
+    }
+    if defaults.is_empty() {
+        return Err(ReportError::Unsent(NOT_SET_UP.into()));
+    }
+    defaults
+        .iter()
+        .map(|u| relay_url(&Value::String(u.clone())))
+        .collect()
+}
+
 // ---------- reading a report's Steps (DMN-29: structural facts only) ----------
 
 /// `_steps(body)`: where the Steps section's blocks start and end (byte offsets), and its blocks.
@@ -1706,11 +1728,35 @@ fn refused(status: u16, answer: &Map<String, Value>) -> ReportError {
     ))
 }
 
-/// `send(base, out)` (DMN-28, DMN-30, DMN-31): the file (again when the relay says another report's commit landed at
-/// that moment, up to CONFLICT_TRIES, `pause_s` × the try between), then the issue with the relay's ticket; the
-/// relay's report_id. Any failure is Unsent with a reason the owner can read; the whole Send within `deadline_s`.
+/// `send(base, out)` (DMN-28, DMN-30, DMN-31): one Send to one address, as [`send_to`] with that address alone.
 pub async fn send(
     base: &str,
+    out: &Outgoing,
+    http: &dyn RelayHttp,
+    ferb_version: &str,
+    deadline_s: f64,
+    pause_s: f64,
+) -> Result<String> {
+    send_to(
+        &[base.to_owned()],
+        out,
+        http,
+        ferb_version,
+        deadline_s,
+        pause_s,
+    )
+    .await
+}
+
+/// One Send (DMN-28, DMN-30, DMN-31, REL-448): the file (again when the relay says another report's commit landed at
+/// that moment, up to CONFLICT_TRIES, `pause_s` × the try between), then the issue with the relay's ticket; the
+/// relay's report_id. Each step goes to `bases` in order, starting from the address that took the step before, and
+/// moves to the next only when this one didn't take it (no answer, an answer that isn't the relay's, or the relay's
+/// refusal): a proxy in front of the relay can lose what the relay needs, and the relay's own address answers the
+/// same refusal again when it is the relay's. Any failure is Unsent with the last address's reason, which the owner
+/// can read; the whole Send within `deadline_s`.
+pub async fn send_to(
+    bases: &[String],
     out: &Outgoing,
     http: &dyn RelayHttp,
     ferb_version: &str,
@@ -1722,44 +1768,24 @@ pub async fn send(
         ("User-Agent", format!("FERB/{ferb_version}")),
     ];
     let go = async {
-        let query = format!(
-            "kind={}&report_id={}",
-            quote_plus(&out.kind),
-            quote_plus(&out.report_id)
-        );
-        let mut got = (0u16, Map::new());
-        for attempt in 0..CONFLICT_TRIES {
-            got = call(http, &format!("{base}/file?{query}"), &out.file, &headers).await?;
-            let retry = got.0 == 409
-                && got.1.get("retry") == Some(&Value::Bool(true))
-                && attempt + 1 < CONFLICT_TRIES;
-            if !retry {
-                break;
+        let mut at = 0;
+        let ticket = loop {
+            let base = bases.get(at).ok_or_else(|| unsent(NOT_SET_UP))?;
+            match send_file(base, out, http, &headers, pause_s).await {
+                Ok(ticket) => break ticket,
+                Err(_) if at + 1 < bases.len() => at += 1,
+                Err(e) => return Err(e),
             }
-            tokio::time::sleep(std::time::Duration::from_secs_f64(
-                (pause_s * (attempt + 1) as f64).max(0.0),
-            ))
-            .await;
-        }
-        let (status, answer) = got;
-        let ticket = match answer.get("ticket") {
-            Some(Value::String(t)) => t.clone(),
-            _ => return Err(refused(status, &answer)),
         };
-        if status != 200 || answer.get("ok") != Some(&Value::Bool(true)) {
-            return Err(refused(status, &answer));
-        }
         let mut issue = out.issue.clone();
         issue.insert("ticket".into(), json!(ticket));
         let body = dumps_utf8(&Value::Object(issue)).into_bytes();
-        let (status, answer) = call(http, &format!("{base}/report"), &body, &headers).await?;
-        if status != 200 || answer.get("ok") != Some(&Value::Bool(true)) {
-            return Err(refused(status, &answer));
+        loop {
+            match send_issue(&bases[at], out, http, &headers, &body).await {
+                Err(_) if at + 1 < bases.len() => at += 1,
+                done => return done,
+            }
         }
-        Ok(match answer.get("report_id") {
-            Some(v) if truthy(v) => py_str(v),
-            _ => out.report_id.clone(),
-        })
     };
     match tokio::time::timeout(std::time::Duration::from_secs_f64(deadline_s.max(0.0)), go).await {
         Ok(r) => r,
@@ -1767,4 +1793,60 @@ pub async fn send(
             "FERB couldn't send the report: it didn't finish in time",
         )),
     }
+}
+
+/// Step 1 at one address: the file, again on the relay's conflict; the relay's ticket.
+async fn send_file(
+    base: &str,
+    out: &Outgoing,
+    http: &dyn RelayHttp,
+    headers: &[(&str, String)],
+    pause_s: f64,
+) -> Result<String> {
+    let query = format!(
+        "kind={}&report_id={}",
+        quote_plus(&out.kind),
+        quote_plus(&out.report_id)
+    );
+    let mut got = (0u16, Map::new());
+    for attempt in 0..CONFLICT_TRIES {
+        got = call(http, &format!("{base}/file?{query}"), &out.file, headers).await?;
+        let retry = got.0 == 409
+            && got.1.get("retry") == Some(&Value::Bool(true))
+            && attempt + 1 < CONFLICT_TRIES;
+        if !retry {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs_f64(
+            (pause_s * (attempt + 1) as f64).max(0.0),
+        ))
+        .await;
+    }
+    let (status, answer) = got;
+    let ticket = match answer.get("ticket") {
+        Some(Value::String(t)) => t.clone(),
+        _ => return Err(refused(status, &answer)),
+    };
+    if status != 200 || answer.get("ok") != Some(&Value::Bool(true)) {
+        return Err(refused(status, &answer));
+    }
+    Ok(ticket)
+}
+
+/// Step 2 at one address: the issue with the ticket; the relay's report_id.
+async fn send_issue(
+    base: &str,
+    out: &Outgoing,
+    http: &dyn RelayHttp,
+    headers: &[(&str, String)],
+    body: &[u8],
+) -> Result<String> {
+    let (status, answer) = call(http, &format!("{base}/report"), body, headers).await?;
+    if status != 200 || answer.get("ok") != Some(&Value::Bool(true)) {
+        return Err(refused(status, &answer));
+    }
+    Ok(match answer.get("report_id") {
+        Some(v) if truthy(v) => py_str(v),
+        _ => out.report_id.clone(),
+    })
 }

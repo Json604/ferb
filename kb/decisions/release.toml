@@ -541,3 +541,26 @@ rule = "FERB pins no cryptography release for Intel Macs: no Python ships with F
 why = "The pin was for a Python wheel; uv.lock and pyproject.toml left with ENG-16."
 supersedes = ["REL-402"]
 untestable = "An absence: no Python package is built or shipped (ENG-2)."
+
+[REL-447]
+title = "Send to developer reaches the report relay at an address under the owner's domain"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "ok lets do this"
+words_source = "Owner 2026-11-24, relayed verbatim, told the report relay's address could move to his domain so shipped copies never depend on a workers.dev address (T-1267)."
+rule = "Every FERB build sends Send to developer's reports to the relay at an address under the owner's domain (ferb.kartikey.xyz), so shipped copies never depend on a workers.dev address and the relay can move without touching installed copies (REL-431)."
+why = "His answer to T-1267's address question; the coordinator's ruling on how is REL-448 (through the site, no new DNS work)."
+paths = ["engine/crates/ferb-daemon/src/areas_b/reports.rs", "site/vercel.json"]
+live = ["LIVE-1205"]
+
+[REL-448]
+title = "The report relay at ferb.kartikey.xyz/reports (a site rewrite), its own address second"
+by = "agent"
+date = 2026-11-24
+status = "active"
+rule = "For REL-447, as REL-432. site/vercel.json rewrites only /reports/file and /reports/report to the Worker (ferb-reports.ferb-reports.workers.dev), never a redirect. reports::RELAY_URLS, in order: ferb.kartikey.xyz/reports, then the Worker's own address, never another; [feedback] relay_url replaces both. Each step of a Send starts at the address that took the last one and moves on when it isn't taken (no answer or any refusal). The relay counts a request against its connecting address, then the X-Real-IP Vercel forwards, one key per address."
+why = "No DNS work; a rewrite moves later. Moving on after any refusal covers what a proxy can lose (query, Content-Length, its 120 s timeout). Via the site every request comes from Vercel, so CF-Connecting-IP alone limits no sender by their own; a made-up X-Real-IP never lifts a direct limit."
+rejected = ["A Cloudflare custom domain (reports.ferb.kartikey.xyz) on the Worker: a DNS change the owner would make", "A site function that proxies the upload: Vercel Functions take at most 4.5 MB of body", "Trusting X-Real-IP alone: a direct caller could name any address and lift its own limit"]
+paths = ["site/vercel.json", "engine/crates/ferb-daemon/src/areas_b/reports.rs", "engine/crates/ferbd/src/areas_c/records.rs", "engine/crates/ferbd/src/compose/group_c.rs", "relay/worker.mjs", "relay/README.md"]
+live = ["LIVE-1205"]

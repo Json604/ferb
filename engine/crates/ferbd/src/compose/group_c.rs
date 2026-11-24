@@ -266,7 +266,10 @@ pub fn deps(p: Parts<'_>) -> Deps {
             }) as areas_c::SessionCheck
         }),
         bus: p.bus,
-        relay_default: ferb_daemon::areas_b::reports::RELAY_URL.into(),
+        relay_defaults: ferb_daemon::areas_b::reports::RELAY_URLS
+            .iter()
+            .map(|u| u.to_string())
+            .collect(),
         // S1's snapshots (the tools' `Snapshots`, also the gateway's before shell work): on, and the last failure
         snapshots: {
             let s = p.tools.snapshots();

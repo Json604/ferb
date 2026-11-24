@@ -25,8 +25,9 @@ function fakeGitHub({ putStatus = 201, issueStatus = 201, fail = false } = {}) {
 const FILE = JSON.stringify({ message: "FERB failure report r-1", content: btoa("FERB report for t-1\n") });
 
 function upload(body = FILE, { query = "kind=failure&report_id=FERB-report-2026-11-01-t-1", type = "application/json",
-  ip = "203.0.113.9", length, method = "POST", path = "/file" } = {}) {
+  ip = "203.0.113.9", visitor, length, method = "POST", path = "/file" } = {}) {
   const headers = { "Content-Type": type, "CF-Connecting-IP": ip };
+  if (visitor !== undefined) headers["X-Real-IP"] = visitor;
   const size = length ?? (body === null ? undefined : String(new TextEncoder().encode(body).byteLength));
   if (size !== undefined) headers["Content-Length"] = size;
   const init = { method, headers, duplex: "half" };
@@ -39,8 +40,9 @@ function summary(extra = {}) {
     app_version: "0.28.0 (1)", ...extra };
 }
 
-function post(body, { ip = "203.0.113.9", method = "POST", type = "application/json" } = {}) {
+function post(body, { ip = "203.0.113.9", visitor, method = "POST", type = "application/json" } = {}) {
   const init = { method, headers: { "Content-Type": type, "CF-Connecting-IP": ip } };
+  if (visitor !== undefined) init.headers["X-Real-IP"] = visitor;
   if (method !== "GET") init.body = typeof body === "string" ? body : JSON.stringify(body);
   return new Request(`${ORIGIN}/report`, init);
 }
@@ -231,6 +233,44 @@ const tests = {
     assert.equal((await handle(post(summary({ ticket }), { ip: "192.0.2.4" }), limited, gh.fetcher, NOW)).status, 429);
     assert.deepEqual(asked, ["file:192.0.2.4", "issue:192.0.2.4"]);
     assert.equal(gh.calls.length, 0);
+  },
+
+  // decision: REL-448
+  async "through the owner's site, each sender is limited by the address the site forwards"() {
+    const gh = fakeGitHub();
+    const visitor = "198.51.100.20";
+    // the site connects from many addresses of its own; the visitor's allowance follows the visitor
+    for (let i = 0; i < PER_WINDOW; i++) {
+      const r = await handle(upload(FILE, { ip: `192.0.2.${100 + i}`, visitor }), env, gh.fetcher, NOW);
+      assert.equal(r.status, 200);
+    }
+    assert.equal((await handle(upload(FILE, { ip: "192.0.2.200", visitor }), env, gh.fetcher, NOW)).status, 429);
+    // and the same sender reaching the relay directly shares it
+    assert.equal((await handle(upload(FILE, { ip: visitor }), env, gh.fetcher, NOW)).status, 429);
+    assert.equal((await handle(upload(FILE, { ip: "192.0.2.201", visitor: "198.51.100.21" }), env, gh.fetcher, NOW)).status,
+      200);
+  },
+
+  // decision: REL-448
+  async "a forwarded address a direct caller makes up never lifts its own limit"() {
+    const gh = fakeGitHub();
+    const ip = "203.0.113.50";
+    for (let i = 0; i < PER_WINDOW; i++) {
+      const r = await handle(upload(FILE, { ip, visitor: `198.51.100.${i + 1}` }), env, gh.fetcher, NOW);
+      assert.equal(r.status, 200);
+    }
+    assert.equal((await handle(upload(FILE, { ip, visitor: "198.51.100.99" }), env, gh.fetcher, NOW)).status, 429);
+    // a value that isn't an address is not counted at all
+    resetLimits();
+    const asked = [];
+    const binding = { ...env, REPORT_LIMIT: { limit: async ({ key }) => (asked.push(key), { success: true }) } };
+    await handle(upload(FILE, { ip, visitor: "not an address" }), binding, gh.fetcher, NOW);
+    await handle(upload(FILE, { ip, visitor: ip }), binding, gh.fetcher, NOW);
+    await handle(upload(FILE, { ip, visitor: "2001:db8::7" }), binding, gh.fetcher, NOW);
+    const ticket = await sign(env, { p: "reports/x.txt", k: "failure", r: "r-1", e: NOW + 1000 });
+    await handle(post(summary({ ticket }), { ip, visitor: "2001:db8::7" }), binding, gh.fetcher, NOW);
+    assert.deepEqual(asked, [`file:${ip}`, `file:${ip}`, `file:${ip}`, "file:2001:db8::7", `issue:${ip}`,
+      "issue:2001:db8::7"]);
   },
 
   async "without its token the relay says it isn't set up"() {

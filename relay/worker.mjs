@@ -1,7 +1,9 @@
 // FERB's failure-report relay (owner decisions 2026-11-01): each Send in FERB.app becomes exactly one issue in the
 // owner's private repo (GITHUB_REPO) holding a short summary, plus the full cleaned report as one file in that repo,
 // linked from the issue. The token (the GITHUB_TOKEN secret) can only read and write that repo's issues and contents.
-// The person sending needs no GitHub account, browser or mail app.
+// The person sending needs no GitHub account, browser or mail app. FERB asks it at the owner's domain first
+// (https://ferb.kartikey.xyz/reports: the site forwards /reports/file and /reports/report here unchanged, REL-448), then
+// at its own workers.dev address.
 //
 // One Send is two requests, so the Worker never parses or re-encodes the big file (the free plan gives 10 ms of CPU
 // per request; waiting on GitHub doesn't count):
@@ -124,6 +126,25 @@ async function overLimit(env, key, now) {
   return limited(key, now);
 }
 
+// The addresses a request is counted against (REL-448): the one it connected from (CF-Connecting-IP) and, when the
+// request came through the owner's site (ferb.kartikey.xyz/reports, a Vercel rewrite), the visitor's address the site
+// forwards (X-Real-IP, which Vercel sets itself, so a visitor of the site can't choose it). A caller reaching the relay
+// directly can send any X-Real-IP, so the connecting address is always counted too, first: it stays limited as before.
+const ADDRESS = /^[0-9A-Fa-f.:]{2,45}$/;
+
+export function senders(request) {
+  const connecting = request.headers.get("CF-Connecting-IP") || "unknown";
+  const visitor = (request.headers.get("X-Real-IP") || "").trim();
+  return ADDRESS.test(visitor) && visitor !== connecting ? [connecting, visitor] : [connecting];
+}
+
+async function overLimits(env, request, what, now) {
+  for (const address of senders(request)) {
+    if (await overLimit(env, `${what}:${address}`, now)) return true;
+  }
+  return false;
+}
+
 export function resetLimits() {
   recent.clear();
   filed.clear();
@@ -202,8 +223,7 @@ async function file(request, env, fetcher, now) {
   if (!/^\d{1,12}$/.test(length) || Number(length) === 0) return refuse(400, "the body must not be empty");
   if (Number(length) > MAX_UPLOAD) return refuse(413, `the report is larger than ${MAX_REPORT} bytes`);
   if (!request.body) return refuse(400, "the body must not be empty");
-  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-  if (await overLimit(env, `file:${ip}`, now)) {
+  if (await overLimits(env, request, "file", now)) {
     return refuse(429, "too many reports from this network; try again in a few minutes");
   }
 
@@ -244,8 +264,7 @@ async function issue(request, env, fetcher, now) {
   const ticket = await verify(env, report.ticket, now);
   if (!ticket) return refuse(403, "the ticket isn't valid; send the report again");
   if (filed.has(report.ticket)) return refuse(409, "this report was already filed");
-  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-  if (await overLimit(env, `issue:${ip}`, now)) {
+  if (await overLimits(env, request, "issue", now)) {
     return refuse(429, "too many reports from this network; try again in a few minutes");
   }
 

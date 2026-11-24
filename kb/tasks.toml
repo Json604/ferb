@@ -693,13 +693,12 @@ why = "Review 2026-11-17 found PHN-222's patch correct but untested across a net
 decisions = ["PHN-222"]
 
 [T-1267]
-title = "The rest of the move to the owner's domain: the report relay, a first release"
+title = "The rest of the move to the owner's domain: a first release"
 area = "release"
-kind = "question"
+kind = "chore"
 status = "open"
-why = "REL-431, REL-432 left over: the report relay's address (reports.rs:33, a workers.dev name) behind the owner's domain (a Cloudflare custom domain or a site rewrite, never a redirect: the upload's body); a first release on ferb-update; his and the friend's copies updated by hand once."
+why = "REL-431, REL-432 left over: a first release on ferb-update; his and the friend's copies updated by hand once. The report relay's address was the other part: REL-447, REL-448 (the owner's \"ok lets do this\", 2026-11-24)."
 decisions = ["REL-430", "REL-431", "REL-432"]
-ask = "Owner 2026-11-24: \"arent we doing github issues???\" Yes: the relay already files each report as a GitHub issue (relay/README.md); only its address is open. Reports still go to a workers.dev address: put them behind your domain as reports.ferb.kartikey.xyz (a Cloudflare custom domain on the worker, recommended) or as ferb.kartikey.xyz/reports through the site?"
 
 [T-1268]
 title = "Confirm how old the phone's opening unlock may be when the Mac takes it (120 s)"

@@ -17,7 +17,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 389 | 13 | 20 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 16 | 5 | 0 |
 | prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 60 | 5 | 10 |
-| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 33 | 8 | 6 |
+| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 35 | 8 | 7 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 64 | 6 | 8 |
 | storage | Storage | `engine/runtime/store` | 36 | 5 | 4 |
 | tests | Tests | `tests` | 15 | 8 | 0 |
@@ -32,7 +32,6 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1067 (prompts): Approve the review plan, then each proposed prompt wording and claim check.
 - T-1068 (tests): Approve the plan: which tasks, what quality measures, which surfaces.
 - T-1242 (phone): Which Apple developer team signs the iPhone app (the Mac's 8N7RNGH974?)
-- T-1267 (release): Owner 2026-11-24: "arent we doing github issues???" Yes: the relay already files each report as a GitHub issue (relay/README.md); only its address is open. Reports still go to a workers.dev address: put them behind your domain as reports.ferb.kartikey.xyz (a Cloudflare custom domain on the worker, recommended) or as ferb.kartikey.xyz/reports through the site?
 - T-1268 (phone): When you open FERB on the phone, your fingerprint unlocks it at once and the Mac is told when the phone reaches it. If the phone takes longer than 2 minutes to reach your Mac, FERB asks for your fingerprint once more. Is 2 minutes right, or should it be shorter or longer?
 - T-1272 (phone): When you want to plan it: which sessions (Claude Code, Codex, any terminal), what the phone shows and may type, and how a new reply wakes FERB without a model call while nothing happens. Start from engine/ARCHIVE-sessions.md (what worked and what didn't).
 - T-1280 (app): Which moments should FERB check in on (stuck on something, a deadline near, a repeated task, end of day), how often at most, and where (notch, phone, both)?

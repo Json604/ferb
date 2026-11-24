@@ -33,6 +33,10 @@
     {
       "source": "/app/callback",
       "destination": "/api/app/landing"
+    },
+    {
+      "source": "/reports/:step(file|report)",
+      "destination": "https://ferb-reports.ferb-reports.workers.dev/:step"
     }
   ]
 }
