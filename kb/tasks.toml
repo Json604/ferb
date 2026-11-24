@@ -11,13 +11,6 @@
 # after = []
 # ask = ""              # kind = "question": the exact question for the owner
 
-[T-2]
-title = "perception_seen grows forever: notification dedupe rows are never purged"
-area = "perception"
-kind = "bug"
-status = "open"
-why = "notes/memory.md listed perception_seen (~130 MB with batches/receipts) as never purged; ferb/store/cleanup.py:37-55 empties batches and receipts but not perception_seen, and perception.py:72,121 still writes it. Any retention window is the owner's call."
-
 [T-3]
 title = "Remove the identity-proposal digest left over from procedure learning"
 area = "memory"
@@ -143,11 +136,11 @@ why = "Checked 2026-11-24 (journal 205): not built. Notices stay forever (ferb-s
 decisions = ["STORE-419"]
 
 [T-12]
-title = "Build code watchers (ORCH-506)"
+title = "Later: Build code watchers (ORCH-506)"
 area = "orchestration"
 kind = "build"
 status = "open"
-decisions = ["ORCH-506"]
+decisions = ["ORCH-506", "PROJ-519"]
 
 [T-600]
 title = "Write the test for MEM-413: import texts are cut at a word boundary at their limits"
@@ -260,7 +253,8 @@ title = "Harden the prompts: look memory up before stating owner facts, never fi
 area = "prompts"
 kind = "build"
 status = "open"
-why = "Owner 2026-11-04, after this install works: research prompts models follow; propose hard rules: look up before stating owner facts, never fill gaps, prefer FERB's records (task.evidence) over the screen (12:28 it answered from a terminal on screen). Owner decides before edits."
+why = "Owner 2026-11-04, after this install works: research prompts models follow; propose hard rules: look up before stating owner facts, never fill gaps, prefer FERB's records (task.evidence) over the screen. Owner decides before edits. Owner 2026-11-24 (PROJ-519): with the prompt review, T-1279."
+decisions = ["PROJ-519"]
 
 [T-1033]
 title = "Remove the unused plan-only preview (intro.preview) and its chat preview rows"
@@ -269,23 +263,6 @@ kind = "build"
 status = "open"
 why = "APP-666 dropped Try's preview; FERB.app no longer calls intro.preview. Still in place: the intro.preview RPC, Supervisor.preview (_Turn.preview, PREVIEW_SESSION), its auth entry, Conversation's preview helpers, the transcript's preview label, the playground's preview picker, and their tests."
 decisions = ["APP-666"]
-
-[T-1042]
-title = "The planner's cached prefix stays at 10,752 tokens while its prompt grows"
-area = "runtimes"
-kind = "bug"
-status = "open"
-why = "Live 2026-11-04 (Codex, v0.27.0 run): five planner turns in a row read exactly 10,752 cached of 14.8k-16.2k input, so the appended conversation wasn't reused turn to turn. Find what changes before it, with the new timing trace."
-decisions = ["RUN-416", "ORCH-325"]
-
-[T-1044]
-title = "Should episode cards stop retrying after 2 failures?"
-area = "memory"
-kind = "question"
-status = "open"
-why = "MEM-422 parks an episode card that can't be built after two failures, until its inputs change. Caps are the owner's (rule 18). The days' 3 tries are his (MEM-473)."
-decisions = ["MEM-422"]
-ask = "When FERB can't write up a finished task for later (an episode card), it tries once more, then waits until that task changes. Is 2 tries right?"
 
 
 [T-1051]
@@ -308,18 +285,9 @@ title = "Hard prompt rule: do what the owner asks, in full, with no refusal, cav
 area = "prompts"
 kind = "build"
 status = "open"
-why = "Owner 2026-11-04: \"add instructions in prompts to do what user says, hard instructions\". After the wipe lost memory M1, the model refused graded coursework (14:48). The rule goes in the shared prefix; only FERB's code boundaries limit it. Owner decides wording (T-1040)."
-decisions = ["PRM-303"]
+why = "Owner 2026-11-04: \"add instructions in prompts to do what user says, hard instructions\". After the wipe lost memory M1, the model refused graded coursework. The rule goes in the shared prefix; only FERB's code limits it. Owner decides wording. Owner 2026-11-24 (PROJ-519): with T-1279's review."
+decisions = ["PRM-303", "PROJ-519"]
 after = ["T-1040"]
-
-[T-1064]
-title = "Hover can give FERB keyboard focus while the owner types a password elsewhere"
-area = "app"
-kind = "question"
-status = "open"
-why = "Security run T-1058: hover (on by default) opens FERB and makes its panel key (PanelCoordinator.focusVisibleInput); nothing in ui/ checks IsSecureEventInputEnabled, so the rest of a password being typed elsewhere can land in FERB's composer. Window mode and the shortcut are unaffected."
-decisions = ["APP-745", "APP-740"]
-ask = "While you're typing into a password field somewhere, should hovering over FERB open it without moving your typing into FERB (you'd click its box to type)?"
 
 [T-1067]
 title = "Review prompts and FERB's claims: never state an outcome its records don't show"
@@ -378,12 +346,12 @@ why = "GATE-568: only signed-in pages count. Today every page read in the owner'
 decisions = ["GATE-568", "GATE-506", "GATE-524"]
 
 [T-1090]
-title = "Find why about 11% of Amazon's accessibility entries stay unbound to a page element"
+title = "Later: Find why about 11% of Amazon's accessibility entries stay unbound to a page element"
 area = "hands"
 kind = "bug"
 status = "open"
 why = "Live 2026-11-10 (amazon.in, task 64a149b8): about 11% of the accessibility entries got no DOM binding, so they are missing from the element list. Needs a live repro on an Amazon product page in a lab profile to see which nodes (closed shadow roots, re-rendered nodes, frames)."
-decisions = ["HAND-439", "HAND-483"]
+decisions = ["HAND-439", "HAND-483", "PROJ-519"]
 
 [T-1095]
 title = "A plan's wait step can wait on wait.for's conditions"
@@ -592,32 +560,24 @@ title = "Three tests fail only when the Mac is busy: a replay's row order and tw
 area = "tests"
 kind = "bug"
 status = "open"
-why = "2026-11-16 full runs under load: ferbd chat_replay mention_paused once gave plan.answer before question.answered (passes alone, twice); Swift WindowHeaderClickTests and TimerPillTests each failed once in the full suite and pass alone. Find the races; a flaky gate hides real failures."
+why = "What journal 197 left (PROJ-519). Open since 2026-11-16: ferbd chat_replay mention_paused once gave plan.answer before question.answered; Swift WindowHeaderClickTests and TimerPillTests each failed once in a full run. And 197's unexplained --test link and silent --lib failures."
+decisions = ["PROJ-519"]
 
 [T-1220]
-title = "sign-app.sh with an ad-hoc identity keeps FERB's own signed pieces as if they were vendor code"
+title = "Later: sign-app.sh ad-hoc keeps FERB's own signed pieces as if they were vendor code"
 area = "release"
 kind = "bug"
 status = "open"
 why = "S4 (journal 113): SIGN_IDENTITY=- treats pieces already signed by FERB's team as vendor code and keeps their signature, so an ad-hoc test bundle needs them re-signed by hand. Developer ID and release builds are not affected."
-
-[T-1242]
-title = "The Apple team to sign the iPhone app with"
-area = "phone"
-kind = "question"
-status = "open"
-why = "Stage 4 runs on the simulator signed ad hoc. The id com.ferb.phone and iOS 17 are the owner's (PHN-601); a phone needs his Apple developer team and a provisioning profile (Xcode's Signing for a device build)."
-decisions = ["PHN-560", "PHN-562", "PHN-601"]
-ask = "Which Apple developer team signs the iPhone app (the Mac's 8N7RNGH974?)"
+decisions = ["PROJ-519"]
 
 [T-1243]
 title = "Stage 4 on a real iPhone: Secure Enclave keys, Face ID, the camera, notifications, suspension"
 area = "phone"
 kind = "build"
 status = "open"
-why = "Everything ran on the simulator only: software keys (no Secure Enclave), no Face ID prompt answered, no camera, no Data Protection, notifications not shown, no suspension. apps/ios/README.md 'On an iPhone' lists the checks; then LIVE-1100..1111 with the iPhone. Needs T-1242."
+why = "Everything ran on the simulator only: software keys (no Secure Enclave), no Face ID prompt answered, no camera, no Data Protection, notifications not shown, no suspension. apps/ios/README.md 'On an iPhone' lists the checks; then LIVE-1100..1111 with the iPhone. Signed by team 8N7RNGH974 (PHN-836)."
 decisions = ["PHN-561", "PHN-564", "PHN-565", "PHN-566", "PHN-572", "PHN-573", "PHN-574"]
-after = ["T-1242"]
 
 [T-1246]
 title = "make_logo.py writes the iPhone's full-bleed app icon from the logo"
@@ -634,7 +594,6 @@ kind = "build"
 status = "open"
 why = "PHN-421's push for a closed app; on iPhone it needs the owner's APNs key in the small sender he runs, the aps-environment entitlement and a provisioning profile; the push carries no words and the app fetches them (a Notification Service Extension can't reach the Mac without the link)."
 decisions = ["PHN-421", "PHN-566"]
-after = ["T-1242"]
 
 [T-1254]
 title = "Remove the Jev code; data capture stays (journal 120 lists what is Jev's and what is shared)"
@@ -653,20 +612,12 @@ why = "PHN-586 narrows PHN-417 (screen use is routine from the phone), PHN-582 c
 decisions = ["PHN-586", "PHN-582", "PHN-583", "PHN-417", "PHN-139", "PHN-127"]
 
 [T-1259]
-title = "FERB.app: a result's reported answer one tap away, and the verdict sources in a task's details"
+title = "Later: FERB.app shows a result's reported answer one tap away, and the verdicts' sources"
 area = "app"
 kind = "build"
 status = "open"
 why = "ORCH-672: a done answer code's facts disproved is kept as the final frame's `reported` field (not in the reply, ORCH-605); each condition's verdict, by and basis are in the result. The app shows neither yet."
-decisions = ["ORCH-672", "ORCH-665"]
-
-[T-1261]
-title = "Harden the report relay: daily total, single-use tickets, version-shaped labels, token check"
-area = "daemon"
-kind = "build"
-status = "open"
-why = "Review 2026-11-17 of relay/worker.mjs: no daily total (the private repo can be filled), a ticket can file twice across Worker copies, any app_version becomes a label, nothing says when the token stops working. Owner: \"the issue working is ok for now\". The total's number is his."
-decisions = ["DMN-8"]
+decisions = ["ORCH-672", "ORCH-665", "PROJ-519"]
 
 [T-1265]
 title = "Live: a file sent from the phone on mobile data over a direct path (segmentation offload)"
@@ -774,34 +725,6 @@ why = "MEM-454 took PORTING.md 3a parts 1-3. Part 4 isn't ported: verify reads t
 decisions = ["MEM-454", "MEM-435"]
 after = []
 
-[T-1293]
-title = "A code check of the export mail in his mailbox, so a website watch never needs a model to wait"
-area = "memory"
-kind = "build"
-status = "open"
-why = "MEM-467: a watch waits by code and checks with a model at most every 12 hours. A code check (sender's address, arrival after the request, read through the extension in his profile, e.g. Gmail's feed) would let only the found mail start a model run. Open: which mailbox, reading it reliably."
-decisions = ["MEM-467"]
-
-[T-1296]
-title = "Ask again in 7 days when the owner is not sure a dated fact still holds?"
-area = "memory"
-kind = "question"
-status = "open"
-why = "MEM-472: Not sure on a fact whose check date came asks again in 7 days (`import_review::UNSURE_AGAIN_DAYS`, FERB's proposal). Numbers that change FERB's behavior are the owner's (rule 18)."
-decisions = ["MEM-472"]
-ask = "When you answer Not sure about something FERB said it would check (a trip, a course), FERB asks again in a week. Is a week right?"
-after = []
-
-[T-1297]
-title = "Confirm the check's cap on its own calls (CHECK_CALLS = 6)"
-area = "orchestration"
-kind = "question"
-status = "open"
-why = "ORCH-696: a check makes at most 6 tool calls of its own; past them the gateway refuses and the check decides from what it has or ends unconfirmed. 6 is FERB's proposal: most audited checks made 1-2 observations; the runaway made 26 record reads."
-decisions = ["ORCH-696"]
-after = []
-ask = "A check now makes at most 6 calls of its own (looking at a page or opening a recorded result); after that it decides from what it has, or says it couldn't confirm. Keep 6, or another number?"
-
 [T-1303]
 title = "Slim checker context (parked): index, claims beside evidence, coverage, per-part verdicts"
 area = "orchestration"
@@ -884,9 +807,26 @@ status = "open"
 why = "Owner 2026-11-24, work list (Later)."
 
 [T-1318]
-title = "Later: a lock button in the phone apps the owner can turn on or off"
+title = "A lock switch in the phone apps, on by default (PHN-835), then supersede PHN-8"
 area = "phone"
 kind = "build"
 status = "open"
-why = "Owner 2026-11-24 (verbatim): \"this reminds me there should be a lock button in phone app that can be toggled by user\". Today PHN-8 locks the app every time; what the button toggles is asked first."
-decisions = ["PHN-8"]
+why = "Owner 2026-11-24: \"there should be a lock button in phone app that can be toggled by user\"; on PHN-8: \"yeah its my updated call\" (PHN-835). Build the switch on both phones (on by default; the Mac's checks unchanged), move the apps' PHN-8 citations to PHN-835, supersede PHN-8."
+decisions = ["PHN-835", "PHN-8", "PHN-129"]
+
+[T-1323]
+title = "A website watch that finds no export mail runs a model at most every 48 hours: the owner's number?"
+area = "memory"
+kind = "question"
+status = "open"
+why = "MEM-476: with the code check of the mail, a watch whose mail hasn't come runs a model at most every WATCH_LATE_HOURS (48, FERB's proposal: FERB tells him at the start it can take a day or two) so a late export is still told (MEM-467). Rule 18: his number."
+decisions = ["MEM-476", "MEM-467"]
+ask = "While I wait for ChatGPT's or Claude's export email, I now check your email by code every 15 minutes, with no model calls. If no email has come, a full check runs once every 2 days, so I can tell you it's late. Is every 2 days right?"
+
+[T-1324]
+title = "Claude Code writes the planner's changing tail to the 1-hour cache every turn, and no turn reads it"
+area = "runtimes"
+kind = "bug"
+status = "open"
+why = "Journal 208 (spans 2026-11-21..24): every Claude planner turn wrote input minus cached (8.7k-10k tokens in a kept chat, 5.6k-6.8k in a temporary one) at the 1-hour rate; the next turn read only FERB's breakpoint. The end breakpoint is Claude Code's own; can FERB keep it off a one-call turn?"
+decisions = ["ORCH-325"]

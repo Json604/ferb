@@ -159,7 +159,7 @@ fn watch(source: &str, name: &str) -> Watch {
     }
 }
 
-// decision: MEM-448, MEM-456
+// decision: MEM-448, MEM-456, MEM-476
 #[test]
 fn a_websites_watch_says_its_stage_with_its_time() {
     let one = |w: Watch| one_row(&card(&[], &[w], &days())).clone();
@@ -188,6 +188,11 @@ fn a_websites_watch_says_its_stage_with_its_time() {
         row["detail"],
         "I look in your email for it every 12 hours. It can take a day or two."
     );
+    // MEM-476: when the code looks at the mail on every tick, the card says how often that is
+    let mut by_code = w.clone();
+    by_code.by_code = true;
+    let detail = one(by_code)["detail"].as_str().unwrap().to_string();
+    assert!(detail.contains("every 15 minutes"), "{detail}");
     w.running = true;
     let row = one(w.clone());
     assert_eq!(row["stage"], "checking_mail");

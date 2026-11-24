@@ -409,6 +409,8 @@ enum Work {
     BannerFailed(Banner),
     ClipboardAccess(String),
     PurgeText,
+    /// SENSE-431: the ids Notification Center holds now; the seen rows of the rest go.
+    PruneSeen(Vec<String>),
     /// A test's panic in the thread's work (the stand-ins' control `panic_trail`, T-1123).
     #[cfg(feature = "stand-ins")]
     Panic,
@@ -475,6 +477,11 @@ impl Perception {
     /// perception.py:48 (I3).
     pub fn clipboard_access(&self, state: &str) {
         let _ = self.tx.send(Work::ClipboardAccess(state.to_string()));
+    }
+
+    /// SENSE-431: what Notification Center holds now (in order after the records read before it).
+    pub fn prune_seen(&self, present: Vec<String>) {
+        let _ = self.tx.send(Work::PruneSeen(present));
     }
 
     /// perception.py:131 (D14/P8).
@@ -679,6 +686,14 @@ fn trail_thread(opts: &Options, s: &Shared, host: &Host) -> (TrailHandle, Percep
                     Work::BannerFailed(b) => perception.banner_failed(&b),
                     Work::ClipboardAccess(state) => perception.clipboard_access(&state),
                     Work::PurgeText => purge(&perception),
+                    Work::PruneSeen(present) => {
+                        if let Err(e) = perception.prune_seen(&present) {
+                            journal.note(
+                                "retention.failed",
+                                json!({"error": redactor.text(&format!("OperationalError: {e}"))}),
+                            );
+                        }
+                    }
                     #[cfg(feature = "stand-ins")]
                     Work::Panic => panic!("a test's panic in the trail's thread"),
                 }
@@ -1081,7 +1096,12 @@ fn native_watchers(
         )));
     }
     {
-        let (seen, record, floor) = (perception.clone(), perception.clone(), perception.clone());
+        let (seen, record, floor, prune) = (
+            perception.clone(),
+            perception.clone(),
+            perception.clone(),
+            perception.clone(),
+        );
         let native = opts.native;
         let notification_center = NotificationWatcher::new(
             Arc::new(
@@ -1100,7 +1120,9 @@ fn native_watchers(
                     && ferb_mac_hands::native::permissions::full_disk_access()
                         == ferb_mac_hands::permissions::Status::Granted
             }),
-        );
+        )
+        // decision: SENSE-431 — the de-dup rows of notifications Notification Center no longer holds go
+        .with_prune(Arc::new(move |present| prune.prune_seen(present)));
         out.push(Arc::new(notification_center));
     }
     {

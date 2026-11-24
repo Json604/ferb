@@ -14,6 +14,11 @@ use crate::observation::Observation;
 pub trait NotificationReader: Send + Sync {
     /// Records added since the previous read. `Err`: why the read failed (`"Type: message"`).
     fn read(&self) -> Result<Vec<Observation>, String>;
+    /// SENSE-431: the external id of every record Notification Center holds now (excluded apps' too); None: this
+    /// reader can't say.
+    fn present(&self) -> Result<Option<Vec<String>>, String> {
+        Ok(None)
+    }
 }
 
 /// Notification Center's database, under the owner's home.
@@ -142,6 +147,26 @@ mod db {
             ))
         }
 
+        /// SENSE-431: every record's external id as `read_records` makes it (the uuid's SHA-256), whichever app posted
+        /// it: what Notification Center still holds, so a seen row of anything else can go.
+        pub fn present_ids(&self) -> Result<Vec<String>, String> {
+            let why = |e: rusqlite::Error| format!("{}: {e}", sqlite_error_name(&e));
+            let db = Connection::open_with_flags(
+                &self.path,
+                OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            )
+            .map_err(why)?;
+            let mut st = db.prepare("SELECT uuid FROM record").map_err(why)?;
+            let mut q = st.query([]).map_err(why)?;
+            let mut out = Vec::new();
+            while let Some(r) = q.next().map_err(why)? {
+                out.push(hex::encode(Sha256::digest(uid_bytes(
+                    &r.get::<_, Sql>(0).map_err(why)?,
+                ))));
+            }
+            Ok(out)
+        }
+
         /// notifications.py:24 `read`: records added since the previous read. Rowids reused after Notification
         /// Center deleted its newest records are read again from the start; the seen-receipts drop what was
         /// already recorded.
@@ -245,10 +270,15 @@ mod db {
         fn read(&self) -> Result<Vec<Observation>, String> {
             self.read_records()
         }
+        fn present(&self) -> Result<Option<Vec<String>>, String> {
+            self.present_ids().map(Some)
+        }
     }
 }
 
 type Floor = Arc<dyn Fn(Vec<Observation>) -> Vec<Observation> + Send + Sync>;
+/// SENSE-431: the ids Notification Center holds, handed to perception, which drops the seen rows of the rest.
+pub type Prune = Arc<dyn Fn(Vec<String>) + Send + Sync>;
 
 /// notifications.py:68.
 pub struct NotificationWatcher {
@@ -261,6 +291,9 @@ pub struct NotificationWatcher {
     /// Full Disk Access is on
     allowed: Arc<dyn Fn() -> bool + Send + Sync>,
     pub recheck_s: f64,
+    /// SENSE-431: the seen rows' clean-up, after the first read of a start and then every `prune_s`
+    prune: Option<Prune>,
+    pub prune_s: f64,
 }
 
 impl NotificationWatcher {
@@ -279,7 +312,15 @@ impl NotificationWatcher {
             floor,
             allowed,
             recheck_s: 30.0,
+            prune: None,
+            prune_s: 3600.0,
         }
+    }
+
+    /// SENSE-431: hand perception what Notification Center holds, so de-dup rows of records gone from it are deleted.
+    pub fn with_prune(mut self, prune: Prune) -> NotificationWatcher {
+        self.prune = Some(prune);
+        self
     }
 }
 
@@ -290,6 +331,7 @@ impl Watcher for NotificationWatcher {
 
     fn run(self: Arc<Self>, _emit: Emit, stop: Stop) -> BoxFuture<'static, Result<(), String>> {
         Box::pin(async move {
+            let mut pruned: Option<tokio::time::Instant> = None;
             while !stop.is_set() {
                 let allowed = self.allowed.clone();
                 if !tokio::task::spawn_blocking(move || allowed())
@@ -310,6 +352,18 @@ impl Watcher for NotificationWatcher {
                     let id = crate::observation::py_str(o.data.get("external_id"));
                     if !(self.seen)(&id) {
                         (self.record)(o); // the event and its external id recorded together on the daemon's loop
+                    }
+                }
+                // SENSE-431: after this read's records were handed on (in order on the daemon's loop), the ids
+                // Notification Center holds now: a seen row of any other record can go
+                let due = pruned.is_none_or(|at| at.elapsed().as_secs_f64() >= self.prune_s);
+                if let (Some(prune), true) = (&self.prune, due) {
+                    pruned = Some(tokio::time::Instant::now());
+                    let reader = self.reader.clone();
+                    if let Ok(Ok(Some(ids))) =
+                        tokio::task::spawn_blocking(move || reader.present()).await
+                    {
+                        prune(ids);
                     }
                 }
                 stop.wait_for(self.interval_s).await;

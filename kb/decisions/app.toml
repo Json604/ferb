@@ -4793,3 +4793,13 @@ words = "yeah it works"
 words_source = "Owner 2026-11-24, 'My choices on the FERB work list', to T-1275 (insomnia mode's words on the Mac and the phones, journal 153, and its numbers)."
 rule = "Insomnia mode's owner-facing words on the Mac and the phones ship as they are (journal 153, as changed in 154), and its numbers stay: 10 minutes of grace after the work, battery warnings at 20 % and 10 %, at most 8 scheduled wakes."
 untestable = "An approval of wording (TEST-500 keeps no wording tests) and of numbers insomnia's tests already drive (journal 153)."
+
+[APP-1136]
+title = "Hover keeps taking the keyboard even while a password is typed elsewhere"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "no"
+words_source = "Owner 2026-11-24, to 'while a password field elsewhere has focus, hovering opens FERB without taking the keyboard. OK?' (T-1064)."
+rule = "Hover keeps today's behaviour (APP-745, APP-740): it opens FERB and makes its panel key even while a password field in another app has focus; FERB doesn't look at secure input before taking the keyboard."
+untestable = "Keeps built behaviour; nothing changes."

@@ -1226,3 +1226,14 @@ why = "KeepAlive true would restart FERB's own stops (the clean-up's work beside
 rejected = ["KeepAlive true: FERB's own stops would restart or loop", "A PathState or OtherJobEnabled hold in the definition: the fixed SMAppService plist can't name the owner's home; a second job as a hold is fragile", "A separate stop signal instead of the marker: an older daemon dies by it and launchd restarts it during the new build's work"]
 evidence = "launchd probe 2026-11-22 (disposable agent): exit 143 and SIGKILL restarted, exit 0 stayed until kickstart. ferbd lifecycle.rs only_ferbs_own_stop_keeps_the_service_stopped; ferb-device installer_fixtures ferbs_own_stop_names_the_daemon_it_stops_and_the_start_clears_it."
 paths = ["engine/crates/ferbd/src/run.rs", "engine/crates/ferb-device/src/install.rs", "apps/mac/FERBAgent/com.ferb.daemon.plist"]
+
+[DMN-620]
+title = "The report relay stays as it is: no hardening"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "rest, ok to all your recommended changes except Harden the report relay - leave it as is, nobody will spam"
+words_source = "Owner 2026-11-24, to the recommendation to harden the report relay (T-1261: a daily total, single-use tickets, version-shaped labels, a token check)."
+rule = "For DMN-8. The relay (relay/worker.mjs) stays as it is: no daily total of reports, no single-use tickets across Worker copies, no check of app_version's shape before it becomes a label, nothing that says when its token stops working."
+why = "The owner's call: \"nobody will spam\"."
+untestable = "Nothing is built or changed."

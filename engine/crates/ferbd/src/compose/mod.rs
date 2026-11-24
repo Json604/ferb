@@ -20,6 +20,7 @@ pub mod guard;
 pub mod insomnia;
 pub mod link;
 pub mod loops;
+pub mod mail_check;
 pub mod memory_loops;
 pub mod phone;
 pub mod presence;
@@ -946,8 +947,21 @@ impl Daemon {
                 ferb_daemon::areas_b::browsers::browsing_answered(&cx, state, choice, ident)
                     .unwrap_or_default()
             });
+            // decision: MEM-476 — a website watch's code check of the export mail, in the daemon's runtime (the tab and
+            // the page's markup through the owner's router), never a model
+            let (hub, router) = (br.hub.clone(), br.router.clone());
+            let runtime = tokio::runtime::Handle::current();
+            let mail: areas_a::MailCheck = Arc::new(move |q| {
+                let job = runtime.spawn(mail_check::check(hub.clone(), router.clone(), q));
+                Box::pin(async move {
+                    job.await.unwrap_or_else(|e| {
+                        areas_a::MailSeen::Unchecked(format!("the check stopped: {e}"))
+                    })
+                })
+            });
             let _ = a.spawn(move |st| async move {
                 *st.browsing_answered.borrow_mut() = Some(hook);
+                *st.mail_check.borrow_mut() = Some(mail);
             });
         }
         if let Some(p) = tool_parts.perception() {

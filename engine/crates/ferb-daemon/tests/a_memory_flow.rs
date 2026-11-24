@@ -781,6 +781,124 @@ async fn a_website_watch_waits_by_code_between_its_rare_model_runs() {
     .await;
 }
 
+/// One tick of a website watch (MEM-476): None, the model run goes; Some, it waits.
+async fn tick(d: &Daemon, sid: &str) -> Option<memory_import::Wait> {
+    let sid = sid.to_owned();
+    d.on(move |st| {
+        Box::pin(async move {
+            let s = st.schedules().get(&sid).unwrap().unwrap();
+            memory_import::watch_tick(&st, &s).await
+        })
+    })
+    .await
+}
+
+/// A watch's run ended with `status`.
+async fn ended(d: &Daemon, sid: &str, status: &str) {
+    let (sid, status) = (sid.to_owned(), status.to_owned());
+    d.on(move |st| {
+        Box::pin(async move {
+            st.journal(
+                "schedule.quiet",
+                json!({"schedule_id": sid, "status": status}),
+                None,
+            )
+            .unwrap();
+        })
+    })
+    .await
+}
+
+// decision: MEM-476 — the code looks in his mail on every tick; only the site's mail no run took starts the model run;
+// none waits (a run at most every WATCH_LATE_HOURS, to tell him it's late); with no code check, the 12-hour run
+#[tokio::test]
+async fn a_website_watch_starts_its_model_run_only_for_mail_the_code_found() {
+    use ferb_daemon::areas_a::{MailQuery, MailSeen};
+    use std::sync::{Arc, Mutex};
+    let tmp = tempfile::tempdir().unwrap();
+    let d = daemon(tmp.path()).await;
+    let seen = Arc::new(Mutex::new(MailSeen::Nothing));
+    let asked: Arc<Mutex<Vec<MailQuery>>> = Arc::default();
+    let (answer, looked) = (seen.clone(), asked.clone());
+    let sid = d
+        .on(move |st| {
+            Box::pin(async move {
+                st.config
+                    .set("memory", "sites_asked", &json!("chrome/Default"))
+                    .unwrap();
+                *st.mail_check.borrow_mut() = Some(Arc::new(move |q| {
+                    looked.lock().unwrap().push(q);
+                    let out = answer.lock().unwrap().clone();
+                    Box::pin(async move { out })
+                }));
+                memory_import::make_site_job(&st, "chatgpt", "Kartikey").unwrap()
+            })
+        })
+        .await;
+    // the first run requests the export: it goes, and nothing looks at the mail before it
+    assert_eq!(tick(&d, &sid).await, None);
+    assert!(asked.lock().unwrap().is_empty());
+    ended(&d, &sid, "done").await;
+    // no mail yet: it waits, looked at by code, in the profile he chose, for the site's own domain since the watch began
+    let w = tick(&d, &sid).await.expect("it waits");
+    assert!(w.by_code, "{w:?}");
+    {
+        let q = asked.lock().unwrap()[0].clone();
+        assert_eq!(q.profile, "chrome/Default");
+        assert_eq!(q.domains, ["openai.com"]);
+        let first = d
+            .on({
+                let sid = sid.clone();
+                move |st| {
+                    Box::pin(async move { st.schedules().get(&sid).unwrap().unwrap().first_run })
+                }
+            })
+            .await;
+        assert_eq!(q.after, first.timestamp());
+    }
+    // the mail came: the model run goes, once for that thread
+    *seen.lock().unwrap() = MailSeen::Found(vec!["18aa01".into()]);
+    assert_eq!(tick(&d, &sid).await, None);
+    ended(&d, &sid, "failed").await;
+    let w = tick(&d, &sid).await.expect("a thread a run took waits");
+    assert!(w.by_code);
+    // another mail from the site: a run again
+    *seen.lock().unwrap() = MailSeen::Found(vec!["18aa01".into(), "18aa02".into()]);
+    assert_eq!(tick(&d, &sid).await, None);
+    ended(&d, &sid, "done").await;
+    let found = d
+        .on(|st| {
+            Box::pin(async move {
+                st.store
+                    .query(
+                        "SELECT data_json FROM journal WHERE kind = 'memory.mail_found' ORDER BY seq",
+                        ferb_learning::sql![],
+                    )
+                    .unwrap()
+                    .iter()
+                    .map(|r| ferb_py::json::loads(&r.s_at(0)).unwrap()["threads"].clone())
+                    .collect::<Vec<Value>>()
+            })
+        })
+        .await;
+    assert_eq!(found, [json!(["18aa01"]), json!(["18aa02"])]);
+    // nothing for two days after the last run: a run goes, so a late export is told
+    *seen.lock().unwrap() = MailSeen::Nothing;
+    d.clock
+        .advance((memory_import::WATCH_LATE_HOURS * 3600 - 60) as f64);
+    assert!(tick(&d, &sid).await.is_some());
+    d.clock.advance(120.0);
+    assert_eq!(tick(&d, &sid).await, None);
+    ended(&d, &sid, "done").await;
+    // the check can't run (no browser profile open): the 12-hour run, not looked at by code
+    *seen.lock().unwrap() = MailSeen::Unchecked("that browser profile isn't open now".into());
+    let w = tick(&d, &sid).await.expect("it waits");
+    assert!(!w.by_code);
+    d.clock
+        .advance((memory_import::WATCH_MODEL_EVERY_HOURS * 3600 + 60) as f64);
+    assert_eq!(tick(&d, &sid).await, None);
+}
+
 // decision: MEM-472
 #[tokio::test]
 async fn the_hourly_pass_asks_about_a_fact_on_its_check_date_with_no_model() {

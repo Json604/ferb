@@ -4322,3 +4322,24 @@ why = "Android drew the temporary chat with a second composable that lacked the 
 evidence = "Android BothChatsTest (each case on both chats); ferb-mobile tests/temporary.rs a_working_turn_shows_the_chat_s_live_view_and_an_answered_one_none; iPhone TemporaryChatTests testHisMessageShowsAtOnceAsHisOutboxRowAsInTheChat."
 paths = ["engine/crates/ferb-mobile/src/temporary.rs", "apps/android/app/src/main/kotlin/com/ferb/app/ui/Main.kt", "apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppModel.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Temporary.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/Tabs.swift"]
 live = ["LIVE-1194"]
+
+[PHN-835]
+title = "The phone app's lock is a switch the owner turns on or off; on by default"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "yeah its my updated call"
+words_source = "Owner 2026-11-24, told that turning the opening fingerprint off (his T-1318 lock button) replaces PHN-8's lock every time."
+rule = "Refines PHN-8: the app's lock on opening is a switch in the phone app, on by default. Off, the app opens without the fingerprint or device lock. The Mac's own checks stay as they are: signed actions by class (PHN-112, PHN-133) and the fingerprint for the places that need a fresh proof and sensitive changes (PHN-129)."
+why = "His updated call on his T-1318."
+untestable = "Not built yet: T-1318 builds the switch, then supersedes PHN-8 once the phone apps' tests cite this."
+
+[PHN-836]
+title = "The iPhone app is signed by FERB's Apple team 8N7RNGH974"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "yes use it"
+words_source = "Owner 2026-11-24, to T-1242 (which Apple developer team signs the iPhone app: the Mac's 8N7RNGH974?)."
+rule = "The iPhone app (com.ferb.phone, PHN-601) is signed by the Apple developer team that signs FERB.app, 8N7RNGH974 (REL-419), with a provisioning profile of that team for a device build."
+untestable = "A signing choice; the device build's signing isn't set up yet (T-1243 and T-1247 come after it)."

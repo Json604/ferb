@@ -410,12 +410,14 @@ async fn run_schedule(st: &Rc<State>, run: ClaimedRun) {
     let last = !run.retry && (run.ended || (run.redelivered && s.state == "done"));
     let schedules = st.schedules();
     let timers = st.timers();
-    // decision: MEM-467 — a website watch waiting for its export mail ticks by code, no model run
-    if super::memory_import::watch_waits(st, &s) {
+    // decision: MEM-467, MEM-476 — a website watch waiting for its export mail ticks by code: it looks in his mail and
+    // only the site's mail no run took starts a model run
+    if let Some(wait) = super::memory_import::watch_tick(st, &s).await {
         let _ = schedules.start_run(&timers, &run, |_c| -> Result<(), StartError> {
             st.journal(
                 "schedule.waited",
-                json!({"schedule_id": sid, "why": "waiting for the export mail; no model run"}),
+                json!({"schedule_id": sid, "why": wait.why,
+                       "by": if wait.by_code { "code" } else { "time" }}),
                 None,
             )
             .map_err(|e| StartError(e.message))?;

@@ -11,7 +11,8 @@ src/compose/mod.rs | self.keep(tokio::spawn(async move { g.run(name, body).await
 src/compose/mod.rs | self.keep(tokio::spawn(async move { g.background(what, work).await })); | the guard's own helper (Daemon::spawn_background)
 src/compose/mod.rs | let _ = self.a.spawn(move |st| async move { | the guard's own helper (Daemon::spawn_group_a_loop)
 src/compose/mod.rs | tokio::spawn(async move { | the panic hook's journal consumer, run by the guard as the loop `unhandled` (built before the daemon exists)
-src/compose/mod.rs | let _ = a.spawn(move |st| async move { | sets group A's browsing hook once at start
+src/compose/mod.rs | let _ = a.spawn(move |st| async move { | sets group A's browsing hook and mail check once at start
+src/compose/mod.rs | let job = runtime.spawn(mail_check::check(hub.clone(), router.clone(), q)); | one website watch's mail check per tick (MEM-476), awaited by that tick
 src/compose/loops.rs | d.a.spawn(move |st| async move { st.set_presence(presence) }); | sets group A's timer presence once at start
 src/compose/loops.rs | let _ = a.spawn(move |st| async move { | the Mac's return, once per return (`_owner_back`)
 src/compose/loops.rs | thread "ferb-automation-check" | one Automation check per app, kept 60 s

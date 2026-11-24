@@ -677,3 +677,57 @@ fn presence(log: &Value, d: &mut Diffs) {
     mp.changed("locked", true);
     check(d, json!({"op": "changed after stop", "away": mp.away()}));
 }
+
+// decision: SENSE-431
+#[test]
+fn the_notification_database_names_every_record_it_holds_as_read_names_them() {
+    // `present` gives each record's external id the way a read makes it, excluded apps' too (a seen row of a record
+    // still there is kept, whichever app posted it)
+    let dir = tmp().join("usernoted-present");
+    std::fs::create_dir_all(&dir).unwrap();
+    let ndb = dir.join("db");
+    let _ = std::fs::remove_file(&ndb);
+    {
+        let c = rusqlite::Connection::open(&ndb).unwrap();
+        c.execute_batch(
+            "CREATE TABLE app (app_id INTEGER PRIMARY KEY, identifier TEXT);
+             CREATE TABLE record (rec_id INTEGER PRIMARY KEY, app_id INTEGER, uuid BLOB, data BLOB, delivered_date REAL);
+             INSERT INTO app VALUES (1,'com.chat'),(2,'com.example.vault');",
+        )
+        .unwrap();
+        let mut body = Vec::new();
+        plist::Value::Dictionary(
+            [("titl".to_string(), plist::Value::String("Hi".into()))]
+                .into_iter()
+                .collect(),
+        )
+        .to_writer_xml(&mut body)
+        .unwrap();
+        for (id, app, uuid) in [(1, 1, b"uuid-a".to_vec()), (2, 2, b"uuid-b".to_vec())] {
+            c.execute(
+                "INSERT INTO record (rec_id, app_id, uuid, data) VALUES (?,?,?,?)",
+                rusqlite::params![id, app, uuid, body.clone()],
+            )
+            .unwrap();
+        }
+    }
+    let reader = NotificationDatabase::new(
+        ndb,
+        Arc::new(ferb_sense::observation::NoRedact),
+        Arc::new(|b: &str, _: &str| b == "com.example.vault"),
+    );
+    let read: Vec<String> = reader
+        .read_records()
+        .unwrap()
+        .iter()
+        .map(|o| o.data["external_id"].as_str().unwrap().to_string())
+        .collect();
+    let present = reader.present_ids().unwrap();
+    assert_eq!(read.len(), 1, "the excluded app's record isn't read");
+    assert_eq!(present.len(), 2);
+    assert_eq!(present[0], read[0]);
+    assert_eq!(
+        present[1],
+        hex::encode(<sha2::Sha256 as sha2::Digest>::digest(b"uuid-b"))
+    );
+}

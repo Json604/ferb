@@ -37,6 +37,9 @@ pub const CHECKING_MAIL: &str = "checking_mail";
 /// the 15-minute ticks between are code only and look at nothing). The owner's number; the card says it.
 pub const MAIL_CHECK_HOURS: i64 = 12;
 
+/// MEM-448, MEM-476: a website watch's ticks, each a code look at the mail when it can run.
+pub const CODE_CHECK_MINUTES: i64 = 15;
+
 impl RunNow {
     pub fn new(run: &str, source: &str, name: &str, local: bool) -> RunNow {
         RunNow {
@@ -92,6 +95,9 @@ pub struct Watch {
     pub trouble: bool,
     /// Its next run, local "YYYY-MM-DDTHH:MM".
     pub next_run: Option<String>,
+    /// MEM-476: the code looks in the owner's mail on every tick now (its latest waiting tick did); false: a model run
+    /// looks every `MAIL_CHECK_HOURS`.
+    pub by_code: bool,
 }
 
 /// The owner's yesterday, today and tomorrow ("YYYY-MM-DD", his zone), for the times the card says.
@@ -264,7 +270,11 @@ fn watch_row(w: &Watch, days: &Days) -> Value {
                 "Waiting for {name}'s email — asked {}",
                 at_words(asked, days)
             ),
-            format!("I look in your email for it every {MAIL_CHECK_HOURS} hours. It can take a day or two."),
+            if w.by_code {
+                format!("I check your email for it every {CODE_CHECK_MINUTES} minutes. It can take a day or two.")
+            } else {
+                format!("I look in your email for it every {MAIL_CHECK_HOURS} hours. It can take a day or two.")
+            },
         ),
     };
     let note = match (&w.next_run, w.trouble && !w.running) {

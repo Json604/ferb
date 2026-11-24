@@ -372,6 +372,9 @@ impl Inner {
         }
         let mut block = ferb_context::assemble::ContextBlock::new(text, "temporary chat");
         block.protected = true;
+        // decision: ORCH-713 — the same text on every turn of this chat: it opens the cached prefix (Layer 1 and the
+        // conversation follow), where an uncached first block left every temporary turn with nothing cacheable
+        block.cache = true;
         block.origin = ferb_sanitize::origin::OWNER.to_string();
         block
     }

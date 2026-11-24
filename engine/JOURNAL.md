@@ -12174,3 +12174,65 @@ preview seam), or accept the refused attempt as harmless noise.
 
 **Unverified.** Live: a real ChatGPT plan without the model (LIVE-1210), the question's buttons on the phone, and
 FERB.app's card for a question with no task id during a turn. The whole workspace's gate wasn't run here.
+
+## 2026-11-24 · 208 · The owner's "Ask me first" answers; a temporary chat's prefix caches; de-dup rows purged; the export mail looked for by code
+
+**What the owner decided** (2026-11-24, to the coordinator's recommendation on each item: "rest, ok to all your
+recommended changes except Harden the report relay - leave it as is, nobody will spam"). His numbers, each an owner
+decision confirming FERB's proposal: ORCH-711 (a check's 6 calls, T-1297; ORCH-696's text now says so), MEM-474 (Not sure
+asks again in 7 days, T-1296), ORCH-712 (3 of FERB's own crashes in a row ask, ORCH-707), MEM-475 (an episode card is
+tried twice, T-1044). PROJ-519: the three builds below now; T-1090, T-1220, T-1259 and T-12 (code watchers, ORCH-506)
+later (their titles say so); T-1040 and T-1054 with the prompt review (T-1279); T-1219 keeps only what journal 197 left.
+DMN-620: the report relay stays as it is (T-1261 closed). APP-1136 ("no", T-1064): hover keeps taking the keyboard while
+a password is typed elsewhere. PHN-835 ("yeah its my updated call"): the phone app's lock is a switch, on by default; it
+refines PHN-8, which stays active until T-1318 builds the switch and moves the phone tests' citations (superseding it
+now would refuse them, as T-1255 says for PHN-417). PHN-836 ("yes use it", T-1242): the iPhone app is signed by
+team 8N7RNGH974; T-1243 and T-1247 no longer wait on it. T-1267 is untouched.
+
+**T-1042, the planner's cached prefix.** Read from the owner's spans (read-only, 2026-11-21..24, 76 planner turns on both
+runtimes), comparing each turn's context with the one before. A kept chat caches as designed: each turn's context
+shares every byte of the previous turn's stable part (Layer 1 and the conversation), and Claude read 52,276 → 53,691 of
+61-62k tokens over 11-22 13:31..13:37, Codex 43,776 = the previous turn's developer part (11-23 08:45 → 08:46). The
+stuck prefix is the temporary chat's: all 11 temporary planner turns (11-23 09:35..11-24 05:03) had `cacheable_parts`
+0, because `fresh_block` (ORCH-699) put an uncached block first and `assemble` counts the cacheable prefix from the
+start (assemble.rs:433). Claude then read 21,324-21,330 cached tokens (Claude Code's own prompt and FERB's instructions)
+whatever the conversation, writing 5.6k-6.8k a turn that no turn read; Codex put the whole context in the user turn
+("0 of N context parts are stable"), 2,816 and 13,056 cached of 25k. Fix (ORCH-713): the block is `cache: true` (it is
+the same on every turn of that chat), so the prefix runs from it through the conversation, as in a kept chat. Expected
+per message: the previous turn's fact, Layer 1 and conversation move from written (Claude, at the 1-hour rate) or
+uncached (Codex) to cache reads: in the chats seen, 2.3k-5.2k characters (about 0.6k-1.4k tokens, estimated at 4
+characters a token), growing about 0.3k tokens an exchange. Not changed, and now the larger cost: Claude Code puts its
+own breakpoint at the end, so every Claude planner turn writes its whole changing tail (8.7k-10k tokens in a kept chat)
+at the 1-hour rate and the next turn reads only up to FERB's breakpoint (input minus cached equals written on every
+turn): T-1324. Scheduled Codex turns stay in the user role by design (RUN-416); since MEM-467 the watches run no model
+while waiting. A system prompt change (model switch, a browser profile's name changing, the profile) still restarts the
+cache, as expected.
+
+**T-2, notification de-dup rows (SENSE-431).** `perception_seen` has no time and no age can be safe: the first read
+after every start reads all of Notification Center again (notifications.rs `after` starts at 0), and a row purged while
+its record is still there is recorded again as new once the trail's own copy is gone (30 days). So a row goes once its
+record is gone from Notification Center: the watcher reads every record's id (`present_ids`, excluded apps' too) after
+the first read of a start and then hourly, and hands them to the trail's thread after that read's records, where
+`prune_seen` deletes the other rows in batches of 200. No number is involved (none to ask). Fixed against Python, which
+never purged them. On the owner's Mac now: 323 rows since the 11-17 wipe (99 from the install floor).
+
+**T-1293, the export mail looked for by code (MEM-476).** Each 15-minute tick after the run that requests the export
+asks the browser area's mail check (ferbd compose/mail_check.rs): only in the watch's profile when it is already
+connected (never launched), one background tab on Gmail's search `from:<site domains> after:<the watch's first run>`,
+the results region's markup through `browser.html`'s driver call, read twice 2.5 s apart until two agree, then closed.
+It takes each row's sender address (`email` attribute, the site's domain or a subdomain) and thread id; Gmail does the
+date filter, so nothing localized and no subject or body is read. A thread no earlier tick handed on starts the model
+run (journal `memory.mail_found`); none waits with no model; a thread a run already took waits for the 12-hour run. Late
+mail is still told: while nothing comes, a model run at most every WATCH_LATE_HOURS (48, FERB's proposal, T-1323 asks
+him). The 12-hour model run stays only when the check can't run: no browser area, the profile not open, its mail isn't
+Gmail or not signed in (the page's host isn't mail.google.com), or the results never draw. The card says "I check your
+email for it every 15 minutes. It can take a day or two." when the latest waiting tick looked by code (new
+owner-facing words, for his review), the 12-hour line otherwise.
+
+**Evidence.** cargo clippy `--all-targets -D warnings` on ferb-sense, ferb-learning, ferb-supervisor, ferb-daemon and ferbd: clean; `cargo fmt --all --check` clean. Tests (each alone): ferb-sense all binaries ok (perception 2, manager 9, watchers 2 among them; new: seen_rows_go_once_notification_center_no_longer_has_them, the_notification_watcher_hands_on_what_notification_center_holds_after_its_records, the_notification_database_names_every_record_it_holds_as_read_names_them); ferb-learning all ok (import_live 7); ferb-supervisor temporary_chat 11 (new: a_temporary_chat_caches_its_fact_and_conversation_like_a_kept_one), chat_entries 22, planner 5; ferb-daemon a_memory_flow 13 (new: a_website_watch_starts_its_model_run_only_for_mail_the_code_found); ferbd lib mail_check 3, seams_wired 3 (the WaitCondition's `value` named in seams-off.txt), loops_supervised 2 (the check's spawn listed in spawns.txt). `kb check` ok after `kb lock` and `kb gen`.
+
+**Unverified.** Nothing ran against a real Gmail page: the selectors (`div[role="main"]`, `email`,
+`data-legacy-thread-id`/`data-thread-id`) are Gmail's markup as known, not read live; whether Gmail's search draws in an
+inactive tab of a background window, and whether `u/0` is the account the site mails, are open (LIVE needed, with the
+owner's profile). The temporary chat's saving is estimated from characters, not measured after the fix; the pruning was
+not run on the owner's Mac. The whole workspace gate was not run (focused tests only).

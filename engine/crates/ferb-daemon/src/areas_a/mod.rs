@@ -154,8 +154,36 @@ pub struct State {
     /// `_browsing_answered(ap, ident)` (APP-777, the browser area's): the owner's answer to FERB's browsing question,
     /// (state, choice, ident) to the owner's line; set once the browser area is built.
     pub browsing_answered: RefCell<Option<BrowsingAnswered>>,
+    /// MEM-476: the code check of a website watch's export mail (the browser area's); none: it can't run here.
+    pub mail_check: RefCell<Option<MailCheck>>,
     me: RefCell<Weak<State>>,
 }
+
+/// MEM-476: what a website watch's code check looks for in the owner's mail.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MailQuery {
+    /// The watch's browser profile, "browser/folder" (or its label when that isn't known).
+    pub profile: String,
+    /// The site's own sender domains: an address in one of them, or a subdomain of one, counts.
+    pub domains: Vec<String>,
+    /// Only mail that came after this (the watch's first run), in Unix seconds.
+    pub after: i64,
+}
+
+/// MEM-476: what the code check saw.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MailSeen {
+    /// Mail from the site: each thread's id (its sender's address when the page names no thread).
+    Found(Vec<String>),
+    /// The mailbox was read and holds none.
+    Nothing,
+    /// The check couldn't run, and why (no browser profile open, not Gmail, the page didn't show its results).
+    Unchecked(String),
+}
+
+/// MEM-476: the browser area's code check of the mail.
+pub type MailCheck =
+    Arc<dyn Fn(MailQuery) -> Pin<Box<dyn Future<Output = MailSeen> + Send>> + Send + Sync>;
 
 /// The browser area's answer to its question: (state, choice, ident) to the owner's line.
 pub type BrowsingAnswered = Arc<dyn Fn(&str, &str, &str) -> String + Send + Sync>;
@@ -361,6 +389,7 @@ impl State {
             presence: RefCell::new(None),
             card_lock: Rc::new(tokio::sync::Mutex::new(())),
             browsing_answered: RefCell::new(None),
+            mail_check: RefCell::new(None),
             me: RefCell::new(Weak::new()),
         });
         *state.me.borrow_mut() = Rc::downgrade(&state);

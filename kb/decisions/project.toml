@@ -182,3 +182,13 @@ words_source = "Owner 2026-11-24, 'My choices on the FERB work list': T-1115 (ma
 rule = "AGENTS.md rule 13 says `apps/mac` for the Mac app and `apps/` for the owner's side where it said `ui/` (PROJ-510); nothing else in the rule changes."
 paths = ["AGENTS.md"]
 untestable = "Wording in AGENTS.md; git shows it."
+
+[PROJ-519]
+title = "The owner's answers on the 'Ask me first' list: now, later, with the prompt review"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "rest, ok to all your recommended changes except Harden the report relay - leave it as is, nobody will spam"
+words_source = "Owner 2026-11-24, to the coordinator's recommendation on each 'Ask me first' item of the work list."
+rule = "Done now: the planner's cached prefix (T-1042), notification de-dup rows purged (T-2), a code check of the export mail (T-1293). Later: Amazon's unbound elements (T-1090), the ad-hoc re-signing bug (T-1220), a result's answer one tap away (T-1259), code watchers (T-12, ORCH-506). With the prompt review (T-1279): look memory up before stating facts (T-1040), do what he asks in full (T-1054). Busy-Mac flaky tests: only what journal 197 left (T-1219)."
+untestable = "Work-list scope; each task carries its own tests."

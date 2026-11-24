@@ -94,6 +94,35 @@ impl<'a, 't> Perception<'a, 't> {
             .is_some())
     }
 
+    /// SENSE-431: the notifications' de-dup rows whose record Notification Center no longer holds (`present`: every
+    /// record's external id there now) are deleted, in batches; how many went. A record still there keeps its row, so
+    /// the full read after a restart never records it again.
+    pub fn prune_seen(&self, present: &[String]) -> rusqlite::Result<usize> {
+        let keep: std::collections::HashSet<&str> = present.iter().map(String::as_str).collect();
+        let c = self.db.conn();
+        let mut gone: Vec<String> = Vec::new();
+        {
+            let mut st =
+                c.prepare("SELECT external_id FROM perception_seen WHERE source='notification'")?;
+            for id in st.query_map([], |r| r.get::<_, String>(0))? {
+                let id = id?;
+                if !keep.contains(id.as_str()) {
+                    gone.push(id);
+                }
+            }
+        }
+        for batch in gone.chunks(200) {
+            let marks = vec!["?"; batch.len()].join(",");
+            c.execute(
+                &format!(
+                    "DELETE FROM perception_seen WHERE source='notification' AND external_id IN ({marks})"
+                ),
+                rusqlite::params_from_iter(batch.iter()),
+            )?;
+        }
+        Ok(gone.len())
+    }
+
     /// perception.py:56 (I1): the first Notification Center read after perception's install marks every record
     /// already there as seen (never recorded); every later read passes through.
     pub fn notification_floor(

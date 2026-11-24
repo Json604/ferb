@@ -9,8 +9,9 @@
 //!   was learned stays). On No nothing is read, and it is not asked again.
 //! - **The websites** (ChatGPT, claude.ai): asked once after that, with the browser profiles FERB sees signed in to
 //!   choose from. On a choice FERB makes one quiet watch per site (the schedules' own machinery): it requests the
-//!   export there, checks the mail (a model run at most every 12 hours, MEM-467; the 15-minute ticks between are code
-//!   only), downloads only the parts it needs and gives them to
+//!   export there, then waits for the mail by code: each 15-minute tick looks in his Gmail in that profile for the
+//!   site's mail (MEM-476) and only a mail it hasn't handed on starts a model run (MEM-467; with no code check, a model
+//!   run at most every 12 hours), which downloads only the parts it needs and gives them to
 //!   `memory.import`; the import deletes the file when done (IMP-32) and tells the owner once, warmly. On No: nothing
 //!   changes and it isn't asked again.
 //!
@@ -24,7 +25,7 @@ use ferb_rpc::server::HandlerResult;
 use ferb_rpc::wire::Params;
 use serde_json::{json, Value};
 
-use super::{learning_error, ok, Handler, State};
+use super::{learning_error, ok, Handler, MailQuery, MailSeen, State};
 use crate::shared::{refusal, text};
 
 /// `_memory_item_search(query)`: the facts ranked by the one search, by meaning too once the local model is loaded.
@@ -485,7 +486,7 @@ pub const SITES_SETTING: (&str, &str) = ("memory", "sites_import");
 /// The websites FERB brings in by their data export (the owner named ChatGPT and Claude, 2026-11-22).
 pub const SITES: [&str; 2] = ["chatgpt", "claude"];
 /// How often a website's watch checks the mail (IMP-24, the owner's number).
-pub const MAIL_EVERY_MINUTES: i64 = 15;
+pub const MAIL_EVERY_MINUTES: i64 = ferb_learning::import_live::CODE_CHECK_MINUTES;
 
 /// The coding assistants' names as the owner knows them ("Claude Code and Codex").
 pub fn names(sources: &[&str]) -> String {
@@ -978,19 +979,25 @@ pub fn watch_moved(st: &State, s: &ferb_clock::schedules::Schedule) {
 }
 
 /// MEM-467: after the run that requests a website's export, a watch's model run comes at most this often while it
-/// waits for the mail (FERB's proposal; the owner's number to set). The 15-minute ticks in between are code only.
+/// waits for the mail and the code check can't run (FERB's proposal, the owner's number: MEM-471).
 pub const WATCH_MODEL_EVERY_HOURS: i64 = ferb_learning::import_live::MAIL_CHECK_HOURS;
 
-/// MEM-467 (the owner, on model calls he didn't ask for): whether a website watch's tick waits with no model run. The
-/// first run (it requests the export) always goes. After it, FERB has no code check of his mailbox yet (T-1293), so a
-/// model run checks the mail at most every `WATCH_MODEL_EVERY_HOURS`; every other tick is skipped by code. Not a
-/// watch: false.
-pub fn watch_waits(st: &State, s: &ferb_clock::schedules::Schedule) -> bool {
-    if site_of(s).is_none() {
-        return false;
-    }
-    let last = st
-        .store
+/// MEM-476: while the code check finds no mail, a model run comes at most this often, so a late export is still told
+/// (FERB's proposal: FERB says at the start it can take a day or two; the owner's number to set, T-1323).
+pub const WATCH_LATE_HOURS: i64 = 48;
+
+/// MEM-476: the site's own sender domains, where its export mail comes from (structural: the sender's address).
+pub fn site_domains(site: &str) -> Vec<String> {
+    let domains: &[&str] = match site {
+        "chatgpt" => &["openai.com"],
+        _ => &["anthropic.com", "claude.ai", "claude.com"],
+    };
+    domains.iter().map(|d| d.to_string()).collect()
+}
+
+/// The end of the watch's latest run (posted or quiet), if it ran.
+fn last_run_end(st: &State, s: &ferb_clock::schedules::Schedule) -> Option<ferb_clock::py::Time> {
+    st.store
         .one(
             "SELECT at FROM journal WHERE kind IN ('schedule.posted', 'schedule.quiet') \
              AND json_extract(data_json, '$.schedule_id') = ? ORDER BY seq DESC LIMIT 1",
@@ -998,11 +1005,127 @@ pub fn watch_waits(st: &State, s: &ferb_clock::schedules::Schedule) -> bool {
         )
         .ok()
         .flatten()
-        .and_then(|r| ferb_clock::py::parse(&r.s_at(0)));
-    let Some(last) = last else {
-        return false; // the run that requests the export
+        .and_then(|r| ferb_clock::py::parse(&r.s_at(0)))
+}
+
+/// Whether the watch's latest run ended less than `hours` ago (false when it never ran).
+fn ran_within(st: &State, s: &ferb_clock::schedules::Schedule, hours: i64) -> bool {
+    last_run_end(st, s)
+        .is_some_and(|last| ferb_clock::py::total_seconds(&st.now(), &last) < (hours * 3600) as f64)
+}
+
+/// MEM-467 with no code check of the mail: whether a website watch's tick waits with no model run. The first run (it
+/// requests the export) always goes; after it a model run checks the mail at most every `WATCH_MODEL_EVERY_HOURS`.
+/// Not a watch: false.
+pub fn watch_waits(st: &State, s: &ferb_clock::schedules::Schedule) -> bool {
+    site_of(s).is_some() && ran_within(st, s, WATCH_MODEL_EVERY_HOURS)
+}
+
+/// The threads of the site's mail an earlier tick already handed to a model run.
+fn mail_taken(st: &State, sid: &str) -> std::collections::BTreeSet<String> {
+    st.store
+        .query(
+            "SELECT data_json FROM journal WHERE kind = 'memory.mail_found' \
+             AND json_extract(data_json, '$.schedule_id') = ? ORDER BY seq",
+            ferb_learning::sql![sid],
+        )
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|r| ferb_py::json::loads(&r.s_at(0)).ok())
+        .flat_map(|v| {
+            v.get("threads")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+        })
+        .filter_map(|t| t.as_str().map(str::to_owned))
+        .collect()
+}
+
+/// A tick that waits: why, and whether the code looked at the mail (the card says how often FERB looks).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Wait {
+    pub why: String,
+    pub by_code: bool,
+}
+
+/// MEM-476 (MEM-467: no model calls while FERB only waits): what a website watch's tick does. None: the model run goes
+/// (the first run, which requests the export; mail from the site no run has taken; or, when the code check can't run,
+/// the 12-hour run). Some: it waits, no model run. Not one of FERB's watches, a run under way or FERB stopped: None
+/// (the schedule's own path decides).
+pub async fn watch_tick(st: &Rc<State>, s: &ferb_clock::schedules::Schedule) -> Option<Wait> {
+    let site = site_of(s)?;
+    let busy = st.schedule_runs.borrow().contains(&s.id) || st.tasks.schedule_running(&s.id);
+    if busy || st.stopped.get() || last_run_end(st, s).is_none() {
+        return None;
+    }
+    let check = st.mail_check.borrow().clone();
+    let seen = match check {
+        Some(check) => {
+            check(MailQuery {
+                profile: watch_profile(st, s),
+                domains: site_domains(&site),
+                after: s.first_run.timestamp(),
+            })
+            .await
+        }
+        None => MailSeen::Unchecked("no browser here".into()),
     };
-    ferb_clock::py::total_seconds(&st.now(), &last) < (WATCH_MODEL_EVERY_HOURS * 3600) as f64
+    let wait = |why: String, by_code: bool| Some(Wait { why, by_code });
+    match seen {
+        MailSeen::Found(threads) => {
+            let taken = mail_taken(st, &s.id);
+            let new: Vec<String> = threads.into_iter().filter(|t| !taken.contains(t)).collect();
+            if !new.is_empty() {
+                let _ = st.journal(
+                    "memory.mail_found",
+                    json!({"schedule_id": s.id, "site": site, "threads": new}),
+                    None,
+                );
+                return None;
+            }
+            // only mail a run already took (its import didn't finish): the 12-hour run tries again
+            if ran_within(st, s, WATCH_MODEL_EVERY_HOURS) {
+                wait(
+                    "the site's mail a run already took; a model run at most every 12 hours".into(),
+                    true,
+                )
+            } else {
+                None
+            }
+        }
+        MailSeen::Nothing => {
+            if ran_within(st, s, WATCH_LATE_HOURS) {
+                wait(
+                    "no mail from the site yet, looked at by code; no model run".into(),
+                    true,
+                )
+            } else {
+                None // late: the run tells the owner (the request says so)
+            }
+        }
+        MailSeen::Unchecked(why) => {
+            if ran_within(st, s, WATCH_MODEL_EVERY_HOURS) {
+                wait(format!("the mail couldn't be looked at by code ({why}); a model run at most every 12 hours"), false)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// The browser profile a watch reads the mail in: the one the owner chose ("browser/folder", `memory.sites_asked`),
+/// else the label its runs are given.
+fn watch_profile(st: &State, s: &ferb_clock::schedules::Schedule) -> String {
+    match st.config_get(SITES_ASKED.0, SITES_ASKED.1) {
+        Some(Value::String(v)) if v.contains('/') => v,
+        _ => s
+            .targets
+            .get(ferb_clock::schedules::RUN_SCOPE)
+            .and_then(|r| r.get("profile"))
+            .map(ferb_py::value::py_str)
+            .unwrap_or_default(),
+    }
 }
 
 /// The website a schedule watches for the import, when it is one of FERB's own watches (MEM-451).
@@ -1044,8 +1167,20 @@ fn watches(st: &State) -> Vec<ferb_learning::import_live::Watch> {
                 Some("failed" | "done_with_gaps")
             )
         });
+        // MEM-476: whether the code looks at the mail now (the latest tick that waited said so)
+        let by_code = st
+            .store
+            .one(
+                "SELECT json_extract(data_json, '$.by') FROM journal WHERE kind = 'schedule.waited' \
+                 AND json_extract(data_json, '$.schedule_id') = ? ORDER BY seq DESC LIMIT 1",
+                ferb_learning::sql![s.id],
+            )
+            .ok()
+            .flatten()
+            .is_some_and(|r| r.opt_at(0).as_deref() == Some("code"));
         out.push(ferb_learning::import_live::Watch {
             name: names(&[site.as_str()]),
+            by_code,
             running: st.schedule_runs.borrow().contains(&s.id),
             asked_at,
             trouble,

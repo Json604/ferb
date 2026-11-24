@@ -112,3 +112,4 @@ default Tool::prepare_publish | HAND-624: only project.publish works a push out 
 off browser.sealer_in_process | A daemon started without the Keychain (a test's) seals the owner's fills with the driver's own seal (the same AES-GCM format, ferb-identity seal.rs) instead of the signed helper's.
 value hook | FileSeams.hook: a test's moment between a phone file's check and its open (ferb-daemon tests/phone_files.rs); the real daemon has none.
 value keys | LinkOptions.keys: None is the real daemon's way, the link's one Keychain item through its own secrets helper (compose/link.rs HelperKeys, PHN-487); only a test daemon names its own store.
+value value | WaitCondition.value: a wait for the page's load names no text or address (compose/mail_check.rs, MEM-476).

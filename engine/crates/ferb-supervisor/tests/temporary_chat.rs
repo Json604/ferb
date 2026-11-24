@@ -590,6 +590,64 @@ fn a_temporary_chat_reads_its_own_earlier_turn_and_nothing_kept() {
     );
 }
 
+/// Each planner call's (parts, cacheable), in order.
+fn planner_requests(w: &World) -> Vec<(Vec<String>, usize)> {
+    let calls = w.daemon.calls.lock().unwrap();
+    calls
+        .started
+        .iter()
+        .filter(|c| {
+            let n = c["n"].as_u64().unwrap() as usize;
+            calls.made[n]["runtime_role"] == "orchestrator"
+        })
+        .map(|c| {
+            let parts = c["parts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|p| p.as_str().map(str::to_string))
+                .collect();
+            (parts, c["cacheable"].as_u64().unwrap() as usize)
+        })
+        .collect()
+}
+
+// decision: ORCH-713
+#[test]
+fn a_temporary_chat_caches_its_fact_and_conversation_like_a_kept_one() {
+    // T-1042 (live 2026-11-23/24): every temporary turn went out with cacheable 0, so neither runtime cached its
+    // conversation. The fact is the same on every turn: it opens the cached prefix, Layer 1 and the conversation follow
+    let mut w = seeded("clarify_then_answer");
+    run_named(&mut w, "clarify_then_answer", json!({"fresh": true}));
+    let planners = planner_requests(&w);
+    assert!(planners.len() >= 2, "two turns: {}", planners.len());
+    for (n, (parts, cacheable)) in planners.iter().enumerate() {
+        assert!(
+            parts[0].contains(ferb_supervisor::flow::temporary::FRESH_FACT),
+            "call {n} opens with the temporary chat's fact"
+        );
+        let cached = parts[..*cacheable].join("\n\n");
+        assert!(
+            *cacheable >= 3 && cached.contains("Layer 1") && cached.contains("Layer 5"),
+            "call {n}: the fact, Layer 1 and the conversation are cacheable ({cacheable} of {})",
+            parts.len()
+        );
+        assert!(
+            !cached.contains("Layer 2"),
+            "call {n}: what changes between turns stays after the cached prefix"
+        );
+    }
+    // the second turn's cached prefix starts with every byte of the first's, and adds its first turn's entries
+    let (first, second) = (&planners[0], &planners[1]);
+    assert!(second.1 > first.1, "{} then {}", first.1, second.1);
+    assert_eq!(first.0[..first.1], second.0[..first.1]);
+    // the control: a kept chat's turn has the same prefix minus the fact
+    let mut kept = seeded("clarify_then_answer");
+    run_named(&mut kept, "clarify_then_answer", json!({}));
+    let kept_first = &planner_requests(&kept)[0];
+    assert!(kept_first.1 >= 2 && kept_first.0[0].contains("Layer 1"));
+}
+
 struct NoReads;
 
 impl ferb_supervisor::history::TimelineReads for NoReads {

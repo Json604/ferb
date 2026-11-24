@@ -402,3 +402,83 @@ fn notifications_banners_floor_and_expiry_match_python() {
     d.check("journal", &f["journal"], &json!(*journal.borrow()));
     d.finish("perception");
 }
+
+// decision: SENSE-431
+#[test]
+fn seen_rows_go_once_notification_center_no_longer_has_them() {
+    // T-2: the de-dup rows were never purged. A row goes only when its record is gone from Notification Center: one
+    // still there keeps it, so the full read after a restart doesn't record it a second time
+    let store = db("prune_seen");
+    let clock = FakeClock::new(parse("2026-03-04T18:20:05.250000+00:00"))
+        .with_zone(Zone::named("Asia/Kolkata").unwrap());
+    let ids = SequentialIds::new("p");
+    let trail_ids = SequentialIds::new("tr");
+    let redactor = ferb_sanitize::Redactor::default();
+    let published = RefCell::new(Vec::<Value>::new());
+    let excl = Exclusions::build(&[] as &[&str], &[] as &[&str], &[] as &[&str]);
+    let trail = Trail::new(
+        &store,
+        &clock,
+        &trail_ids,
+        &redactor,
+        trail::Seams {
+            exclusions: Box::new(|| excl.clone()),
+            publish: Box::new(|t, v| published.borrow_mut().push(json!([t, v]))),
+            device_id: Box::new(|| "dev".into()),
+            paused: Box::new(|| false),
+            test_task: Box::new(|_| false),
+            is_browser: Box::new(|_| false),
+        },
+        Arc::new(Attribution::new(|| 0.0)),
+    );
+    let p = Perception::new(
+        &store,
+        &clock,
+        &trail,
+        NotificationPolicy::new(&store, &clock, &ids, &redactor),
+        Seams {
+            journal: Box::new(|_, _| {}),
+            paused: Box::new(|| false),
+            roll_over: Box::new(|| {}),
+            expire_derived: Box::new(|_, _, _| {}),
+        },
+    );
+    // the install floor (no trail event) and two recorded notifications
+    p.notification_floor(vec![n("old1", "com.chat", "A", "a")])
+        .unwrap();
+    for ext in ["x1", "x2"] {
+        p.notification(&n(ext, "com.chat", "Bob", ext)).unwrap();
+    }
+    let seen = |db: &Db| -> Vec<String> {
+        let mut st = db
+            .conn()
+            .prepare("SELECT external_id FROM perception_seen ORDER BY external_id")
+            .unwrap();
+        st.query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect()
+    };
+    assert_eq!(seen(&store), ["old1", "x1", "x2"]);
+    // Notification Center now holds x2 and a record FERB hasn't read yet
+    let gone = p.prune_seen(&["x2".into(), "new".into()]).unwrap();
+    assert_eq!(gone, 2);
+    assert_eq!(seen(&store), ["x2"]);
+    // a restart's full read hands x2 again: still seen, never recorded twice
+    let trail_before = trail_rows(&store).as_array().unwrap().len();
+    assert!(p.seen("x2").unwrap());
+    p.notification(&n("x2", "com.chat", "Bob", "x2")).unwrap();
+    assert_eq!(trail_rows(&store).as_array().unwrap().len(), trail_before);
+    // nothing in Notification Center: every row goes, in batches
+    for i in 0..450 {
+        store
+            .conn()
+            .execute(
+                "INSERT INTO perception_seen VALUES('notification', ?, NULL)",
+                params![format!("bulk{i:03}")],
+            )
+            .unwrap();
+    }
+    assert_eq!(p.prune_seen(&[]).unwrap(), 451);
+    assert!(seen(&store).is_empty());
+}

@@ -267,6 +267,92 @@ async fn the_notification_watcher_reads_nothing_until_full_disk_access() {
     assert!(reader.0.load(Ordering::SeqCst) > 0);
 }
 
+/// Notification Center as a list: each read hands the records once; `present` is every record still there.
+struct Center {
+    records: Mutex<Vec<&'static str>>,
+    read: AtomicBool,
+}
+impl NotificationReader for Center {
+    fn read(&self) -> Result<Vec<Observation>, String> {
+        if self.read.swap(true, Ordering::SeqCst) {
+            return Ok(vec![]);
+        }
+        Ok(self
+            .records
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|id| {
+                Observation::by(
+                    "notification",
+                    [("external_id".to_string(), json!(id))]
+                        .into_iter()
+                        .collect(),
+                    "unknown",
+                )
+            })
+            .collect())
+    }
+    fn present(&self) -> Result<Option<Vec<String>>, String> {
+        Ok(Some(
+            self.records
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        ))
+    }
+}
+
+// decision: SENSE-431
+#[tokio::test(start_paused = true)]
+async fn the_notification_watcher_hands_on_what_notification_center_holds_after_its_records() {
+    let center = Arc::new(Center {
+        records: Mutex::new(vec!["a", "b"]),
+        read: AtomicBool::new(false),
+    });
+    // one ordered log, as the daemon's loop takes both: the records, then the prune
+    let log: Arc<Mutex<Vec<String>>> = Arc::default();
+    let (records, prunes) = (log.clone(), log.clone());
+    let mut w = NotificationWatcher::new(
+        center.clone(),
+        Arc::new(|_| false),
+        Arc::new(move |o: Observation| {
+            records.lock().unwrap().push(format!(
+                "record {}",
+                o.data["external_id"].as_str().unwrap()
+            ))
+        }),
+        Arc::new(|o| o),
+        Arc::new(|| true),
+    )
+    .with_prune(Arc::new(move |ids: Vec<String>| {
+        prunes
+            .lock()
+            .unwrap()
+            .push(format!("prune {}", ids.join(",")))
+    }));
+    w.interval_s = 1.0;
+    w.prune_s = 3600.0;
+    let w = Arc::new(w);
+    let stop = Stop::new();
+    let task = tokio::spawn(w.clone().run(Arc::new(|_| {}), stop.clone()));
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    assert_eq!(
+        *log.lock().unwrap(),
+        ["record a", "record b", "prune a,b"],
+        "the first read's records, then what is there: once, not every read"
+    );
+    // a is dismissed in Notification Center: the next hourly look hands on b alone
+    center.records.lock().unwrap().retain(|r| *r != "a");
+    tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+    stop.set();
+    task.await.unwrap().unwrap();
+    assert_eq!(log.lock().unwrap().last().unwrap(), "prune b");
+    assert_eq!(log.lock().unwrap().len(), 4);
+}
+
 // ---------- text capture: every check before the key's text is read (rule 7) ----------
 
 struct Key {
