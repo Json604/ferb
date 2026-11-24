@@ -4354,6 +4354,7 @@ words = "as we have thre grainy moving background in teh first startup screen, i
 words_source = "Owner 2026-11-20, on the insomnia-mode shield."
 rule = "The shield reuses the first-run screen's grainy moving background, animates the f. mark (the f forming, the dot playing) and tries a frosted-glass layer; his choice among prototypes decides the final look."
 why = "The shield should feel like FERB, not a blank cover."
+live = ["LIVE-1156"]
 
 [APP-986]
 title = "A small root helper for insomnia mode: a closed Mac kept awake on battery, and scheduled wakes"
@@ -4771,3 +4772,24 @@ rule = "For APP-1127. The tour's account step comes right after Meet (IntroBeat.
 why = "Before the model sign-in, nothing in FERB.app is reachable signed out. Apple's sign-in browser keeps the password from FERB and the callback from other apps; a universal link needs associated domains the self-signed build can't carry. The daemon is FERB's one way to the Keychain (GATE-543)."
 paths = ["apps/mac/FERBNotch/Sources/NotchCore/Account.swift", "apps/mac/FERBNotch/Sources/FERBNotch/AccountWebSignIn.swift", "apps/mac/FERBNotch/Sources/FERBNotch/IntroSetupBeats.swift", "apps/mac/FERBNotch/Sources/FERBNotch/AppSetupController.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "apps/mac/FERBNotch/Sources/NotchCore/IntroPlan.swift", "engine/crates/ferb-daemon"]
 live = ["LIVE-1202"]
+
+[APP-1131]
+title = "The long-paste limit is 2,000 characters or 30 lines"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "its already done"
+words_source = "Owner 2026-11-24, 'My choices on the FERB work list': T-1250 (keep the long-paste limit, 2,000 characters or 30 lines?) marked [Do now]."
+rule = "For APP-934: a paste longer than 2,000 characters or 30 lines, whichever comes first, is held as a \"Pasted text\" chip (LongPaste.limit), as built. The owner confirms the limit."
+paths = ["apps/mac/FERBNotch/Sources/NotchCore/PastedRequest.swift::LongPaste"]
+untestable = "Confirms a built constant that APP-934's tests drive (ComposerPasteTests.swift); a test of the number would be a wiring test (TEST-500)."
+
+[APP-1132]
+title = "Insomnia mode's words and numbers are approved as they are"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "yeah it works"
+words_source = "Owner 2026-11-24, 'My choices on the FERB work list', to T-1275 (insomnia mode's words on the Mac and the phones, journal 153, and its numbers)."
+rule = "Insomnia mode's owner-facing words on the Mac and the phones ship as they are (journal 153, as changed in 154), and its numbers stay: 10 minutes of grace after the work, battery warnings at 20 % and 10 %, at most 8 scheduled wakes."
+untestable = "An approval of wording (TEST-500 keeps no wording tests) and of numbers insomnia's tests already drive (journal 153)."

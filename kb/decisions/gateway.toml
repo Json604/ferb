@@ -1541,3 +1541,35 @@ rule = "Changes GATE-207: the foreground question (floor:foreground: Mac input t
 why = "Task a843aa54: his 30-minute answer to the pairing question answered a script question for Chrome whose key then covered menu presses and a foreground cmd+L at 14:25 that took his screen."
 paths = ["engine/crates/ferb-policy/src/confirm.rs::ROUTINE"]
 live = ["LIVE-1180"]
+
+[GATE-626]
+title = "An address typed or pasted in an answer is approved, as today"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "yes it does."
+words_source = "Owner 2026-11-24, 'My choices on the FERB work list', to T-1061, put to him as: a typed or pasted address in an answer counts as approved."
+rule = "For GATE-218 and ORCH-518: an email, URL host or 6+ digit run the owner types or pastes in an answer to FERB's question is recorded as answered (approved for good), as built; a correction's words stay named."
+untestable = "Keeps built behaviour that GATE-218's tests drive."
+
+[GATE-627]
+title = "A task question that mentions a password hides the whole typed answer, as today"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "yeah current works."
+words_source = "Owner 2026-11-24, 'My choices on the FERB work list', to T-1062 (hide only a one-word answer, so a sentence reaches the task, or the whole answer as today?)."
+rule = "For GATE-501, GATE-502 and ORCH-536: when a task's question mentions a password, the whole answer typed in its box is hidden from the model, a sentence included, as built."
+rejected = ["Hiding only a one-word answer"]
+untestable = "Keeps built behaviour that the hidden-answer tests drive."
+
+[GATE-628]
+title = "Text pasted in a question card's box is the owner's words"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "my words"
+words_source = "Owner 2026-11-24, 'My choices on the FERB work list', to T-1117 (a paste in a question card's box: your own words, or pasted data that can't name a site or count as Yes or No?)."
+rule = "For ORCH-518: text the owner pastes into the box under one of FERB's questions counts as his own words, as a paste in chat does: it can name a site for the task and answer the question, as built. HAND-571 still keeps FERB's own keys and pastes out of the box."
+rejected = ["Treating such a paste as data that names no site and answers nothing"]
+untestable = "Keeps built behaviour that ORCH-518's tests drive."

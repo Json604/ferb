@@ -4950,6 +4950,7 @@ request = "Turn Keep my Mac working off, plug the Mac in and close the lid. Afte
 pass = "While closed, the phone's line under the tabs says the Mac is asleep with its lid closed and wakes for a moment now and then; FERB's answer says the Mac is asleep and macOS's Power Nap wakes it briefly, that FERB itself isn't keeping it awake and Keep my Mac working is off. The next day's answer calls device.facts with since/until (ferb trace TASK) and names the sleep's times, the brief wakes and Power Nap, never that FERB held the Mac awake."
 decisions = ["SENSE-426", "SENSE-427", "SENSE-428", "SENSE-429", "SENSE-430"]
 sitting = "after this build is installed"
+result = "passed 2026-11-24: owner, 2026-11-24, work list (marked [Drop]: already checked)"
 
 [LIVE-1162]
 title = "Setup asks about Claude Code and Codex once; Yes brings them in now and keeps them up to date"
@@ -5093,6 +5094,7 @@ request = "Look at the top bar on each of the four tabs (Chat, Tasks, Files, Mac
 pass = "Four tabs, no Sessions; the chosen tab shows its name, the other icons have room, the same on both phones; the profile button's badge shows the link and its page's first row opens the connection sheet."
 decisions = ["PHN-801", "PHN-825"]
 sitting = "after this build is installed"
+result = "passed 2026-11-24: owner, 2026-11-24, work list (marked [Drop]: already checked)"
 
 [LIVE-1190]
 title = "The screenshot switch on every page of both phones, Watch included"
@@ -5102,6 +5104,7 @@ request = "Turn Block screenshots off. Take a screenshot of the chat, a task's s
 pass = "Android: with the switch off every screenshot shows the page, Watch and the camera included; with it on every one is black; the hidden answer's box is black either way; recent apps show FERB covered. iPhone: with the switch off the pictures of the Mac show; with it on they are blank in the screenshot and FERB is hidden in a screen recording; This phone's row says the rest of the app can show in screenshots."
 decisions = ["PHN-810", "PHN-811"]
 sitting = "after this build is installed"
+result = "passed 2026-11-24: owner, 2026-11-24, work list (marked [Drop]: already checked)"
 
 [LIVE-1187]
 title = "The check gets FERB's own look and never reruns; not-done attempts are routed in one small call"

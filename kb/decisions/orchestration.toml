@@ -2467,3 +2467,13 @@ why = "Task 047ad9e8: three of its five tries were Claude Code's stream failing 
 evidence = "ferb-supervisor tests/internal_errors.rs (two crashes then the check-in after five real tries; three crashes in a row ask with the reason, Keep trying goes on)."
 paths = ["engine/crates/ferb-worker/src/worker.rs", "engine/crates/ferb-orchestrator/src/attempts.rs", "engine/crates/ferb-supervisor/src/flow/attempt.rs::worker_loop"]
 live = ["LIVE-1200"]
+
+[ORCH-710]
+title = "No gaps question at an undeclared send after a gapped step"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "no"
+words_source = "Owner 2026-11-24, 'My choices on the FERB work list', to T-1116 (also ask the gaps question at the first send, submit, pay, post or delete call of a later step that didn't declare it?)."
+rule = "For ORCH-653: the gaps question stays decided by the plan's declared structure; FERB does not also ask it at the first send, submit, pay, post or delete call of a step whose plan didn't declare it. The existing confirmations (new recipient, payment, deletion) still ask."
+untestable = "Keeps built behaviour that ORCH-653's tests drive."

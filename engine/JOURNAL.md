@@ -11868,3 +11868,66 @@ in Web analytics as daily visitors, and carry no location; OK's switch on a real
 page view isn't sent at the moment of OK on that page (PostHog's `opt_in_capturing` didn't send one in Chrome), so a
 consented visit's first page view is the cookieless one. The bundle (739 KB, 229 KB gzipped) now loads on
 every page view, not only after OK.
+
+## 2026-11-24 · 205 · The owner's answers on the work list: drops, confirmations, a 180-day sign-in, and the done items checked
+
+**What the owner decided** ("My choices on the FERB work list", 2026-11-24; "also there were things that have
+already been done, ive marked them dropped cause they are done, just check all").
+
+- Dropped (PROJ-517, words "Drop"): T-1057 (limits review), T-1278 (end questions on push gates, Python replays,
+  live reruns), T-1050 (second-user fresh install), T-1262 (iroh fixes upstream), T-408 (preview frame-rate cap;
+  APP-405's no cap stands), T-1291 (Codex compaction; RUN-472 now carries an `untestable` reason), T-1271 (control the
+  Mac from the phone). REL-446 supersedes REL-402 (Intel's cryptography pin; T-1110 closed).
+- Answers, each an owner decision with his words: REL-445 (T-1305, "is this the google/apple signin??/ if yes then
+  180days": it is the FERB account's Google/Apple sign-in, so a sign-in lasts 180 days from its last use); HAND-721
+  (T-1093, "keep current": no per-upload limit beyond the task's download budget); GATE-626 (T-1061, "yes it does.",
+  read as the work list put it: a typed or pasted address in an answer counts as approved, as built); GATE-627
+  (T-1062, "yeah current works."); GATE-628 (T-1117, "my words"); ORCH-710 (T-1116, "no"); HAND-722 (T-1063, "keep
+  it"); APP-1132 (T-1275, "yeah it works": insomnia's words and numbers as they are); APP-1131 (T-1250, "its already
+  done": 2,000 characters or 30 lines); PROJ-518 (T-1115, [Do now]).
+- T-1267 stays; its question now says reports already become GitHub issues through the relay (relay/README.md) and
+  only the address is open. T-1020, T-1068 and T-1067 stay (Later).
+
+**Changed.** `site/api/_lib/app.js:31` `REFRESH_SECONDS` 90 → 180 days (and its header comment); its tests in
+`site/tests/app-token.test.mjs` (tagged REL-445; the issue and rotation expiries, "a refresh token lasts 180 days from
+its issue"). REL-441 (agent) now says the refresh token lasts 180 days (REL-445). The privacy page states no sign-in
+lifetime (site/privacy.html:139-150), so it is unchanged. AGENTS.md rule 13 says `apps/mac` and `apps/` where it said
+`ui/` (PROJ-518); CLAUDE.md and apps/AGENTS.md had no `ui/`. HAND-502's rule (agent) points at HAND-721. APP-985
+links LIVE-1156 and DMN-581 gets an `untestable` reason, since the open tasks that covered them closed.
+
+**Marked done by the owner, checked here.**
+- Closed, built: T-500 (intro grants, reopen, quit): ba99abe6 (Tasks: T-500; APP-597, APP-598), still in FERB.app
+  (IntroController.swift:218 waits for the service, APP-515; PLAYGROUND.md:150-154). T-502 (Keychain prompt after
+  Always Allow): b0bf6134 (REL-404), the pinned helper ships in the Rust build (scripts/build-app-rust.sh:243-245,
+  assets/secret-helper/pin.json). T-503 ("blocked from accessing data"): c74ff4e9 (GATE-505), ported and tested
+  (ferb-policy tests/protection.rs:117, ferb-shell tests/profiles.rs:4). T-1080 (test mode removed): f69ad4b9 (Tasks:
+  T-1080, DMN-581/582); no `test.mode` method in ferb-rpc auth.rs METHODS; an old config's key is retired
+  (ferb-core config.rs:44,71,736). T-1274 (insomnia mode): journal 153-154, STATUS row updated; LIVE-1151 and
+  LIVE-1157 passed. T-1250 (long paste): `LongPaste.limit = (characters: 2_000, lines: 30)`
+  (NotchCore/PastedRequest.swift:167). T-1120 (extension 0.19.12): the owner said "ext submitted" and "ext is
+  approved"; the repo's extension is 0.19.14 (extension/manifest.json:4).
+- Not done, kept open with what is missing in the task: T-10 (STORE-419 retention): notices are kept forever
+  (ferb-store retention.rs:180-182), learned-node change rows have no window (only cleanup.rs:495's one-time rollup
+  removal), perception batches are only emptied once by the clean-up (cleanup.rs:32-41; the hourly pass trims only
+  `decisions` and `perception_receipts`, cleanup.rs:83); no wake-up table exists. T-1121 (owner's app back at the
+  popup itself): the extension's `popup` event (background.js:1662,1715) carries no focus fact and bridge.rs
+  `on_popup` puts nothing back; HAND-570 still acts on the tab's reply.
+
+**Live checks.** LIVE-1186, LIVE-1190 and LIVE-1161 passed 2026-11-24 (owner, work list: marked [Drop] as already
+checked).
+
+**Tasks added (Later).** T-1309 FERB.app's look from the FERB Glass lab; T-1310 a setup-tour recap; T-1311 FERB's
+sonic identity; T-1312 tell people about the phone app for remote use; T-1313 ways to introduce FERB's features (a
+demo video on the site or in the app); T-1314 FERB.app says the phone apps aren't in the stores yet; T-1315 a
+notch-only "FERB updated" notice that opens what's new; T-1316 email YouTubers; T-1317 his X bookmarks about FERB;
+T-1318 a phone-app lock button he can toggle (his words; PHN-8 locks every time today).
+
+**Evidence.** `node --test tests/app-token.test.mjs` in site/: 15 passed. `kb lock`, `kb gen`, `kb check` ok;
+`git diff --check` clean.
+
+**Unverified.** The 180-day sign-in is not deployed (Vercel) nor seen live; refresh tokens issued before the deploy
+keep their 90-day expiry. T-500, T-502 and T-503's live checks (LIVE-678, LIVE-679, LIVE-680) were waived for v0.27.0,
+never passed; they are closed on the owner's word and the fix commits. LIVE-1152 and LIVE-1154..1156 (insomnia) have
+no verdict; "the insomnia tests all passed" is recorded on LIVE-1157 only. GATE-626 follows the coordinator's reading
+of "yes it does." (the kb question asked the opposite way round: should it count like an address in the request
+instead of approved for good). That 0.19.12 reached the Chrome Web Store was not checked here.

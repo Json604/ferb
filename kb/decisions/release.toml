@@ -73,7 +73,8 @@ legacy = "notes/runtimes.md Pin move 2026-11-01: App size"
 title = "The Intel build pins cryptography 48.0.1, the last release with Intel Mac wheels"
 by = "owner"
 date = 2026-10-25
-status = "active"
+status = "superseded"
+superseded_by = "REL-446"
 words_source = "CHANGELOG.md L34 phase A: \"(owner, A3)\", an answer in the L34 question list; no verbatim quote"
 rule = "On Intel Macs FERB installs cryptography 48.0.1 (the last release with Intel Mac wheels); every other platform takes the current pin."
 paths = ["pyproject.toml", "uv.lock"]
@@ -512,7 +513,31 @@ title = "How the apps sign in: /api/app, PKCE one-time codes, opaque rotating to
 by = "agent"
 date = 2026-11-24
 status = "active"
-rule = "For REL-440. site/api/app: start (provider, platform, the app's PKCE S256 challenge and state, a redirect from an exact allowlist: ferb-auth://callback, or the Android App Link /app/callback), callback (Google by openid-client; Apple by form_post, its id_token checked against Apple's JWKS; private-relay emails accepted), token (a 120 s one-time code bound to the challenge; then an opaque 1 h access token and a rotating 90-day refresh token, kept only as SHA-256; a refresh token used twice revokes its family), me, signout, delete, assertion, send-link. Rate limits in the database."
+rule = "For REL-440. site/api/app: start (provider, platform, the app's PKCE S256 challenge and state, a redirect from an exact allowlist: ferb-auth://callback, or the Android App Link /app/callback), callback (Google by openid-client; Apple by form_post, its id_token checked against Apple's JWKS; private-relay emails accepted), token (a 120 s one-time code bound to the challenge; then an opaque 1 h access token and a rotating refresh token (180 days, REL-445), kept only as SHA-256; a refresh token used twice revokes its family), me, signout, delete, assertion, send-link. Rate limits in the database."
 why = "PKCE with an exact redirect allowlist is what RFC 8252 asks of apps on custom schemes and App Links; opaque tokens stored hashed mean a database leak gives no usable token; rotation with reuse detection limits a stolen refresh token. No new npm dependency: node:crypto signs and verifies the JWTs."
 paths = ["site/api/app", "site/api/_lib", "site/sql", "site/tests", "site/vercel.json", "site/env.example"]
 live = ["LIVE-1202", "LIVE-1203"]
+
+[REL-445]
+title = "A FERB sign-in lasts 180 days from its last use"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "is this the google/apple signin??/ if yes then 180days"
+words_source = "Owner 2026-11-24, 'My choices on the FERB work list', to T-1305 (how long a FERB sign-in lasts). It is: the FERB account's Google or Apple sign-in (REL-440)."
+rule = "A FERB account sign-in (Google or Apple, REL-440) on a Mac or phone lasts 180 days from its last use: each rotating refresh token is valid 180 days from its issue, so an app left unused 180 days asks to sign in again. The 1-hour access token and REL-441's other limits (Send me the link, rate limits) are as REL-441 has them; his answer named only the lifetime."
+why = "The owner's number; REL-441's 90 days was the agent's until he said."
+rejected = ["90 days (REL-441's first number)"]
+paths = ["site/api/_lib/app.js"]
+
+[REL-446]
+title = "No cryptography pin for Intel Macs: REL-402 is dropped"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "Drop"
+words_source = "Owner 2026-11-24, 'My choices on the FERB work list': T-1110 (supersede REL-402, Intel's cryptography pin, which has nothing left to pin) marked [Drop]."
+rule = "FERB pins no cryptography release for Intel Macs: no Python ships with FERB (ENG-2), so REL-402 has nothing to pin."
+why = "The pin was for a Python wheel; uv.lock and pyproject.toml left with ENG-16."
+supersedes = ["REL-402"]
+untestable = "An absence: no Python package is built or shipped (ENG-2)."

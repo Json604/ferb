@@ -1,5 +1,6 @@
 // decision: REL-440
 // decision: REL-441
+// decision: REL-445
 // The apps' side of the sign-in: /api/app/token (code and refresh grants), and the bearer endpoints me, signout,
 // delete and send-link.
 import assert from "node:assert/strict";
@@ -42,7 +43,7 @@ test("a code is traded once, with its verifier, for an access token, a refresh t
   assert.equal(refresh.kind, "refresh");
   assert.equal(access.family, refresh.family);
   assert.deepEqual(access.expires_at, new Date((NOW + 3600) * 1000));
-  assert.deepEqual(refresh.expires_at, new Date((NOW + 90 * 86400) * 1000));
+  assert.deepEqual(refresh.expires_at, new Date((NOW + 180 * 86400) * 1000));
   const everything = JSON.stringify([...f.store.codes.values(), ...f.store.tokens.values(), ...f.store.deviceRows.values()]);
   for (const secret of [code, body.access_token, body.refresh_token, "Ada's MacBook"]) assert.ok(!everything.includes(secret));
   assert.deepEqual([...f.store.deviceRows.values()].map((d) => [d.device_id, d.platform, d.app_version]), [[DEVICE.id, "mac", DEVICE.version]]);
@@ -130,7 +131,7 @@ test("a refresh rotates the pair in the same family; using the old refresh token
   assert.deepEqual(second.account, first.account);
   const family = f.store.tokens.get(sha256hex(first.refresh_token)).family;
   assert.equal(f.store.tokens.get(sha256hex(second.refresh_token)).family, family);
-  assert.deepEqual(f.store.tokens.get(sha256hex(second.refresh_token)).expires_at, new Date((NOW + 1800 + 90 * 86400) * 1000));
+  assert.deepEqual(f.store.tokens.get(sha256hex(second.refresh_token)).expires_at, new Date((NOW + 1800 + 180 * 86400) * 1000));
   assert.equal([...f.store.deviceRows.values()][0].app_version, "0.28.1");
   assert.equal((await appMe(getWith("/api/app/me", second.access_token), f.deps)).status, 200);
 
@@ -148,13 +149,13 @@ test("a refresh rotates the pair in the same family; using the old refresh token
   assert.equal((await appMe(getWith("/api/app/me", other.access_token), f.deps)).status, 200);
 });
 
-test("a refresh token lasts 90 days from its issue", async () => {
+test("a refresh token lasts 180 days from its issue", async () => {
   const f = appFakes();
   const { refresh_token } = await signedIn(f);
-  f.advance(90 * 86400);
+  f.advance(180 * 86400);
   assert.equal((await token(f, refreshGrant(refresh_token))).status, 401);
   const fresh = await signedIn(f);
-  f.advance(90 * 86400 - 1);
+  f.advance(180 * 86400 - 1);
   assert.equal((await token(f, refreshGrant(fresh.refresh_token))).status, 200);
 });
 

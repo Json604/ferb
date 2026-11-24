@@ -160,3 +160,25 @@ words_source = "Owner 2026-11-22, planning the public release after the Play Sto
 rule = "Everything in FERB's repository is published as open source when FERB is released (licence per PROJ-503). New text may call FERB open source from the release on; until then the repository stays as it is."
 why = "The owner's choice."
 untestable = "A publishing choice."
+
+[PROJ-517]
+title = "Dropped from the work list on 2026-11-24"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "Drop"
+words_source = "Owner 2026-11-24, 'My choices on the FERB work list': [Drop] on T-1057, T-1278, T-1050, T-1262, T-408, T-1291 and T-1271."
+rule = "Not done and off the work list: the review of limits agents set or code holds (T-1057; they stay as they are); the end questions on push gates, Python replays and live reruns (T-1278); a second-user fresh install before setup changes ship (T-1050); offering the iroh fixes upstream (T-1262); a preview frame-rate cap (T-408; APP-405's no cap stands); Codex compaction (T-1291; RUN-472 stands); control of the Mac from the phone (T-1271; Watch live stays view-only)."
+why = "The owner's choices."
+untestable = "Work-list scope: nothing is built or changed."
+
+[PROJ-518]
+title = "AGENTS.md rule 13 names apps/mac and apps/ for the Mac app"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "Do now"
+words_source = "Owner 2026-11-24, 'My choices on the FERB work list': T-1115 (may rule 13 say apps/mac and apps/ where it says ui/, nothing else changed?) marked [Do now]."
+rule = "AGENTS.md rule 13 says `apps/mac` for the Mac app and `apps/` for the owner's side where it said `ui/` (PROJ-510); nothing else in the rule changes."
+paths = ["AGENTS.md"]
+untestable = "Wording in AGENTS.md; git shows it."

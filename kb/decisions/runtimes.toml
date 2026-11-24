@@ -665,6 +665,7 @@ words = "numbers ok, leave codex out for now"
 words_source = "Owner 2026-11-22, shown that compacting Codex runs needs their requests to the ChatGPT backend routed through a FERB relay"
 rule = "For RUN-468. Only Claude Code runs and FERB's API loop are compacted; a Codex run is started, and talks to its backend, exactly as before. Codex compaction comes later, checked live with the owner (T-1291)."
 paths = ["engine/crates/ferbd/src/compose/runtimes.rs"]
+untestable = "An absence: Codex runs aren't compacted (compose/runtimes.rs). The later Codex compaction was dropped from the work list (PROJ-517, T-1291)."
 
 [RUN-473]
 title = "Claude Code's stream is read whatever a line's length; a model's picture stays under 500,000 bytes"

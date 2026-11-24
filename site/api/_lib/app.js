@@ -2,7 +2,7 @@
 // Android app sign in to one FERB account (a row of ferb_users) with Google or Apple. The app opens /api/app/start
 // in a browser with its own PKCE challenge and state; the provider answers /api/app/callback; the site hands the app
 // a one-time code at an allowlisted address; the app trades it with its verifier at /api/app/token for an access
-// token (1 hour) and a refresh token (90 days, rotated on each use; a reused one ends the whole sign-in).
+// token (1 hour) and a refresh token (180 days, REL-445; rotated on each use; a reused one ends the whole sign-in).
 //
 // Every outside service comes in through `deps`, so tests run these with stand-ins and no network:
 //   deps.config   readAppConfig(): { ready, secret, siteUrl, google, apple, assertion: { key, kid } | null,
@@ -28,7 +28,7 @@ const ANDROID_PACKAGE = "com.ferb.phone";
 
 const CODE_SECONDS = 120;
 const ACCESS_SECONDS = 60 * 60;
-const REFRESH_SECONDS = 90 * 24 * 60 * 60;
+const REFRESH_SECONDS = 180 * 24 * 60 * 60; // owner, 2026-11-24 (REL-445)
 // [most requests, per seconds]
 export const LIMITS = {
   start: [20, 10 * 60],

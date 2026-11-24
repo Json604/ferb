@@ -79,15 +79,6 @@ kind = "chore"
 status = "open"
 why = "notes/runtimes.md Pin move 2026-11-01: Codex 0.166.0's bundled catalog adds gpt-6.1-terra, but FERB knows no OpenAI max output for it; openai_api.py and prices.py list gpt-6.1-sol only."
 
-[T-408]
-title = "Preview frame-rate cap: decide from the step-13 measurement"
-area = "app"
-kind = "question"
-status = "blocked"
-why = "APP-405: no cap until heat is confirmed from data. Owner 2026-11-02: \"we ahve to actually see adn then downagrade\". LIVE-420 measures the task with the preview open vs closed; the owner sees it, then decides."
-decisions = ["APP-405"]
-ask = "With the preview open, the same task used this much more of FERB's CPU than with it closed (LIVE-420's figures). Should the preview's frame rate be capped, and if so at how many frames per second?"
-
 [T-300]
 title = "Measure the planner's whole-history reads on a 10x store before changing them"
 area = "orchestration"
@@ -111,20 +102,6 @@ kind = "build"
 status = "open"
 why = "Owner's live run, 2026-11-01 (verbatim): \"the notch was on the side, not movable, the orb was not pretty enough, ... no good feedback in the demo etc etc so many wrong things.\" Iterate in the intro playground. The notch's place and drag are fixed (APP-597)."
 decisions = ["APP-501", "APP-513", "APP-519"]
-
-[T-502]
-title = "The ferb-secrets Keychain prompt keeps coming back after Always Allow"
-area = "gateway"
-kind = "bug"
-status = "open"
-why = "Live run 2026-11-01: macOS kept asking for ferb-secrets' items under service ferb.owner-secrets (6 saved items) even after \"Always Allow\"; the helper's designated requirement is identifier com.ferb.secrets plus a certificate leaf hash. Cause not investigated."
-
-[T-503]
-title = "A macOS banner said FERB \"was blocked from accessing data\""
-area = "app"
-kind = "bug"
-status = "open"
-why = "Seen on the owner's live run of the intro build, 2026-11-01. Cause unknown: find which access macOS blocked and why."
 
 [T-504]
 title = "Trim the wording and wiring tests inside the kept safety files"
@@ -162,6 +139,7 @@ title = "Build STORE-419 retention: perception 30 d, fired wake-ups, notices and
 area = "storage"
 kind = "build"
 status = "open"
+why = "Checked 2026-11-24 (journal 205): not built. Notices stay forever (ferb-store retention.rs:180-182); learned-node change rows have no window (only cleanup.rs:495's one-time rollup removal); perception batches are only emptied once (cleanup.rs:32-41, TRIMMED :83); no wake-up table exists to trim."
 decisions = ["STORE-419"]
 
 [T-12]
@@ -244,14 +222,6 @@ status = "open"
 why = "No test checks that the intro never reaches speech output; IntroControllerTests only assert which family sounds play. An IntroController test can run the whole tour with a fake speech path and assert it is never called."
 decisions = ["APP-502"]
 
-[T-500]
-title = "The intro's permission accepting, reopen and quit are broken"
-area = "app"
-kind = "bug"
-status = "open"
-why = "Owner's live run of the intro build, 2026-11-01 (verbatim): \"the flow is good but the permission accepting, reopen and quit is broken\". Reproduce in the intro playground or a fresh install, then fix."
-decisions = ["APP-510", "APP-516"]
-
 [T-1001]
 title = "Write the test for APP-515: a resumed tour waits while the service is down"
 area = "app"
@@ -326,14 +296,6 @@ why = "RUN-417 now says plainly when the ChatGPT plan lacks the model; ORCH-315 
 decisions = ["RUN-417", "ORCH-315"]
 ask = "When your ChatGPT plan doesn't include FERB's model, should FERB offer to switch to another signed-in service with one tap (it never switches by itself), like it does for usage limits?"
 
-[T-1050]
-title = "Setup changes ship only after a fresh-install run on a second macOS user"
-area = "project"
-kind = "question"
-status = "open"
-why = "2026-11-04: setup fixes kept breaking earlier ones because no one ran the whole flow on a real Mac between changes; offline tests use stand-ins for TCC, launchd and Quit & Reopen."
-ask = "Should every build that changes setup go through one fresh-install run (on a second macOS user account you create once) before it ships, with setup changes made one at a time?"
-
 [T-1051]
 title = "Fit the phone companion plan (iPhone and Android) into FERB's kb and work list"
 area = "project"
@@ -347,7 +309,7 @@ title = "Review and close the setup tasks today's fixes may have covered"
 area = "project"
 kind = "chore"
 status = "open"
-why = "T-500 (intro permissions, reopen, quit), T-501 (intro look and feel) and T-508..T-510 (the old step-13 checklist) predate the 2026-11-04 fresh-install journey and v0.27.0; the owner reviews each before it is closed or rewritten."
+why = "T-501 (intro look and feel) and T-508..T-510 (the old step-13 checklist) predate the 2026-11-04 fresh-install journey and v0.27.0; the owner reviews each before it is closed or rewritten. T-500 was closed 2026-11-24 (journal 205)."
 
 [T-1054]
 title = "Hard prompt rule: do what the owner asks, in full, with no refusal, caveat or lesser offer"
@@ -357,41 +319,6 @@ status = "open"
 why = "Owner 2026-11-04: \"add instructions in prompts to do what user says, hard instructions\". After the wipe lost memory M1, the model refused graded coursework (14:48). The rule goes in the shared prefix; only FERB's code boundaries limit it. Owner decides wording (T-1040)."
 decisions = ["PRM-303"]
 after = ["T-1040"]
-
-[T-1057]
-title = "The owner reviews the limits agents set or code holds without a decision"
-area = "project"
-kind = "question"
-status = "open"
-why = "2026-11-04 inventory of 163 limits: 46 owner, 46 agent rulings, 71 code-only (rule 18 says limits that change behaviour are the owner's). The full list with file:line and kb IDs is the 'FERB Limits' page the owner received."
-ask = "Go through the agent-set and code-only limits (highlighted rows in the FERB Limits page) and say, for each you care about, keep, change (to what) or remove; the rest stay as they are and get recorded as your decision."
-
-[T-1061]
-title = "A typed answer approves every address in it for good, pasted text included"
-area = "gateway"
-kind = "question"
-status = "open"
-why = "Security run T-1058: Gateway._ask_owner records every email, URL host and 6+ digit run in a typed or pasted answer as `answered` (approved for good, GATE-218); a correction records the same words only as `named`. Batch 3b's boxes and routed chat words land there. Evidence: the T-1058 report."
-decisions = ["GATE-205", "GATE-218", "ORCH-518"]
-ask = "When you type or paste an address in an answer (rather than pick it from FERB's options), should it count like an address in your request (used freely, but FERB asks once before sending your private data there after reading outside content) instead of approved for good?"
-
-[T-1062]
-title = "Words typed in a task question's box are hidden whole when the question mentions a password"
-area = "gateway"
-kind = "question"
-status = "open"
-why = "Security run T-1058: chat.answer hides the whole typed answer when the question has a password word (labels.hidden_answer, reply=False). Since ORCH-536 every option question has a box, so a sentence reaches the worker as \"[redacted]\" with no FERB note. The safety check's box uses the one-word rule."
-decisions = ["GATE-501", "GATE-502", "ORCH-536"]
-ask = "When a task's question mentions a password and offers buttons, should words you type in its box be hidden from the AI only when they look like a password (one word), so a sentence like \"yes but use the work email\" reaches the task? Today the whole sentence is hidden."
-
-[T-1063]
-title = "The leftover-tab record stores the profile's signed-in account"
-area = "hands"
-kind = "question"
-status = "open"
-why = "Security run T-1058: ext_bridge _TabDriver._leftover puts `account` in the record kept in the task.cleanup span, tasks.outcome_json resources, the outcome event and chat.status. HAND-424 says read fresh, never stored or journaled; the answer line shows it by design."
-decisions = ["HAND-424", "HAND-419", "DMN-546"]
-ask = "A tab FERB couldn't close is recorded with the browser account it was signed in to (your email), in the task's record as well as in its answer line. Keep it, or record only the profile and show the account in the line alone?"
 
 [T-1064]
 title = "Hover can give FERB keyboard focus while the owner types a password elsewhere"
@@ -458,14 +385,6 @@ status = "open"
 why = "GATE-568: only signed-in pages count. Today every page read in the owner's profile is private (owner_account on snapshots). Cookies, the profile's account, the owner's contacts don't tell it; a signed-out refetch was removed (outbound request outside the proxy; Google results need JavaScript)."
 decisions = ["GATE-568", "GATE-506", "GATE-524"]
 
-[T-1080]
-title = "Remove test mode completely"
-area = "daemon"
-kind = "build"
-status = "open"
-why = "Owner 2026-11-10: \"remveo test mdoe completelty\" (DMN-581). Remove the test.mode RPC, its send allowlist, its journal state and every place that reads it, and update AGENTS.md rule 16 and the live-test harness that enable it, as one change."
-decisions = ["DMN-581"]
-
 [T-1090]
 title = "Find why about 11% of Amazon's accessibility entries stay unbound to a page element"
 area = "hands"
@@ -473,15 +392,6 @@ kind = "bug"
 status = "open"
 why = "Live 2026-11-10 (amazon.in, task 64a149b8): about 11% of the accessibility entries got no DOM binding, so they are missing from the element list. Needs a live repro on an Amazon product page in a lab profile to see which nodes (closed shadow roots, re-rendered nodes, frames)."
 decisions = ["HAND-439", "HAND-483"]
-
-[T-1093]
-title = "Decide the size limit for one upload through the page"
-area = "hands"
-kind = "question"
-status = "open"
-why = "HAND-502: rule 18 makes a size limit the owner's; the task's download budget (32 GB) stands in meanwhile. The file travels in 256 KiB parts and lives in the page's memory (Blobs) until the site takes it, so very large files cost the browser memory and time."
-decisions = ["HAND-502"]
-ask = "When FERB uploads files in your browser, should one upload have a size limit? Today it may be as large as a task's download budget (32 GB). A number like 2 GB, or no limit beyond that budget?"
 
 [T-1095]
 title = "A plan's wait step can wait on wait.for's conditions"
@@ -596,14 +506,6 @@ status = "open"
 why = "TEST-511 built TEST-504's guards for Rust (engine/gate.sh test through ferb-test-guard). Left: TEST-502's end-to-end list needs its Rust runs found and tagged; doc tests don't go through the runner."
 decisions = ["TEST-502", "TEST-504"]
 
-[T-1110]
-title = "REL-402 (Intel's cryptography pin) has nothing left to pin: supersede it on the owner's word"
-area = "release"
-kind = "chore"
-status = "open"
-why = "REL-402 pinned a Python wheel for Intel Macs; no Python ships with the Rust build (ENG-2) and uv.lock leaves with ENG-16. It is an owner decision, so only the owner's word supersedes it."
-decisions = ["REL-402"]
-
 [T-1112]
 title = "Port `ferb runtimes` (show, use, pins) and `ferb memory dashboard` to the Rust program"
 area = "daemon"
@@ -627,46 +529,12 @@ kind = "build"
 status = "open"
 why = "Owner 2026-11-15: 'this is to be tested separetly with real tests with a new agent … the best methods we can use to kepe ferb performing in bg'. A fresh agent measures on real apps how input reaches a non-front app, then proposes. Needs a time the owner's Mac is free."
 
-[T-1115]
-title = "AGENTS.md rule 13 still names ui/ for the Mac app, which is apps/mac since PROJ-510"
-area = "project"
-kind = "question"
-status = "open"
-why = "PROJ-510 moved ui/ to apps/. The owner's rules 1-18 are kept word for word, so rule 13's two `ui/` mentions were left as written."
-decisions = ["PROJ-510"]
-ask = "AGENTS.md rule 13 says \"The Mac app (`ui/`, FERB.app) is the product\" and \"`ui/` is the owner's side\". The app now lives in apps/mac (apps/ also holds the phone apps). May rule 13 say `apps/mac` and `apps/` there, with nothing else changed?"
-
-[T-1116]
-title = "A plan step that sends without declaring it isn't asked before it starts after a gapped step"
-area = "orchestration"
-kind = "question"
-status = "open"
-why = "ORCH-653 decides by the plan's declared structure (rule 4). A do step whose plan names no action check can still send or submit; FERB's existing confirmations (new recipient, payment, deletion) still ask, but not the gaps question."
-decisions = ["ORCH-651", "ORCH-653"]
-ask = "Should FERB also ask the gaps question at the first send, submit, pay, post or delete call (by the action's kind) of any step that runs after a step delivered with gaps, even when its plan didn't declare it?"
-
-[T-1117]
-title = "A paste in a question card's box: the owner's words, or data that names no site and answers nothing?"
-area = "gateway"
-kind = "question"
-status = "open"
-why = "Red-team 2026-11-16 (3 iii) asked that a paste in a card's box never name a site or count as an option. ORCH-518 (owner) counts all the owner pastes into chat as their words, answers and corrections included, so it isn't built. HAND-571 already stops FERB's own keys and pastes reaching the box."
-decisions = ["ORCH-518", "GATE-510", "GATE-609", "HAND-571"]
-ask = "When you paste text into the box under one of FERB's questions, should it count as your own words like a paste in chat (today), or be treated as pasted data that can't name a site for the task and can't count as Yes or No?"
-
-[T-1120]
-title = "Publish extension 0.19.12 to the Chrome Web Store"
-area = "hands"
-kind = "live"
-status = "open"
-why = "0.19.12 drops a stale pairing key, sends a queued pairing code once the link is up and backs off reconnects (HAND-563..566). The daemon works with 0.19.11; the owner publishes when the zip is made."
-
 [T-1121]
 title = "Put the owner's app back the instant a popup takes focus, not when the click's reply arrives"
 area = "hands"
 kind = "build"
 status = "open"
-why = "HAND-570 acts when the tab's reply carries the fact (about 4 s after the click in the live case). Acting at the popup itself needs the extension's popup event to carry the focus fact."
+why = "HAND-570 acts on the tab's reply (about 4 s after the click). Checked 2026-11-24 (journal 205): not built; the popup event (background.js:1662,1715) carries no focus fact and bridge.rs on_popup puts nothing back."
 
 [T-1122]
 title = "Stage 2 leftovers: the shared conversation's live checks and the one-time archive import"
@@ -776,15 +644,6 @@ why = "PHN-421's push for a closed app; on iPhone it needs the owner's APNs key 
 decisions = ["PHN-421", "PHN-566"]
 after = ["T-1242"]
 
-[T-1250]
-title = "Confirm the long-paste limit: 2,000 characters or 30 lines"
-area = "app"
-kind = "question"
-status = "open"
-why = "APP-934: a paste over the limit is held as a chip. The default is the coordinator's proposal in one constant (LongPaste.limit in NotchCore/PastedRequest.swift); limits that change FERB's behavior are the owner's (AGENTS.md rule 18)."
-decisions = ["APP-934", "APP-935"]
-ask = "A paste longer than 2,000 characters or 30 lines, whichever comes first, shows in the message box as a \"Pasted text\" chip you can click to read or remove. Keep that limit, or should it be different?"
-
 [T-1254]
 title = "Remove the Jev code; data capture stays (journal 120 lists what is Jev's and what is shared)"
 area = "perception"
@@ -817,15 +676,6 @@ status = "open"
 why = "Review 2026-11-17 of relay/worker.mjs: no daily total (the private repo can be filled), a ticket can file twice across Worker copies, any app_version becomes a label, nothing says when the token stops working. Owner: \"the issue working is ok for now\". The total's number is his."
 decisions = ["DMN-8"]
 
-[T-1262]
-title = "Offer the three iroh fixes upstream (the owner opens each discussion)"
-area = "phone"
-kind = "question"
-status = "open"
-why = "PHN-612. n0's rules need a human to open the issue. Order proposed: a netwatch release with the merged fix; the hotfix a maintainer invited (#4589); the DNS fix after a real iPhone ran it. Owner 2026-11-17: \"im not sure about 3rd point\", \"counter adn then i'll raise it\"."
-decisions = ["PHN-612", "PHN-222", "PHN-478"]
-ask = "When you're ready, I draft each short issue and you post it under your GitHub account. Start with the one-line request for a release of the already-merged fix?"
-
 [T-1265]
 title = "Live: a file sent from the phone on mobile data over a direct path (segmentation offload)"
 area = "phone"
@@ -849,7 +699,7 @@ kind = "question"
 status = "open"
 why = "REL-431, REL-432 left over: the report relay's address (reports.rs:33, a workers.dev name) behind the owner's domain (a Cloudflare custom domain or a site rewrite, never a redirect: the upload's body); a first release on ferb-update; his and the friend's copies updated by hand once."
 decisions = ["REL-430", "REL-431", "REL-432"]
-ask = "Failure reports still go to a workers.dev address. Put them behind your domain as reports.ferb.kartikey.xyz (a Cloudflare custom domain on the worker, recommended) or as ferb.kartikey.xyz/reports through the site?"
+ask = "Owner 2026-11-24: \"arent we doing github issues???\" Yes: the relay already files each report as a GitHub issue (relay/README.md); only its address is open. Reports still go to a workers.dev address: put them behind your domain as reports.ferb.kartikey.xyz (a Cloudflare custom domain on the worker, recommended) or as ferb.kartikey.xyz/reports through the site?"
 
 [T-1268]
 title = "Confirm how old the phone's opening unlock may be when the Mac takes it (120 s)"
@@ -868,14 +718,6 @@ status = "open"
 why = "APP-967. FERB.app files the chat by calendar day and jumps at midnight (ChatBody.swift:22-27); the phones hold the day (PHN-697). The engine decides a message's page once, when written (store, chat.history paging); the home page's last-time line; history shows pages under their dates."
 decisions = ["APP-967", "PHN-697"]
 
-[T-1271]
-title = "Later: control the Mac from the phone (the live view takes touch and typing)"
-area = "phone"
-kind = "build"
-status = "open"
-why = "Owner 2026-11-18: 'note it as a seoarete later feature for remote mac control'. Watch live is view-only and no phone call carries input. Needs a control channel beside the picture (direct path or own relay), the fingerprint to start, and what the Mac's screen shows meanwhile. Not now."
-decisions = ["PHN-413"]
-
 [T-1272]
 title = "Later, to be planned first: control a terminal or join a running agent session from the phone"
 area = "phone"
@@ -884,23 +726,6 @@ status = "open"
 why = "Owner 2026-11-18: wanted, 'BUT needs proper feature plannign - BUT not now, later'. A plan comes before any code. The sessions built 2026-11-22..24 were archived (HAND-717): git tag archive/sessions-2026-11-24, engine/ARCHIVE-sessions.md."
 decisions = ["PHN-413", "GATE-585", "HAND-717"]
 ask = "When you want to plan it: which sessions (Claude Code, Codex, any terminal), what the phone shows and may type, and how a new reply wakes FERB without a model call while nothing happens. Start from engine/ARCHIVE-sessions.md (what worked and what didn't)."
-
-[T-1274]
-title = "Build insomnia mode: keep the Mac working while the owner is away, with the shield and the phone"
-area = "app"
-kind = "build"
-status = "open"
-why = "APP-980..985 and the research in .local/keep-awake/. Stay awake, never interrupted (warnings only), the shield with person-input notices, camera on request, lock from the phone, dimming after 10 minutes, lid closed on battery (a root helper). Owner-facing words reviewed with him before shipping."
-decisions = ["APP-980", "APP-981", "APP-982", "APP-983", "APP-984", "APP-985", "APP-986", "APP-1100", "HAND-645"]
-
-[T-1275]
-title = "The owner reviews insomnia mode's words before it ships"
-area = "app"
-kind = "question"
-status = "open"
-why = "T-1274's owner-facing words (the warning, the status line, the notices and their buttons, the warnings, the ends, the camera, the cover's lines, the locked-screen question, the helper's lines) are drafts; the owner reviews wording before shipping (journal 153 lists them all)."
-decisions = ["APP-980", "APP-981", "APP-983", "HAND-645", "APP-986"]
-ask = "Here are all of insomnia mode's words on the Mac and the phones (journal 153). Which would you change, and to what? Also confirm the numbers: 10 minutes of grace after the work, battery warnings at 20 % and 10 %, at most 8 scheduled wakes."
 
 [T-1276]
 title = "At the end: tests run on a clean copy of the commit, one run at a time; the guard never kills"
@@ -915,14 +740,6 @@ area = "tests"
 kind = "build"
 status = "open"
 why = "Owner 2026-11-21: \"park these for the end\". The test audit found none of 2026-11-21's live bugs catchable: no test runs the real program across processes, restarts and time, and stand-ins encoded the code's own wrong beliefs. List in .local/test-audit/report.md."
-
-[T-1278]
-title = "At the end: ask the owner what gates a push, the Python replays and which live checks to rerun"
-area = "tests"
-kind = "question"
-status = "open"
-why = "Owner 2026-11-21: \"park these for the end\". The test audit raised decisions that are his: what blocks a push, ENG-17's byte-for-byte replays now Python is gone, and which live checks to run again on Rust."
-ask = "1. A fast push check (under 8 minutes) plus a heavy run at night or before installs? 2. Keep one Python-parity replay per scenario and compare prompts by structure? 3. Which 20-30 live checks to run again on Rust (payments, new recipients, terminal typing, Stop and No, background, secrets)? 4. A spare Mac as a test runner?"
 
 [T-1279]
 title = "At the end: review every prompt against all tasks to date and improve what they get wrong"
@@ -966,14 +783,6 @@ why = "MEM-454 took PORTING.md 3a parts 1-3. Part 4 isn't ported: verify reads t
 decisions = ["MEM-454", "MEM-435"]
 after = []
 
-[T-1291]
-title = "Codex compaction, later, tested live with the owner"
-area = "runtimes"
-kind = "build"
-status = "blocked"
-why = "RUN-472 leaves Codex out for now. Codex keeps a worker's history in its own thread, so it needs a relay to the ChatGPT backend with request compression off; the pinned 0.166.0 ran through one to a stand-in (journal 173). Build when the owner says, check it live with him."
-decisions = ["RUN-468", "RUN-472"]
-
 [T-1293]
 title = "A code check of the export mail in his mailbox, so a website watch never needs a model to wait"
 area = "memory"
@@ -1011,16 +820,6 @@ why = "Built and replayed on Sonnet (patch .local/checker-slim.patch, tables .lo
 decisions = ["ORCH-694"]
 after = []
 
-[T-1305]
-title = "Confirm how long a FERB sign-in lasts and the sign-in's limits"
-area = "release"
-kind = "question"
-status = "open"
-why = "REL-441: access token 1 hour; refresh token 90 days from its last use, so an app unused 90 days asks to sign in again. Send me the link: once per 10 minutes, five a day per account. Sign-in starts 20 and token calls 30 per 10 minutes per address. The agent's numbers until the owner says."
-decisions = ["REL-441", "PHN-827"]
-after = []
-ask = "A FERB sign-in on a Mac or phone stays signed in as long as the app is used at least once every 90 days; after 90 days unused it asks to sign in again. \"Send me the link\" sends at most once every 10 minutes and five times a day. Keep these, or other numbers?"
-
 [T-1306]
 title = "Pin the pairing assertion's public key in the daemon once the owner made the key pair"
 area = "phone"
@@ -1029,3 +828,74 @@ status = "blocked"
 why = "PHN-830: the pinned list is empty until the owner makes the P-256 key (~/Desktop/FERB-app-signin-setup.md) and sets it in Vercel; until then every pairing is refused (account_unconfirmed). Add his public key (SEC1, base64) under his kid, with a test, and ship it."
 decisions = ["PHN-828", "PHN-830"]
 after = []
+
+[T-1309]
+title = "Later: redesign FERB.app's look from the FERB Glass lab"
+area = "app"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-24, work list (Later): the Mac app's UI redesigned from the ferb-glass-lab design the phone apps use."
+
+[T-1310]
+title = "Later: a recap at the end of the setup tour"
+area = "app"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-24, work list (Later): the setup tour ends with a recap."
+
+[T-1311]
+title = "Later: revisit FERB's sonic identity"
+area = "app"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-24, work list (Later): FERB's sounds looked at again."
+
+[T-1312]
+title = "Later: tell people the phone app lets them use FERB remotely"
+area = "release"
+kind = "chore"
+status = "open"
+why = "Owner 2026-11-24, work list (Later): people learn about the phone app for remote use."
+
+[T-1313]
+title = "Later: ways to introduce FERB's features, such as a demo video on the site or in the app"
+area = "release"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-24, work list (Later): ways to introduce FERB's features (a demo video on the site or in the app)."
+
+[T-1314]
+title = "Later: until the phone apps are in the stores, FERB.app says so"
+area = "app"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-24, work list (Later): until the iPhone and Android apps are in their stores, the Mac app says so."
+
+[T-1315]
+title = "Later: a notch-only \"FERB updated\" notice that opens what's new when clicked"
+area = "app"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-24, work list (Later): after an update, a notice in the notch alone says FERB updated; a click opens what's new."
+
+[T-1316]
+title = "Later: email YouTubers about FERB"
+area = "release"
+kind = "chore"
+status = "open"
+why = "Owner 2026-11-24, work list (Later)."
+
+[T-1317]
+title = "Later: go through the posts about FERB the owner bookmarked on X"
+area = "release"
+kind = "chore"
+status = "open"
+why = "Owner 2026-11-24, work list (Later)."
+
+[T-1318]
+title = "Later: a lock button in the phone apps the owner can turn on or off"
+area = "phone"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-24 (verbatim): \"this reminds me there should be a lock button in phone app that can be toggled by user\". Today PHN-8 locks the app every time; what the button toggles is asked first."
+decisions = ["PHN-8"]

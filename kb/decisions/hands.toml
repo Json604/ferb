@@ -1269,7 +1269,7 @@ title = "Upload sizes: 256 KiB parts; the task's download budget stands in as th
 by = "agent"
 date = 2026-11-11
 status = "active"
-rule = "A part is at most UPLOAD_PART = 256 KiB (about 350,000 base64 characters): one native message, under the daemon's 500,000-character command split and the host's 1 MB limit towards the extension. No upload size limit is decided (rule 18, T-1093); until then one upload's files may total the task's download budget (browser.download_task_max_gb), refused before a byte is sent."
+rule = "A part is at most UPLOAD_PART = 256 KiB (about 350,000 base64 characters): one native message, under the daemon's 500,000-character command split and the host's 1 MB limit towards the extension. One upload has no size limit of its own (owner, HAND-721): its files may total the task's download budget (browser.download_task_max_gb), refused before a byte is sent."
 why = "The part size is transport framing; the size bound is the owner's, and the per-task byte budget is the nearest limit the owner already set."
 paths = ["ferb/act/browser/ext_protocol.py::UPLOAD_PART", "ferb/act/browser/ext_bridge.py::_upload_limit"]
 
@@ -2765,3 +2765,24 @@ rule = "For HAND-717. At every daemon start (and in `ferb uninstall`) FERB takes
 why = "His Claude Code sessions started before the upgrade keep calling the hook until they restart; an unknown `ferb` command exits 2, which Claude Code treats as a blocking hook error and, for UserPromptSubmit, blocks his prompts. Nothing of the archived feature should stay on his Mac."
 evidence = "ferb-device tests/claude_hooks.rs (engine/fixtures/retired-sessions: only FERB's entries out, byte for byte); ferbd tests/retired_sessions.rs (the real hook command: exit 0, no output; the real daemon's start cleans and journals once)."
 paths = ["engine/crates/ferb-device/src/claude_hooks.rs", "engine/crates/ferbd/src/agent_hook.rs", "engine/crates/ferbd/src/compose/mod.rs", "engine/crates/ferb-device/src/install.rs"]
+
+[HAND-721]
+title = "One upload through the page is bounded only by the task's download budget"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "keep current"
+words_source = "Owner 2026-11-24, 'My choices on the FERB work list', to T-1093 (a size limit for one upload through the page: a number like 2 GB, or none beyond the task's download budget, 32 GB)."
+rule = "For HAND-502: an upload through the page has no size limit of its own; its files may total the task's download budget (32 GB today), as built."
+rejected = ["A separate per-upload limit such as 2 GB"]
+untestable = "Keeps built behaviour that HAND-502's upload tests drive."
+
+[HAND-722]
+title = "A tab FERB couldn't close is recorded with its signed-in account, as today"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "keep it"
+words_source = "Owner 2026-11-24, 'My choices on the FERB work list', to T-1063 (keep the browser account in a leftover tab's record, or record only the profile and show the account in the answer line alone?)."
+rule = "A leftover tab's record keeps the browser account it was signed in to, in the task's record (its cleanup span, outcome and chat.status) as well as its answer line, as built: an exception the owner keeps to HAND-424's never stored."
+untestable = "Keeps built behaviour; the leftover-tab tests drive it."

@@ -842,6 +842,7 @@ rule = "Nothing shows test mode in Settings; test mode itself is removed complet
 supersedes = ["GATE-546", "GATE-549"]
 why = "For the day's live check the owner also said \"givem th eprompt - no test more\". Test mode stayed on for a day unnoticed and declined the owner's real password fill (2026-11-09); a test.mode call with no arguments turned it on. How it is removed: DMN-582."
 paths = ["ferb/config.py::TEST_MODE_DECIDED", "ferb/daemon/auth.py::METHODS", "ferb/daemon/gateway.py::Gateway.ask_confirmation"]
+untestable = "An absence: no test.mode RPC (ferb-rpc auth.rs METHODS); how it was removed is DMN-582, whose upgrade test is ferb-core tests/config.rs."
 
 [DMN-582]
 title = "How test mode is removed: every question reaches the owner; an older config's test mode is dropped"

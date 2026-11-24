@@ -6,53 +6,38 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 
 | Area | Title | Paths | Active decisions | Open tasks | Pending live checks |
 |---|---|---|---|---|---|
-| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 385 | 17 | 47 |
-| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 110 | 9 | 8 |
+| app | FERB.app (notch UI, intro, sounds) | `apps/mac`, `apps/AGENTS.md`, `apps/docs`, `apps/output`, `apps/.gitignore`, `demo` | 387 | 16 | 47 |
+| daemon | Daemon, setup and plumbing | `ferb/daemon`, `ferb/cli`, `ferb/device`, `ferb/core`, `ferb/trace`, `ferb/eval`, `ferb/bus.py`, `ferb/config.py`, `ferb/paths.py`, `ferb/registry.py`, `ferb/__init__.py`, `relay` | 110 | 8 | 8 |
 | engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 23 | 4 | 0 |
-| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 131 | 9 | 62 |
-| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 206 | 9 | 44 |
+| gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 134 | 5 | 62 |
+| hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 208 | 6 | 44 |
 | memory | Memory and memory import | `engine/runtime/memory` | 93 | 9 | 9 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 192 | 11 | 44 |
-| perception | Perception | `ferb/sense` | 27 | 4 | 2 |
-| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 388 | 14 | 22 |
-| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 14 | 8 | 0 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 193 | 10 | 44 |
+| perception | Perception | `ferb/sense` | 27 | 4 | 1 |
+| phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 388 | 13 | 20 |
+| project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 16 | 5 | 0 |
 | prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 60 | 5 | 10 |
-| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 32 | 6 | 6 |
-| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 64 | 7 | 8 |
+| release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 33 | 8 | 6 |
+| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 64 | 6 | 8 |
 | storage | Storage | `engine/runtime/store` | 36 | 5 | 4 |
-| tests | Tests | `tests` | 15 | 9 | 0 |
+| tests | Tests | `tests` | 15 | 8 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |
 
 ## Waiting on the owner
 
-- T-408 (app): With the preview open, the same task used this much more of FERB's CPU than with it closed (LIVE-420's figures). Should the preview's frame rate be capped, and if so at how many frames per second?
 - T-1020 (gateway): To show the Keychain's exact reason when a saved secret can't be read (for example "user interaction is not allowed"), the small secrets helper has to be rebuilt. After that update, macOS asks once more for your login password for each saved secret on each Mac. Rebuild it now, or keep today's shorter reasons?
 - T-1044 (memory): When FERB can't write up a finished task for later (an episode card), it tries once more, then waits until that task changes. Is 2 tries right?
 - T-1045 (orchestration): When your ChatGPT plan doesn't include FERB's model, should FERB offer to switch to another signed-in service with one tap (it never switches by itself), like it does for usage limits?
-- T-1050 (project): Should every build that changes setup go through one fresh-install run (on a second macOS user account you create once) before it ships, with setup changes made one at a time?
-- T-1057 (project): Go through the agent-set and code-only limits (highlighted rows in the FERB Limits page) and say, for each you care about, keep, change (to what) or remove; the rest stay as they are and get recorded as your decision.
-- T-1061 (gateway): When you type or paste an address in an answer (rather than pick it from FERB's options), should it count like an address in your request (used freely, but FERB asks once before sending your private data there after reading outside content) instead of approved for good?
-- T-1062 (gateway): When a task's question mentions a password and offers buttons, should words you type in its box be hidden from the AI only when they look like a password (one word), so a sentence like "yes but use the work email" reaches the task? Today the whole sentence is hidden.
-- T-1063 (hands): A tab FERB couldn't close is recorded with the browser account it was signed in to (your email), in the task's record as well as in its answer line. Keep it, or record only the profile and show the account in the line alone?
 - T-1064 (app): While you're typing into a password field somewhere, should hovering over FERB open it without moving your typing into FERB (you'd click its box to type)?
 - T-1067 (prompts): Approve the review plan, then each proposed prompt wording and claim check.
 - T-1068 (tests): Approve the plan: which tasks, what quality measures, which surfaces.
-- T-1093 (hands): When FERB uploads files in your browser, should one upload have a size limit? Today it may be as large as a task's download budget (32 GB). A number like 2 GB, or no limit beyond that budget?
-- T-1115 (project): AGENTS.md rule 13 says "The Mac app (`ui/`, FERB.app) is the product" and "`ui/` is the owner's side". The app now lives in apps/mac (apps/ also holds the phone apps). May rule 13 say `apps/mac` and `apps/` there, with nothing else changed?
-- T-1116 (orchestration): Should FERB also ask the gaps question at the first send, submit, pay, post or delete call (by the action's kind) of any step that runs after a step delivered with gaps, even when its plan didn't declare it?
-- T-1117 (gateway): When you paste text into the box under one of FERB's questions, should it count as your own words like a paste in chat (today), or be treated as pasted data that can't name a site for the task and can't count as Yes or No?
 - T-1242 (phone): Which Apple developer team signs the iPhone app (the Mac's 8N7RNGH974?)
-- T-1250 (app): A paste longer than 2,000 characters or 30 lines, whichever comes first, shows in the message box as a "Pasted text" chip you can click to read or remove. Keep that limit, or should it be different?
-- T-1262 (phone): When you're ready, I draft each short issue and you post it under your GitHub account. Start with the one-line request for a release of the already-merged fix?
-- T-1267 (release): Failure reports still go to a workers.dev address. Put them behind your domain as reports.ferb.kartikey.xyz (a Cloudflare custom domain on the worker, recommended) or as ferb.kartikey.xyz/reports through the site?
+- T-1267 (release): Owner 2026-11-24: "arent we doing github issues???" Yes: the relay already files each report as a GitHub issue (relay/README.md); only its address is open. Reports still go to a workers.dev address: put them behind your domain as reports.ferb.kartikey.xyz (a Cloudflare custom domain on the worker, recommended) or as ferb.kartikey.xyz/reports through the site?
 - T-1268 (phone): When you open FERB on the phone, your fingerprint unlocks it at once and the Mac is told when the phone reaches it. If the phone takes longer than 2 minutes to reach your Mac, FERB asks for your fingerprint once more. Is 2 minutes right, or should it be shorter or longer?
 - T-1272 (phone): When you want to plan it: which sessions (Claude Code, Codex, any terminal), what the phone shows and may type, and how a new reply wakes FERB without a model call while nothing happens. Start from engine/ARCHIVE-sessions.md (what worked and what didn't).
-- T-1275 (app): Here are all of insomnia mode's words on the Mac and the phones (journal 153). Which would you change, and to what? Also confirm the numbers: 10 minutes of grace after the work, battery warnings at 20 % and 10 %, at most 8 scheduled wakes.
-- T-1278 (tests): 1. A fast push check (under 8 minutes) plus a heavy run at night or before installs? 2. Keep one Python-parity replay per scenario and compare prompts by structure? 3. Which 20-30 live checks to run again on Rust (payments, new recipients, terminal typing, Stop and No, background, secrets)? 4. A spare Mac as a test runner?
 - T-1280 (app): Which moments should FERB check in on (stuck on something, a deadline near, a repeated task, end of day), how often at most, and where (notch, phone, both)?
 - T-1296 (memory): When you answer Not sure about something FERB said it would check (a trip, a course), FERB asks again in a week. Is a week right?
 - T-1297 (orchestration): A check now makes at most 6 calls of its own (looking at a page or opening a recorded result); after that it decides from what it has, or says it couldn't confirm. Keep 6, or another number?
-- T-1305 (release): A FERB sign-in on a Mac or phone stays signed in as long as the app is used at least once every 90 days; after 90 days unused it asks to sign in again. "Send me the link" sends at most once every 10 minutes and five times a day. Keep these, or other numbers?
 
 ## Terms
 

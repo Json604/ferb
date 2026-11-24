@@ -58,9 +58,9 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
 11. One access level, full access made secure by design (sandbox, protection lists, proxy, snapshots).
 12. Model runtimes plug in behind one interface (Codex, Claude Agent SDK, Anthropic/OpenAI/Gemini APIs); everything
     model-specific lives in the adapter, and tools always run through FERB's gateway.
-13. The Mac app (`ui/`, FERB.app) is the product. There is no user-facing CLI: the `ferb` program is internal plumbing
-    (setup commands the app calls, the models' tool bridge, the daemon) plus a developer toolbox. `ui/` is the
-    owner's side.
+13. The Mac app (`apps/mac`, FERB.app) is the product. There is no user-facing CLI: the `ferb` program is internal
+    plumbing (setup commands the app calls, the models' tool bridge, the daemon) plus a developer toolbox. `apps/` is
+    the owner's side.
 14. Ask the owner only what/who/which and real decisions, never a method.
 15. Acceptance is the owner's live verdict. A passing offline test never proves a live workflow.
 16. Live tests are real scenarios on owner-controlled surfaces (FERB's Gmail and Discord, WhatsApp "message yourself"
