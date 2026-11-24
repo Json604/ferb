@@ -18,6 +18,8 @@
 //!   the recorder's counter ids, the planner counts tokens by the byte ceiling, the untrusted-data wrapper has the
 //!   recorder's fixed id and a new chat the recorder's id. `fs_identity` (true): file results carry the recorder's
 //!   invented file facts.
+//! - `import_paused` (false): the memory import paused as the shipped program has it (MEM-478); false runs it as if
+//!   resumed, so the import's own tests keep driving it.
 //! - `chat_trace`: a file the chat entries' log appends its trace to (ferb-supervisor `ChatLog::set_trace`: each input
 //!   the projectors are fed, in order, with the changes it made; the order check of `tests/chat_replay.rs`).
 //!
@@ -483,6 +485,10 @@ pub fn from_env(opts: &mut Options) -> Option<StandIns> {
     let flag = |k: &str, d: bool| config.get(k).and_then(Value::as_bool).unwrap_or(d);
     opts.native = flag("native", false);
     opts.mac = flag("mac", false);
+    // MEM-478: the import's own tests run it as if resumed, unless a test asks for the shipped pause
+    if !flag("import_paused", false) {
+        ferb_daemon::areas_a::memory_import::unpause_for_tests();
+    }
     opts.keychain = Keychain::Refused;
     // stage 3 S4: the phone link's helper only where a test names one (`link_helper`, `link_args`), its keys in memory,
     // never under a sandbox of its own (the test guard's already holds it)

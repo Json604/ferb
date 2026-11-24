@@ -252,7 +252,8 @@ struct MemoryPage: View {
                     }
                 }
             } }
-            importSection
+            // MEM-478: paused by the owner: no switches or import controls (what came in stays below)
+            if !store.importPaused { importSection }
             if let source = store.memoryFilter {
                 Section {
                     HStack {

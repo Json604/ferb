@@ -274,8 +274,13 @@ final class FERBWindowStore: ObservableObject {
         await loadImportStatus()
     }
 
+    /// MEM-478: the owner paused bringing in what other assistants know: its switches and controls stay hidden while the
+    /// daemon's status says so (and until it has answered).
+    @Published var importPaused = true
+
     func loadImportStatus() async {
         guard let reply = await ask("memory.import.status") else { return }
+        importPaused = reply["paused"] as? Bool ?? false
         let wasRunning = (importStatus?.running ?? false) || importLive != nil
         importStatus = MemoryImportStatus(reply["current"] as? [String: Any])
         importLive = MemoryImportCard(reply["live"])

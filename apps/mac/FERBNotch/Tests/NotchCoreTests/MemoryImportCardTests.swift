@@ -209,6 +209,21 @@ final class MemoryImportCardTests: XCTestCase {
         XCTAssertGreaterThan(try draw(page, "mac-memory-page.png").height, 120)
     }
 
+    // decision: MEM-478 — paused by the owner: the switches and the Memory page's import controls stay hidden while
+    // the daemon's status says paused (and until it answers); a status without it shows them again
+    func testThePausedImportHidesItsControlsUntilTheDaemonSaysOtherwise() async {
+        let rpc = ScriptedRPC()
+        let store = FERBWindowStore(rpc: rpc)
+        XCTAssertTrue(store.importPaused, "hidden until FERB answers")
+        rpc.replies["memory.import.status"] = ["current": NSNull(), "runs": [], "paused": true]
+        await store.loadImportStatus()
+        XCTAssertTrue(store.importPaused)
+        XCTAssertNil(store.importLive)
+        rpc.replies["memory.import.status"] = ["current": NSNull(), "runs": []]
+        await store.loadImportStatus()
+        XCTAssertFalse(store.importPaused, "resumed: the controls come back")
+    }
+
     // decision: MEM-459 — the two switches as Settings → Privacy and the Memory page draw them
     func testTheSwitchesDraw() async throws {
         let rpc = ScriptedRPC()

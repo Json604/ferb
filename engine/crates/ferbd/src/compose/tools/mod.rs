@@ -674,8 +674,8 @@ pub fn registry(p: &Parts) -> Registry {
             let downloads = t.name() == "browser.downloads";
             add(t);
             // MEM-448: a website's export the browser downloaded, into FERB's memory (right after browser.downloads,
-            // catalog_additions.json)
-            if downloads {
+            // catalog_additions.json); MEM-478: not offered while the memory import is paused
+            if downloads && !ferb_daemon::areas_a::memory_import::paused() {
                 add(context::tool_named(p, "memory.import"));
             }
         }

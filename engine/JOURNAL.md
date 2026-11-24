@@ -12270,3 +12270,78 @@ a_memory_switch 3, a_more 2, a_replay 6, api_keys_in_memory 1. `cargo clippy -p 
 
 **Unverified.** The test drives the schedule's run times (`next_after`) and the start's change, not the timer loop
 firing hourly on a running daemon; not run on the owner's store. ferbd and the whole workspace gate were not run.
+
+## 2026-11-24 · 214 · The session tracking and the memory transfer are paused; what came in stays
+
+**What the owner decided** (2026-11-24, MEM-478). Seeing the review list ask about a dated fact from the import: "these
+question it asks after seeing sessions is ok, BUT i think we can utilize this mechanism in a better way to achieve
+proactiveness, so lets just pause the session tracking and memory transfer for now - once all the things you are doing
+now and others are good, we continue on the proactiveness thinking." Recorded as his decision (area memory); the
+proactiveness design is T-1325, with T-1280.
+
+**One flag.** `memory_import::PAUSED` (ferb-daemon areas_a/memory_import.rs) is read only through `paused()`. While it
+is true:
+- `offer` asks neither import's question at setup; a stale answer to an earlier build's (`local_answered`,
+  `sites_answered`) changes nothing and says `PAUSED_SAID`.
+- Nothing reads Claude Code's or Codex's history: `read_local` (the import, the hourly path, `local_update`) stops
+  before its first source, `session_index` (worklog_index, run when `memory.learned` reads) returns at once, and
+  `learn_now` / `start_fetched` (the workers' `memory.import`, "Bring in what's new") refuse.
+- `memory.import.start`, `.estimate` and `.switch` refuse with `PAUSED_SAID`: "Bringing in what other assistants know is
+  paused for now. What I already learned stays." (the one new owner-facing line; the app never shows it, as its
+  controls are hidden, so it reaches him only through a phone or CLI call). `memory.import.status` adds
+  `"paused": true` (left out when not paused, so the recorded replies replay unchanged); `.cancel`, `.lines`,
+  `.scope`, `.offer`, `memory.review` and `.answer` are unchanged.
+- ferbd doesn't register the workers' `memory.import` tool (compose/tools/mod.rs, after browser.downloads); the catalog
+  entry stays in ferb-gateway's catalog_additions.json for the resume.
+- `watch_tick` on a website watch that is still active waits with no mail check and no model run ("the memory import is
+  paused"), in case a cancel failed.
+- `resume` (called by `memory::start` and again by ferbd's start) resumes nothing and runs `pause_at_start`: a switch an
+  earlier build left on (`[memory] local_import`, or `sites_import` or any active watch) is turned off through
+  `switch_local(false)` / `switch_sites(false)`, the switch's own path: their runs end as cancelled, each website watch
+  is cancelled through `schedules::schedule_change(..., "cancel")` (journaled `schedule.cancel`), and each switch
+  journals as it always did (`memory.local_import` / `memory.sites`, `by: owner`). Any other import still marked
+  running ends `cancelled` ("paused"). When it changed anything it journals `memory.import_paused` once (`local`,
+  `sites`, `watches`, `ended`, `by: owner`, `decision: MEM-478`); a later start finds nothing and writes nothing. No
+  config is written outside the switches. On the owner's Mac this cancels the ChatGPT watch (sc-0b4d36f217) at the
+  first start of this build: not run there (I didn't touch ~/.ferb).
+
+**What stays.** The hourly pass still asks the review when a fact's check date has come (MEM-472), deletes an export a
+failed run left (IMP-32) and refreshes imported lines' about; the imported facts, their Memory page lines (scope,
+offers) and the review list work as before. The live card (`refresh`) is built from runs and watches, so with none it
+is never published and the phones' chat.status carries none: the phones have no import controls, so they are unchanged.
+
+**FERB.app.** Chosen: hidden, not "Paused" with no controls. The pause is his own decision, a label with nothing to do
+would be one more line to read, and hiding adds no owner-facing string. `FERBWindowStore.importPaused` (true until the
+daemon answers, then `status.paused ?? false`) hides Settings → Privacy's "What other assistants know" section (which now
+loads the status itself) and the Memory page's whole "Import from other assistants" card (switches, Import from…, Bring
+in what's new, estimate, Cancel import, last runs). The Memory page's lines from an import, the review section and
+"Showing what FERB imported from …" stay.
+
+**Resuming.** `PAUSED = false` plus a new owner decision. The switches stay off after the pause, so he turns them back
+on; `memory.sites_asked` keeps his profile, so the setup question isn't asked again. The pending import live checks
+(LIVE-1162, 1165, 1182, 1183, 1185) are marked "after the memory import is resumed (MEM-478)"; LIVE-1211 checks the pause.
+
+**Tests keep the paused code running.** A process-wide test-only switch, `memory_import::unpause_for_tests()` (hidden,
+never called by the shipped program), runs the import as if resumed: ferb-daemon's a_memory_flow, a_memory_live,
+a_memory_switch and a_replay call it; ferbd's test build calls it from the stand-ins unless the stand-ins' config says
+`"import_paused": true`, so memory_import_tool.rs, every_tool_through_the_program.rs and replay.rs run as before. New:
+ferb-daemon tests/a_memory_paused.rs (never unpauses): setup asks nothing; the hourly pass, `session_index`,
+`local_update`, `learn_now`, `start_fetched` and a stale Yes start no run and keep no index; the five refusing RPCs say
+`PAUSED_SAID`, status says paused with no live card, lines and review answer; a start with both switches on, the ChatGPT
+watch and a run under way turns both off, cancels the watch, ends the run and journals `memory.import_paused` once (a
+second start changes nothing); a tick before the cancel waits without a mail check; the review still asks on a fact's
+check date and takes an answer. ferbd tests/memory_import_paused.rs (the real program with `import_paused`): the tool
+isn't there (the gateway's structural refusal), another tool answers, status says paused, start refuses, no run.
+FERB.app: MemoryImportCardTests `testThePausedImportHidesItsControlsUntilTheDaemonSaysOtherwise`.
+
+**Evidence.** ferb-daemon: all 36 test results ok (unit, doc and test binaries) (a_memory_paused 4, a_memory_flow 14, a_memory_live 2,
+a_memory_switch 3, a_replay 6, own_question_kinds and b_small among them). ferbd: all 36 test results ok (lib unit
+tests, memory_import_paused 1, memory_import_tool 1, every_tool_through_the_program, replay, every_method_answers,
+catalog_mcp among them). `cargo clippy -p ferb-daemon -p ferbd --all-targets --locked -- -D warnings` clean;
+`cargo fmt --all -- --check` clean. FERB.app `swift test`: 964 tests, 8 skipped, 0 failures. `kb check` ok after
+`kb lock` and `kb gen`. Built with debug info off (`CARGO_PROFILE_DEV_DEBUG=0`) for lack of disk space.
+
+**Unverified.** Not run on the owner's store or FERB.app: whether his ChatGPT watch is cancelled at the first start of
+this build (LIVE-1211). The whole workspace gate (`gate.sh lint`/`test`/`portable`) was not run; the phone crates and
+apps were not touched or tested. IDs MEM-478, T-1325 and LIVE-1211 were the next free ones in this worktree; a parallel
+agent may have taken them.

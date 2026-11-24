@@ -16,8 +16,15 @@
 //!   changes and it isn't asked again.
 //!
 //! Must not run an import on the owner's turn, or keep what it read.
+//!
+//! **Paused (MEM-478, the owner, 2026-11-24).** While [`PAUSED`] is true none of the above runs: no question at setup,
+//! no read of the coding assistants' history (the import, "Bring in what's new", the session index), no website
+//! request or watch, no `memory.import` tool for the workers; the start turns both switches off through their own
+//! path once. What already came in stays: the imported facts, their Memory page lines and the review list. Resuming is
+//! `PAUSED = false` and a new owner decision.
 
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use ferb_learning::distill::Notice;
 use ferb_learning::import_job::{self, ImportJob};
@@ -54,6 +61,29 @@ impl import_job::Seams for Seams {
         )))
     }
 }
+
+// decision: MEM-478 — the owner paused the session tracking and the memory transfer ("lets just pause the session
+// tracking and memory transfer for now"): the one flag every part of it reads, through `paused()`
+pub const PAUSED: bool = true;
+
+/// Set only by tests (and ferbd's test build, `stand-ins`), so the paused code keeps running in its own tests.
+static UNPAUSED_FOR_TESTS: AtomicBool = AtomicBool::new(false);
+
+/// Whether the import and the session tracking are paused (MEM-478).
+pub fn paused() -> bool {
+    PAUSED && !UNPAUSED_FOR_TESTS.load(Ordering::Relaxed)
+}
+
+/// Test-only: this process runs the import as if [`PAUSED`] were false (the existing import tests). The shipped program
+/// never calls it.
+#[doc(hidden)]
+pub fn unpause_for_tests() {
+    UNPAUSED_FOR_TESTS.store(true, Ordering::Relaxed);
+}
+
+/// What FERB says when something asks for the paused import (the RPCs, the workers' tool, a stale answer).
+pub const PAUSED_SAID: &str =
+    "Bringing in what other assistants know is paused for now. What I already learned stays.";
 
 /// `_import_job`: built per use, late-bound (each reads the daemon's current runtime and state).
 pub fn job(st: &Rc<State>) -> ImportJob<'static> {
@@ -109,7 +139,13 @@ pub fn job(st: &Rc<State>) -> ImportJob<'static> {
 }
 
 /// `_resume_imports`: at start, a run a restart interrupted goes on from its last finished chunk; one job at a time.
+/// Paused (MEM-478): nothing resumes, and the pause is put in place instead (`pause_at_start`).
 pub fn resume(st: &Rc<State>) {
+    if paused() {
+        pause_at_start(st);
+        refresh(st);
+        return;
+    }
     refresh(st);
     let j = job(st);
     for run_id in j.running().unwrap_or_default() {
@@ -413,12 +449,18 @@ fn unreadable(e: ferb_learning::Error) -> ferb_rpc::server::HandlerError {
 
 /// `memory.import.estimate {source, path?}`: the dry run (nothing is sent anywhere).
 async fn estimate(st: Rc<State>, params: Params) -> HandlerResult {
+    if paused() {
+        return Err(refusal(PAUSED_SAID));
+    }
     let (source, path) = import_params(&params)?;
     ok(job(&st).estimate(&source, &path).map_err(unreadable)?)
 }
 
 /// `memory.import.start {source, path?}`: the import in the background; the answer carries the estimate.
 async fn start(st: Rc<State>, params: Params) -> HandlerResult {
+    if paused() {
+        return Err(refusal(PAUSED_SAID));
+    }
     // MEM-466: the Memory page's "Bring in what's new": what's new in his coding sessions, read now because he asked
     if text(&params, "source") == CODING {
         return ok(json!({"started": true, "said": learn_now(&st).map_err(refusal)?}));
@@ -435,6 +477,10 @@ async fn start(st: Rc<State>, params: Params) -> HandlerResult {
 /// `memory.import.status {}`.
 async fn status(st: Rc<State>, _params: Params) -> HandlerResult {
     let mut out = job(&st).status().map_err(learning_error)?;
+    // MEM-478: the clients hide the import's switches and controls while it is paused (left out otherwise, as before)
+    if paused() {
+        out["paused"] = json!(true);
+    }
     // MEM-456: the live card, while an import the owner is told about goes on (left out when there is none)
     if let Some(card) = refresh(&st) {
         out["live"] = card;
@@ -543,7 +589,8 @@ pub fn offer(st: &Rc<State>, profiles: Vec<(String, String)>) {
     if !profiles.is_empty() {
         *st.import_profiles.borrow_mut() = profiles;
     }
-    if st.shutting_down.get() || !setup_done(st) {
+    // MEM-478: neither question is asked while the import is paused
+    if paused() || st.shutting_down.get() || !setup_done(st) {
         return;
     }
     let found = ferb_memory::import_local::found(&st.user_home);
@@ -616,6 +663,9 @@ fn ask_sites_now(st: &Rc<State>) -> bool {
 /// The owner's answer about the coding assistants (MEM-447): Yes reads them now and keeps them up to date; No reads
 /// nothing. Either way the websites' question comes next.
 pub fn local_answered(st: &Rc<State>, yes: bool) -> String {
+    if paused() {
+        return PAUSED_SAID.into();
+    }
     set_config(st, LOCAL_SETTING, json!(yes));
     let _ = st.journal(
         "memory.local_import",
@@ -651,7 +701,7 @@ async fn local_update_asked(st: &Rc<State>) {
 }
 
 async fn read_local(st: &Rc<State>, tell: Tell, asked: bool) {
-    let allowed = |st: &State| asked || local_on(st);
+    let allowed = |st: &State| !paused() && (asked || local_on(st));
     let j = job(st);
     for source in ferb_memory::import_local::found(&st.user_home) {
         // MEM-459: the switch turned off stops it between sources too
@@ -680,6 +730,9 @@ async fn read_local(st: &Rc<State>, tell: Tell, asked: bool) {
 /// The owner's answer about the websites (MEM-448): a profile makes one quiet watch per site; "No, thanks" changes
 /// nothing. Asked once either way.
 pub fn sites_answered(st: &Rc<State>, state: &str, choice: &str, ident: &str) -> String {
+    if paused() {
+        return PAUSED_SAID.into();
+    }
     let options = ferb_py::json::loads(ident)
         .ok()
         .and_then(|v| v.get("options").cloned());
@@ -856,7 +909,8 @@ pub async fn hourly(st: &Rc<State>) {
 /// when something reads it (memory.learned); only while his Yes to the coding assistants stands. Nothing is read when
 /// the files haven't changed.
 pub fn session_index(st: &Rc<State>) {
-    if !local_on(st) {
+    // MEM-478: the session tracking is paused: the prompt-history files aren't read
+    if paused() || !local_on(st) {
         return;
     }
     if let Err(e) = job(st).worklog_index(&st.learning) {
@@ -873,6 +927,9 @@ pub const CODING: &str = "coding_assistants";
 /// them is read now (the import reads only parts it hasn't), placed into the profile, and the work log's new and grown
 /// entries summarised, then he is told once. His ask is the Yes for this read, whatever the switch says.
 pub fn learn_now(st: &Rc<State>) -> Result<String, String> {
+    if paused() {
+        return Err(PAUSED_SAID.into());
+    }
     let found = ferb_memory::import_local::found(&st.user_home);
     if found.is_empty() {
         return Err("I don't see Claude Code or Codex on this Mac.".into());
@@ -892,6 +949,9 @@ pub fn learn_now(st: &Rc<State>) -> Result<String, String> {
 /// the background; deleted when the import is done (IMP-32). Only a file or folder under FERB's downloads folder: an
 /// export the owner gives goes in from the Memory page and is never deleted.
 pub fn start_fetched(st: &Rc<State>, source: &str, path: &str) -> Result<Value, String> {
+    if paused() {
+        return Err(PAUSED_SAID.into());
+    }
     // MEM-466: the owner asked FERB to learn from his coding sessions (no file: they are read where they live)
     if source == CODING {
         return learn_now(st).map(|said| json!({"started": true, "said": said}));
@@ -1080,6 +1140,13 @@ pub struct Wait {
 /// (the schedule's own path decides).
 pub async fn watch_tick(st: &Rc<State>, s: &ferb_clock::schedules::Schedule) -> Option<Wait> {
     let site = site_of(s)?;
+    // MEM-478: a watch the start couldn't cancel looks at nothing and runs no model while the import is paused
+    if paused() {
+        return Some(Wait {
+            why: "the memory import is paused".into(),
+            by_code: false,
+        });
+    }
     let busy = st.schedule_runs.borrow().contains(&s.id) || st.tasks.schedule_running(&s.id);
     if busy || st.stopped.get() || last_run_end(st, s).is_none() {
         return None;
@@ -1301,6 +1368,9 @@ fn stop_runs(st: &Rc<State>, sources: &[&str]) -> Vec<String> {
 /// as at setup); off stops it: nothing more is read, requested or fetched, a run under way ends, the website watches
 /// are cancelled. What FERB already learned stays. The answer says what happened, in plain words.
 async fn switch(st: Rc<State>, params: Params) -> HandlerResult {
+    if paused() {
+        return Err(refusal(PAUSED_SAID));
+    }
     let which = text(&params, "which");
     let Some(on) = params.get("on").and_then(Value::as_bool) else {
         return Err(refusal("on must be true or false"));
@@ -1381,5 +1451,38 @@ fn switch_sites(st: &Rc<State>, on: bool) -> String {
     } else {
         "I'll ask which browser you're signed in on as soon as I can see your browsers and nothing else is being brought in."
             .into()
+    }
+}
+
+// ---------- the pause (MEM-478) ----------
+
+/// MEM-478, at start while paused: a switch an earlier build left on is turned off through the switch's own path (its
+/// runs end, the website watches are cancelled through the schedules' own cancel, each journaled as the switch does),
+/// and any other import left running ends; nothing resumes. Journaled once, as `memory.import_paused`, when it changed
+/// anything: a second start finds nothing to do. What came in stays.
+fn pause_at_start(st: &Rc<State>) {
+    let local = local_on(st);
+    let watches = site_watches(st);
+    let sites = sites_on(st) || !watches.is_empty();
+    if local {
+        switch_local(st, false);
+    }
+    if sites {
+        switch_sites(st, false);
+    }
+    let j = job(st);
+    let mut ended = Vec::new();
+    for run in j.running().unwrap_or_default() {
+        if j.end(&run, "cancelled", "paused").is_ok() {
+            ended.push(run);
+        }
+    }
+    if local || sites || !ended.is_empty() {
+        let _ = st.journal(
+            "memory.import_paused",
+            json!({"local": local, "sites": sites, "watches": watches, "ended": ended,
+                   "by": "owner", "decision": "MEM-478"}),
+            None,
+        );
     }
 }

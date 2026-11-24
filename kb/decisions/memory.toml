@@ -1192,3 +1192,14 @@ words_source = "Owner 2026-11-24, relayed: asked how often the code looks (15 mi
 rule = "Refines MEM-448's and MEM-476's 15 minutes: a website watch ticks, and its code check looks in the owner's mail, at most once an hour per watch (`import_live::CODE_CHECK_MINUTES`, the schedule's interval). The card says \"I check your email for it every hour. It can take a day or two.\" A watch an older build made every 15 minutes is brought to the hourly interval at start, its first run kept. Confirms, as his, MEM-476's `WATCH_LATE_HOURS`: while no mail comes, a model run at most every 48 hours, so a late export is told."
 paths = ["engine/crates/ferb-learning/src/import_live.rs", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs::watch_intervals", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs::make_site_job"]
 live = ["LIVE-1165"]
+
+[MEM-478]
+title = "Session tracking and memory transfer are paused until the proactiveness design; what came in stays"
+by = "owner"
+date = 2026-11-24
+status = "active"
+words = "these question it asks after seeing sessions is ok, BUT i think we can utilize this mechanism in a better way to achieve proactiveness, so lets just pause the session tracking and memory transfer for now - once all the things you are doing now and others are good, we continue on the proactiveness thinking."
+words_source = "His message, relayed verbatim by the coordinator on 2026-11-24, on seeing the review list ask about a dated fact from the import."
+rule = "One flag (`memory_import::PAUSED`) pauses the coding-assistants import and session index (MEM-466) and the website imports (MEM-448, MEM-467), code kept: no setup question; nothing reads Claude Code's or Codex's history; no export requested or mail checked; no `memory.import` tool; its RPCs refuse plainly; Settings' switches and the Memory page's import controls hidden. A start turns a switch left on off through its own path (runs end, watches cancelled), journaled once (`memory.import_paused`). Imported facts and the review list stay. Resume: `PAUSED = false` and a new owner decision."
+paths = ["engine/crates/ferb-daemon/src/areas_a/memory_import.rs", "engine/crates/ferbd/src/compose/tools/mod.rs", "apps/mac/FERBNotch/Sources/FERBNotch/FERBWindowStore.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "apps/mac/FERBNotch/Sources/FERBNotch/WindowPages.swift"]
+live = ["LIVE-1211"]

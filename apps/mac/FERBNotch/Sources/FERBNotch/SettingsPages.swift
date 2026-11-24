@@ -606,9 +606,12 @@ struct PrivacySettingsPage: View {
                 let watchers = store.watchers.filter { $0 != "jev_batches" }
                 LabeledContent("Recording now", value: watchers.isEmpty ? "nothing" : watchers.joined(separator: ", "))
             }
-            // MEM-459 (MEM-447): the owner's two switches for bringing in what other assistants know, as on the Memory page
-            WindowSettingsSection(title: "What other assistants know") {
-                MemoryImportSwitches(store: store)
+            // MEM-459 (MEM-447): the owner's two switches for bringing in what other assistants know, as on the Memory page;
+            // hidden while the owner has it paused (MEM-478)
+            if !store.importPaused {
+                WindowSettingsSection(title: "What other assistants know") {
+                    MemoryImportSwitches(store: store)
+                }
             }
             WindowSettingsSection(title: "Apps FERB ignores") {
                 StringListEditor(key: "privacy.exclude_apps", placeholder: "Bundle id or app name, e.g. com.1password.1password",
@@ -628,6 +631,8 @@ struct PrivacySettingsPage: View {
                 DaysField(title: "Operational records", key: "retention.operational_days", store: store)
             }
         }
+        // MEM-478: whether the import's switches show (paused: hidden)
+        .task { await store.loadImportStatus() }
     }
 }
 

@@ -75,6 +75,8 @@ impl areas_a::settings::SettingsHost for Settings {
 
 /// Walk a scenario's steps for the connections `only` names (all when empty), sending group A's requests.
 async fn replay(name: &str, d: &Daemon, only: &[&str]) -> (usize, usize) {
+    // MEM-478: the recorded import calls are replayed as if the import were resumed (the pause has its own tests)
+    areas_a::memory_import::unpause_for_tests();
     let scenario = fixture("daemon/rpc_transcripts.json")["scenarios"]
         .as_array()
         .unwrap()

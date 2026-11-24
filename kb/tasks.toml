@@ -821,3 +821,12 @@ kind = "bug"
 status = "open"
 why = "Journal 208 (spans 2026-11-21..24): every Claude planner turn wrote input minus cached (8.7k-10k tokens in a kept chat, 5.6k-6.8k in a temporary one) at the 1-hour rate; the next turn read only FERB's breakpoint. The end breakpoint is Claude Code's own; can FERB keep it off a one-call turn?"
 decisions = ["ORCH-325"]
+
+[T-1325]
+title = "Later: proactiveness, designed with the owner, reusing the paused import and session tracking"
+area = "memory"
+kind = "question"
+status = "open"
+why = "MEM-478 (owner 2026-11-24): use the import/session mechanism for proactiveness; paused behind `memory_import::PAUSED` until the current work is done. One design with T-1280 (proactive check-ins from his activity)."
+ask = "How should FERB use what it knows of his sessions and other assistants to be proactive: which moments, how often at most, where, and what of the paused import and session tracking comes back (and how)?"
+decisions = ["MEM-478"]

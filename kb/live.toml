@@ -4959,7 +4959,7 @@ surface = "A fresh FERB.app install of this build (installed by the owner) on a 
 request = "Finish the setup tour. When FERB asks 'Bring in what Claude Code and Codex know about you?', say Yes. Wait for its message. Ask FERB: 'what was I working on in Claude Code last week?' and 'what did I do about <something you did last month>?'. Open Settings → Privacy → Your coding assistants. The next day, after a new Claude Code session, ask again what you were working on today. Then turn the switch off."
 pass = "Asked once at setup's end, naming what FERB found, before anything is read; after Yes one warm message (never 'AI') says what it learned with examples; both answers name the right sessions, days and folders (memory.learned in the trace); the next day's session is found with no new message; the switch is on, and off stops the hourly reads while what was learned stays. No (in another fresh install) reads nothing and isn't asked again."
 decisions = ["MEM-447", "MEM-432", "MEM-433", "MEM-434", "MEM-441"]
-sitting = "after this build is installed"
+sitting = "after the memory import is resumed (MEM-478)"
 
 [LIVE-1163]
 title = "claude.ai's manifest export is read from its parts; missing parts and expired links said plainly"
@@ -4986,7 +4986,7 @@ surface = "FERB.app with this build, a paired browser profile signed in to chatg
 request = "After the coding assistants' question, FERB asks whether to bring in what ChatGPT and Claude know about you: pick the profile you're signed in on. Leave FERB alone; look at Settings → Schedules once. If a site asks you to confirm the request, do it when FERB tells you. Wait for the exports to arrive by mail."
 pass = "Each export is requested in that profile (the first run's trace shows the site's confirmation); the hourly checks post nothing while waiting and show as two stoppable schedules; a site's confirmation is told once; on the mail FERB downloads only the needed parts, imports them, leaves nothing under ~/.ferb/workspace/downloads and sends one warm message per site (never 'AI'); the mails stay in your inbox; the schedules end. 'No, thanks' changes nothing."
 decisions = ["MEM-448", "MEM-449", "MEM-440", "MEM-451", "MEM-477"]
-sitting = "after this build is installed"
+sitting = "after the memory import is resumed (MEM-478)"
 
 [LIVE-1166]
 title = "The work log reopens a session only when asked, and asks before typing it"
@@ -5059,7 +5059,7 @@ surface = "FERB.app with this build and a paired phone (Android or iPhone) with 
 request = "Turn \"Your coding assistants\" off and on in Settings → Privacy, or say Yes to the coding assistants' question, so an import starts. Watch the chat on the Mac and the phone, and open FERB.app's Memory page while it runs."
 pass = "A card at the end of today's chat says 'Bringing in what Claude Code knows about you', a stage line, a bar that fills smoothly with '33 of 40' and 'N things found so far', then 'Putting together what I found'; the phone shows the same card; the Memory page shows it at the top and each source's last run; at the end the card is gone and FERB's one notice is there, no second message. With Reduce Motion the bar jumps instead of gliding."
 decisions = ["MEM-455", "MEM-456"]
-sitting = "after this build is installed"
+sitting = "after the memory import is resumed (MEM-478)"
 
 [LIVE-1183]
 title = "The import reads the last month, and its two switches start and stop it"
@@ -5068,7 +5068,7 @@ surface = "FERB.app with this build, Claude Code history older and newer than a 
 request = "In Settings → Privacy (or the Memory page), turn \"Bring in what your coding assistants know\" off, then on; turn \"Bring in what ChatGPT and Claude know\" on, pick the browser in the chat, then turn it off."
 pass = "On reads only the last month (nothing older on the Memory page, the notice says \"over the last month\"); off stops a run under way and no hourly update follows. The websites' on asks which browser, then two watches show on the Schedules page; off cancels them and nothing more is requested or downloaded. What was learned stays."
 decisions = ["MEM-458", "MEM-459"]
-
+sitting = "after the memory import is resumed (MEM-478)"
 [LIVE-1184]
 title = "After an import: nothing joins always on by itself; one list to approve, check and answer"
 area = "memory"
@@ -5085,7 +5085,7 @@ surface = "FERB.app with this build, a few hours of normal Claude Code / Codex u
 request = "Use Claude Code or Codex for a few hours. Then ask FERB \"what was I working on in <a project>?\", then \"learn from my recent sessions\" (or press Bring in what's new on the Memory page). Look at FERB's model usage over those hours (ferb stats)."
 pass = "No model calls for your sessions until you ask; FERB still names the sessions you had; your ask reads only what's new and tells you once. A website watch shows no model runs between its rare checks."
 decisions = ["MEM-466", "MEM-467"]
-
+sitting = "after the memory import is resumed (MEM-478)"
 [LIVE-1186]
 title = "The phones' top bar: four tabs, the chosen one named, the link's badge on the profile button"
 area = "phone"
@@ -5195,3 +5195,12 @@ request = "Set Codex's model in Settings → Thinking to one the plan doesn't in
 pass = "FERB asks once which service to use, naming the plan, with Use Claude and Not now; Use Claude switches Thinking's planner to Claude (Settings shows it) and the request is answered without sending it again; with nothing else signed in there is no question and the reply says how to sign in to another service. It never switches by itself."
 decisions = ["RUN-474", "RUN-475"]
 sitting = "next live run"
+
+[LIVE-1211]
+title = "Bringing in other assistants is paused: nothing asks, reads or waits for mail; what came in stays"
+area = "memory"
+surface = "FERB.app with this build on the owner's Mac, where an earlier build had the ChatGPT watch (sc-0b4d36f217) and the import's switches"
+request = "After installing, open FERB's chat, Settings → Privacy, the Memory page and Schedules. Use Claude Code or Codex for an hour, then look at ferb stats and ferb logs."
+pass = "No question about Claude Code, Codex, ChatGPT or Claude; Settings has no \"What other assistants know\" switches and the Memory page no import controls or progress card; \"Bring in what ChatGPT knows\" is cancelled on Schedules; no import run, mail check or model call for it; what FERB already learned and the review list are still there."
+decisions = ["MEM-478"]
+sitting = "after this build is installed"

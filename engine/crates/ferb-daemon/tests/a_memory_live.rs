@@ -12,6 +12,8 @@ use ferb_daemon::areas_a::{memory_import, schedules, State};
 use serde_json::{json, Map, Value};
 
 async fn daemon(tmp: &std::path::Path) -> Daemon {
+    // MEM-478: the import is paused in the shipped program; its own tests drive it as if resumed
+    memory_import::unpause_for_tests();
     Daemon::start(tmp, "01", "id", FakeClock::new(None), Seq::new("id")).await
 }
 
