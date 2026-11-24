@@ -22,19 +22,24 @@ const attr = (value) => String(value).replace(/&/g, "&amp;").replace(/"/g, "&quo
 // build rather than deploying a site whose analytics silently does nothing.
 export function readAnalytics(env) {
   const key = (env.POSTHOG_KEY || "").trim();
-  const host = (env.POSTHOG_HOST || "").trim().replace(/\/+$/, "");
+  let host = (env.POSTHOG_HOST || "").trim().replace(/^["']|["']$/g, "");
   if (!key && !host) return null;
   if (!KEY.test(key)) throw new Error("POSTHOG_KEY must be the project's public key (phc_…)");
+  // Taken as pasted: a bare host gets https://, and anything after the host (a project page's path, a slash) is
+  // dropped; PostHog's app address (us.posthog.com / eu.posthog.com) becomes its ingestion address.
+  if (host && !/^[a-z]+:\/\//i.test(host)) host = `https://${host}`;
   let url;
   try {
     url = new URL(host);
   } catch {
     url = null;
   }
-  if (!url || url.protocol !== "https:" || url.pathname !== "/" || url.search || url.hash) {
-    throw new Error("POSTHOG_HOST must be an https address with no path, e.g. https://us.i.posthog.com");
+  if (!url || url.protocol !== "https:") {
+    throw new Error("POSTHOG_HOST must be PostHog's address, e.g. https://us.i.posthog.com");
   }
-  return { key, host: url.origin };
+  const APP = { "us.posthog.com": "us.i.posthog.com", "eu.posthog.com": "eu.i.posthog.com", "app.posthog.com": "us.i.posthog.com" };
+  const name = APP[url.hostname] || url.hostname;
+  return { key, host: `https://${name}${url.port ? `:${url.port}` : ""}` };
 }
 
 // The tag a page carries when analytics is set up: the site's own consent script, told where PostHog is.

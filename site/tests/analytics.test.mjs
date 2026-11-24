@@ -77,12 +77,25 @@ test("a malformed key or host stops the build instead of deploying analytics tha
     { POSTHOG_KEY: "phx_nope", POSTHOG_HOST: "https://eu.i.posthog.com" },
     { POSTHOG_KEY: KEY },
     { POSTHOG_KEY: KEY, POSTHOG_HOST: "http://eu.i.posthog.com" },
-    { POSTHOG_KEY: KEY, POSTHOG_HOST: "https://eu.i.posthog.com/ingest" },
     { POSTHOG_KEY: `${KEY}" onload="x`, POSTHOG_HOST: "https://eu.i.posthog.com" },
   ]) {
     assert.throws(() => readAnalytics(env), undefined, JSON.stringify(env));
   }
   assert.throws(() => withAnalytics("<head></head>", readAnalytics(ENV), { lib: "/v.js", integrity: "sha384-x" }));
+});
+
+test("the host is taken as pasted: a bare host, a trailing path, quotes or PostHog's app address all work", () => {
+  const cases = {
+    "us.i.posthog.com": "https://us.i.posthog.com",
+    "https://eu.i.posthog.com/": "https://eu.i.posthog.com",
+    "https://eu.i.posthog.com/ingest": "https://eu.i.posthog.com",
+    '"https://us.i.posthog.com"': "https://us.i.posthog.com",
+    "https://us.posthog.com/project/12345/web": "https://us.i.posthog.com",
+    "eu.posthog.com": "https://eu.i.posthog.com",
+  };
+  for (const [host, want] of Object.entries(cases)) {
+    assert.equal(readAnalytics({ POSTHOG_KEY: KEY, POSTHOG_HOST: host }).host, want, host);
+  }
 });
 
 test("the server's pages (sign-in, download, unsubscribe, the owner's list) never load analytics", async () => {
