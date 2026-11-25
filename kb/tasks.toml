@@ -711,11 +711,11 @@ decisions = ["MEM-454", "MEM-435"]
 after = []
 
 [T-1303]
-title = "Slim checker context (parked): index, claims beside evidence, coverage, per-part verdicts"
+title = "Parked by the owner: slim checker context (index, claims beside evidence, coverage, parts)"
 area = "orchestration"
 kind = "build"
 status = "blocked"
-why = "Built and replayed on Sonnet (patch .local/checker-slim.patch, tables .local/checker-slim-replays.md): -61% context; missed 7edd twice, 455bfe materials and d83a 1 of 2. Next: the same 4 cases twice on Codex, then decide."
+why = "Owner 2026-11-25: \"park it\" after the Codex round (30 of 100 calls): level with today's check on catches at about half the input, but false unsupported findings. Results: .local/checker-slim-replays.md; rebased patch in the agent scratchpad."
 decisions = ["ORCH-694"]
 after = []
 
