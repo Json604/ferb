@@ -9,7 +9,9 @@ import com.ferb.mobile.FerbException
 import com.ferb.mobile.Signer
 
 /** What a prompt is for: its words (the system prompt's subtitle). */
-enum class Why { OPEN, YES, FILE, SETTING, KEYS, INSOMNIA }
+enum class Why { OPEN, YES, FILE, SETTING, KEYS, INSOMNIA,
+    /** Turning off "Fingerprint to open" (kb PHN-846): the Mac's signed call, the fingerprint-only key where it has one. */
+    LOCK_OFF }
 
 /**
  * The one path every call to the Mac takes when it may need the owner (PHN-13): a call refused because the Mac's

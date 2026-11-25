@@ -180,6 +180,13 @@ interface PhoneApi {
     /** Puts one of FERB's alerts away on every device (`attention.ack`, kb APP-1106, PHN-791). */
     suspend fun dismissAlert(id: String): Outcome<Unit>
     suspend fun macInfo(): Outcome<MacInfo>
+
+    /**
+     * kb PHN-846: this phone's app lock, kept on the Mac: off is `phone.lock_off`, signed by [signer] (the fingerprint-only
+     * key where the Mac holds one); on is `phone.lock_on`, no proof. The Mac's `lock_off`.
+     */
+    suspend fun setLockOff(off: Boolean, signer: Signer?): Outcome<Boolean> =
+        Outcome.Failed(com.ferb.mobile.FerbException.Offline("No link.", null))
     suspend fun cachedMacInfo(): Outcome<MacInfo?>
 
     /** Keys made after pairing the Mac doesn't hold (a fingerprint enrolled later), and registering them (PHN-133). */
@@ -292,6 +299,7 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun tasks(limit: Int, before: String?) = phone.call { it.tasks(limit.toUInt(), before) }
     override suspend fun dismissAlert(id: String) = phone.call { it.dismissAlert(id) }
     override suspend fun macInfo() = phone.call { it.macInfo() }
+    override suspend fun setLockOff(off: Boolean, signer: Signer?) = phone.call { it.setLockOff(off, signer) }
     override suspend fun cachedMacInfo() = phone.call { it.cachedMacInfo() }
     override suspend fun unregisteredKeys() = phone.unregisteredKeys()
     override suspend fun registerKeys(signer: (KeyKind) -> Signer) = phone.registerKeys(signer)

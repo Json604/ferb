@@ -1,7 +1,7 @@
 package com.ferb.app.model
 
 /**
- * The app's own lock (kb PHN-8, PHN-15): locked on a cold start; back from the background after more than
+ * The app's own lock (kb PHN-835, PHN-15): locked on a cold start; back from the background after more than
  * [LOCK_AFTER_MS] it is locked again. When that time passes while still in the background it locks then too (the
  * moment the Mac should also be told and fetched files go, PHN-15/PHN-11), through [onLockedInBackground]. Time is
  * injected (a monotonic clock), so the rule is tested without waiting. Pure: no Android here.
@@ -9,6 +9,9 @@ package com.ferb.app.model
  * The prompt by itself (kb PHN-615, PHN-616): each time the app arrives in front locked (a new process, or back from
  * the background, relocked or still locked) one prompt is due, taken once by [takePrompt]; leaving clears it. The
  * owner's own lock from inside ([lock]) makes none: the page waits for his tap.
+ *
+ * The owner's lock switch (kb PHN-845) doesn't change this rule: off, the app still locks here (the Mac is told, the
+ * fetched files go), and the view model opens it again without the prompt.
  */
 class AppLock(private val now: () -> Long) {
     var locked: Boolean = true

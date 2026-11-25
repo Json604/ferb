@@ -51,7 +51,7 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
     use ferb_rpc::auth::{
         ACCOUNT_ADDITIONS, DATA_ADDITIONS, DEVICE_ADDITIONS, IDENTIFIER_ADDITIONS,
         INSOMNIA_ADDITIONS, LINK_ADDITIONS, MEMORY_IMPORT_ADDITIONS, OWNER_APP_ONLY, PHONE_ACCOUNT,
-        PHONE_ADDITIONS, PHONE_FILES, PHONE_LINK_ADDITIONS, PHONE_OWN, PHONE_SESSION,
+        PHONE_ADDITIONS, PHONE_FILES, PHONE_LINK_ADDITIONS, PHONE_LOCK, PHONE_OWN, PHONE_SESSION,
         PROJECT_ADDITIONS, SCREEN_USE_ADDITIONS, STAGE2_ADDITIONS, TEMPORARY_ADDITIONS,
         UNINSTALL_ADDITIONS,
     };
@@ -69,6 +69,7 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
             || PHONE_FILES.contains(&name)
             || PHONE_OWN.contains(&name)
             || PHONE_ACCOUNT.contains(&name)
+            || PHONE_LOCK.contains(&name)
             || LINK_ADDITIONS.contains(&name)
             || SCREEN_USE_ADDITIONS.contains(&name)
             || INSOMNIA_ADDITIONS.contains(&name)
@@ -142,6 +143,7 @@ fn the_method_table_is_python_s_plus_the_stage_2_additions() {
         .chain(&PHONE_FILES)
         .chain(&PHONE_OWN)
         .chain(&PHONE_ACCOUNT)
+        .chain(&PHONE_LOCK)
     {
         let row = METHODS.iter().find(|m| m.name == *name).unwrap();
         assert!(row.roles.is_empty() && !row.app_only, "{name}");

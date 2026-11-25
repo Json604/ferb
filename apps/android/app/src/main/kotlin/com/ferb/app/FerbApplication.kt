@@ -26,7 +26,7 @@ import kotlinx.coroutines.launch
 /**
  * The process's one FERB: the Application owns the phone object (FerbPhone.create, start), the Android signals and
  * the app lock, so a screen turned or rebuilt keeps them and only a new process starts again (and is locked again,
- * PHN-8). kb PHN-498.
+ * PHN-835). kb PHN-498.
  */
 class FerbApplication : Application() {
     lateinit var phone: FerbPhone
@@ -123,29 +123,31 @@ class FerbApplication : Application() {
         })
     }
 
-    /** PHN-8: a phone without a screen lock cannot use the app. */
+    /** kb PHN-845: a phone without a screen lock cannot use the app, whether the app's own lock is on or off. */
     fun screenLockSet(): Boolean = getSystemService(KeyguardManager::class.java).isDeviceSecure
 }
 
 /**
  * PHN-15: when the app locks (five minutes away, or by hand) the Mac is told (`lock`: its unlock window for this phone
  * ends and the conversation's watch stops until the next unlock, PHN-125) and the fetched files go. A cold start is
- * locked already and tells nothing.
+ * locked already and tells nothing. Counted by [Session.locks], not read from [Session.locked]: with the owner's lock
+ * switch off (kb PHN-845) the app opens again at once, and a lock seen only as a state could be missed between the two.
  */
 fun tellMacOnLock(scope: kotlinx.coroutines.CoroutineScope, session: Session, api: PhoneApi, local: LocalFiles) = scope.launch {
-    var was = session.locked.value
-    session.locked.collect { locked ->
-        if (locked && !was) {
+    var told = session.locks.value
+    session.locks.collect { n ->
+        if (n != told) {
+            told = n
             api.lock()
             withContext(Dispatchers.IO) { local.wipeFetched() }
         }
-        was = locked
     }
 }
 
 /**
- * The app's lock over the process's life (PHN-8, PHN-15): [AppLock]'s rule, the foreground as Android says it, and
- * the timer that locks the app when five minutes pass in the background.
+ * The app's lock over the process's life (PHN-835, PHN-15): [AppLock]'s rule, the foreground as Android says it, and
+ * the timer that locks the app when five minutes pass in the background. With the owner's lock switch off (PHN-845)
+ * it locks the same way, so the Mac is told and the fetched files go; the view model then opens it without the prompt.
  */
 class Session(now: () -> Long) {
     val lock = AppLock(now)
@@ -154,6 +156,10 @@ class Session(now: () -> Long) {
     private val _front = MutableStateFlow(false)
     val front: StateFlow<Boolean> = _front.asStateFlow()
     private val _promptDue = MutableStateFlow(false)
+    private val _locks = MutableStateFlow(0)
+
+    /** How many times the app has locked since the process began (a cold start's lock isn't one): [tellMacOnLock]. */
+    val locks: StateFlow<Int> = _locks.asStateFlow()
 
     /** The unlock prompt should appear by itself (PHN-615): the app arrived in front locked. */
     val promptDue: StateFlow<Boolean> = _promptDue.asStateFlow()
@@ -161,6 +167,7 @@ class Session(now: () -> Long) {
     private val timer = Runnable { if (lock.backgroundTimer()) publish() }
 
     private fun publish() {
+        if (lock.locked && !_locked.value) _locks.value += 1
         _locked.value = lock.locked
         _promptDue.value = lock.promptDue
     }

@@ -13,7 +13,7 @@ final class AppModelTests: XCTestCase {
     override func setUp() async throws { rig = Rig() }
     override func tearDown() async throws { rig.tearDown() }
 
-    // decision: PHN-8, PHN-125, PHN-794, PHN-633
+    // decision: PHN-835, PHN-845, PHN-125, PHN-794, PHN-633
     func testNothingShowsBeforeThePasscodeAndTheUnlock() async {
         // PHN-633: the lock page needs neither the library, the store nor the link: it shows while the phone starts
         phone.state = .starting
@@ -23,7 +23,7 @@ final class AppModelTests: XCTestCase {
         rig.screenLock = true
         vm.recheck()
         XCTAssertEqual(vm.ui.gate, .locked)
-        // unlocked before the phone opened: still nothing of the app's content until it is open (PHN-8)
+        // unlocked before the phone opened: still nothing of the app's content until it is open (PHN-835)
         session.unlocked()
         await eventually("starting") { vm.ui.gate == .starting }
         session.lockNow()
@@ -64,7 +64,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(vm.ui.needsMacUnlock)
     }
 
-    // decision: PHN-8
+    // decision: PHN-835
     func testACancelledPromptLeavesTheAppLocked() async {
         rig.prompts.cancel = true
         rig.prompts.localResult = false
@@ -83,7 +83,7 @@ final class AppModelTests: XCTestCase {
         await settle()
     }
 
-    // decision: PHN-615, PHN-616, PHN-8
+    // decision: PHN-615, PHN-616, PHN-835
     func testThePromptAppearsByItselfOnceWhenTheAppOpens() async {
         let vm = rig.model()
         vm.setWindowReady(true)
@@ -203,6 +203,108 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(rig.prompts.localAsked, 1)
         XCTAssertTrue(rig.prompts.signers.isEmpty)
         XCTAssertFalse(session.locked)
+    }
+
+    // decision: PHN-835, PHN-846
+    func testTheLockIsOnByDefaultAndOnlyTheMacTakingTheSignedCallTurnsItOff() async {
+        let vm = rig.model()
+        XCTAssertTrue(vm.settings.lockOn, "on by default")
+        session.foreground(true)
+        await vm.unlockApp().value
+        XCTAssertEqual(rig.prompts.signers.count, 1)
+        // he closes the prompt: nothing reaches the Mac, the switch stays on
+        rig.prompts.cancel = true
+        await vm.setAppLock(false).value
+        XCTAssertTrue(vm.settings.lockOn, "a closed prompt keeps it on")
+        XCTAssertFalse(phone.lockOff)
+        // a Mac too old to keep it says so; the switch stays on
+        rig.prompts.cancel = false
+        phone.lockOffRefusal = .Refused(detail: "This needs a newer FERB on your Mac.", linkCode: "mac_link_older")
+        await vm.setAppLock(false).value
+        XCTAssertTrue(vm.settings.lockOn)
+        XCTAssertFalse(phone.lockOff)
+        XCTAssertNotNil(vm.ui.note)
+        phone.lockOffRefusal = nil
+        // the Mac takes the phone's signed call: off on both
+        await vm.setAppLock(false).value
+        XCTAssertTrue(phone.lockOff)
+        XCTAssertFalse(vm.settings.lockOn)
+        XCTAssertFalse(rig.prefs.lockOnOpen)
+        XCTAssertEqual(rig.prompts.whys.last, .lockOff, "signed with the phone's fresh-proof key, in its own words")
+        XCTAssertEqual(vm.ui.note?.key, "profile_lock_off_note")
+        let signed = rig.prompts.signers.count
+        // on again: no prompt; the Mac is told
+        await vm.setAppLock(true).value
+        XCTAssertTrue(vm.settings.lockOn)
+        XCTAssertFalse(phone.lockOff)
+        XCTAssertEqual(phone.calls.last { $0.hasPrefix("lockoff") }, "lockoff:false")
+        XCTAssertEqual(rig.prompts.signers.count, signed)
+    }
+
+    // decision: PHN-835, PHN-846, PHN-15
+    func testWithTheLockOffTheAppOpensStraightIntoChatAndTasksWithNoPromptAndNoCard() async {
+        rig.prefs.lockOnOpen = false
+        phone.lockOff = true
+        phone.mac = MacInfo(name: "Studio Mac", pairedAt: nil, phoneName: nil, uploadFolder: nil, lockOff: true)
+        let teller = LockTeller(session: session, api: phone, local: rig.local)
+        let vm = rig.model()
+        XCTAssertEqual(vm.ui.gate, .starting, "no lock page before it opens")
+        session.foreground(true)
+        vm.setWindowReady(true)
+        await eventually("open") { !session.locked && vm.ui.gate == .main }
+        XCTAssertEqual(rig.prompts.shown, 0, "no prompt")
+        XCTAssertTrue(phone.statements.isEmpty, "nothing signed: no unlock statement")
+        await eventually("the library is told it opened, the chat read, the Mac's word read") {
+            phone.calls.contains("unlocked") && phone.calls.contains("sync") && phone.calls.contains("mac")
+        }
+        XCTAssertFalse(phone.calls.contains("lock"), "a cold start tells the Mac nothing")
+        XCTAssertNil(vm.ui.macNeed)
+        XCTAssertFalse(phone.calls.contains("lockoff:false"), "the Mac's off stays off")
+        // past five minutes away it locked meanwhile (the Mac told) and opens again unasked, reading the chat again:
+        // the Mac gives it without the unlock, so no card
+        phone.calls.removeAll()
+        await away(vm, AppLock.lockAfter + 1)
+        await eventually("told") { phone.calls.filter { $0 == "lock" }.count == 1 }
+        await eventually("open again, the chat read") { !session.locked && vm.ui.gate == .main && phone.calls.contains("sync") }
+        await settle()
+        XCTAssertEqual(rig.prompts.shown, 0, "still no prompt")
+        XCTAssertNil(vm.ui.macNeed)
+        withExtendedLifetime(teller) {}
+    }
+
+    // decision: PHN-846
+    func testTheMacsRecordOfTheSwitchWinsWhenItIsStricter() async {
+        // the Mac has it on (the phone was paired again, or removed): the phone asks again too
+        rig.prefs.lockOnOpen = false
+        phone.mac = MacInfo(name: "Studio Mac", pairedAt: nil, phoneName: nil, uploadFolder: nil, lockOff: false)
+        let vm = rig.model()
+        await eventually("on again") { vm.settings.lockOn }
+        XCTAssertTrue(rig.prefs.lockOnOpen)
+        // the Mac has it off while the phone has it on (an "on" that couldn't reach it): the Mac is told on
+        phone.mac = MacInfo(name: "Studio Mac", pairedAt: nil, phoneName: nil, uploadFolder: nil, lockOff: true)
+        phone.lockOff = true
+        await vm.unlockApp().value
+        await eventually("told on") { !phone.lockOff }
+        XCTAssertTrue(phone.calls.contains("lockoff:false"))
+        // Forget this Mac: the switch comes back on with the pairing gone
+        rig.prefs.lockOnOpen = false
+        rig.prefs.forgetPairing()
+        XCTAssertTrue(rig.prefs.lockOnOpen)
+    }
+
+    // decision: PHN-845
+    func testWithTheLockOffAPhoneWithoutAPasscodeStillCantUseTheApp() async {
+        rig.prefs.lockOnOpen = false
+        rig.screenLock = false
+        let vm = rig.model()
+        session.foreground(true)
+        await settle()
+        XCTAssertEqual(vm.ui.gate, .noScreenLock)
+        XCTAssertTrue(session.locked)
+        rig.screenLock = true
+        vm.recheck()
+        await eventually("open") { !session.locked && vm.ui.gate == .main }
+        XCTAssertEqual(rig.prompts.shown, 0)
     }
 
     // decision: PHN-649, PHN-641

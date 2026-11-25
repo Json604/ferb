@@ -240,6 +240,14 @@ impl State {
             .is_some_and(|s| s.present)
     }
 
+    /// PHN-846: the owner turned this phone's app lock off, this connection proved the phone's device key, and the
+    /// method is one of chat and tasks (`classes::LOCK_OFF_OPEN`): it needs no unlock window. Nothing else changes: a
+    /// hard Yes or a hidden answer still carries its own proof, files, memory, settings and every sensitive call
+    /// keep theirs.
+    pub(crate) fn lock_off_open(&self, dev: &Phone, phone: &PhoneSession, method: &str) -> bool {
+        dev.lock_off && classes::lock_off_open(method) && self.proved_present(phone)
+    }
+
     pub(crate) fn is_unlocked(&mut self, phone: &PhoneSession, now: f64, limits: &Limits) -> bool {
         self.open_window(phone, now, limits).is_some()
     }
@@ -841,7 +849,7 @@ impl Gate {
                     Locked::Allowed => true,
                     Locked::Answer => st.answer_needs_no_window(inner, phone, method, params),
                     Locked::Refused => false,
-                };
+                } || st.lock_off_open(&dev, phone, method);
                 if !free {
                     st.require_unlocked(phone, now, &inner.limits)?;
                 }

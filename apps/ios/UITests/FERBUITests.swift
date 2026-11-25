@@ -27,7 +27,7 @@ final class FERBUITests: XCTestCase {
 
     /// A fresh install shows the sign-in after the unlock and nothing of FERB's before it (kb PHN-827); the sheet's
     /// stand-in closes at once and the page says so.
-    // decision: PHN-839, PHN-8
+    // decision: PHN-839, PHN-835
     func testAFreshInstallSignsInFirst() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-FERBUITestUnlock", "YES", "-FERBUITestFresh", "YES", "-FERBUITestFirstRunDone", "YES"]
@@ -72,14 +72,14 @@ final class FERBUITests: XCTestCase {
     }
 
     /// Opening FERB asks by itself: the stand-in prompt passes at once and the pairing page shows, nothing tapped.
-    // decision: PHN-8, PHN-794, PHN-615
+    // decision: PHN-835, PHN-794, PHN-615
     func testLaunchAsksByItselfAndOpensThePairingPage() throws {
         let app = launch()
         toPairing(app)   // a fresh install signed in pairs first
     }
 
     /// A cancelled prompt leaves the lock page with its button and does not come back by itself; the button asks.
-    // decision: PHN-8, PHN-794, PHN-615, PHN-616
+    // decision: PHN-835, PHN-794, PHN-615, PHN-616
     func testACancelledPromptWaitsForTheButton() throws {
         let app = launch(["-FERBUITestCancelPrompts", "1"])
         XCTAssertTrue(app.staticTexts["FERB is locked"].waitForExistence(timeout: 30), "nothing of FERB's before the lock")

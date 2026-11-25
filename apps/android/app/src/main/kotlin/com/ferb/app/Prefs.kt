@@ -14,6 +14,14 @@ class Prefs(context: Context) {
         get() = p.getBoolean("stay", false)
         set(v) = p.edit().putBoolean("stay", v).apply()
 
+    /**
+     * kb PHN-835, PHN-846: "Fingerprint to open", on unless the owner turns it off. Off is the Mac's too: set only after
+     * the Mac took the phone's signed `phone.lock_off`; the Mac's own record wins when it says on (paired again).
+     */
+    var lockOnOpen: Boolean
+        get() = p.getBoolean("app_lock", true)
+        set(v) = p.edit().putBoolean("app_lock", v).apply()
+
     /** PHN-420: whole-app screenshot blocking, on unless the owner turns it off. */
     var blockScreenshots: Boolean
         get() = p.getBoolean("secure", true)
@@ -112,8 +120,9 @@ class Prefs(context: Context) {
         return true
     }
 
-    /** Forget this Mac: what belonged to that pairing goes; the phone's own switches stay. */
+    /** Forget this Mac: what belonged to that pairing goes; the phone's own switches stay, but its lock comes back on. */
     fun forgetPairing() {
-        p.edit().remove("paired_since").remove("paired_account").remove("just_paired").remove("announced").remove("seen").remove("insomnia_said").apply()
+        // the lock switch's "off" lives with the pairing on the Mac (PHN-846): a new pairing starts with it on
+        p.edit().remove("app_lock").remove("paired_since").remove("paired_account").remove("just_paired").remove("announced").remove("seen").remove("insomnia_said").apply()
     }
 }

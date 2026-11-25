@@ -261,6 +261,10 @@ pub struct MacInfo {
     /// kept).
     #[serde(default)]
     pub upload_folder: Option<UploadFolder>,
+    /// PHN-846: the Mac has this phone's app lock off (it gives chat and tasks without the unlock); none from a Mac that
+    /// doesn't keep it (and in what an older app kept).
+    #[serde(default)]
+    pub lock_off: Option<bool>,
 }
 
 /// The link's own "cancelled" from a transfer the phone stopped.
@@ -967,6 +971,7 @@ impl Mobile {
                 shown: text(&v["upload_folder"]["shown"]),
                 is_default: v["upload_folder"]["default"].as_bool().unwrap_or(false),
             }),
+            lock_off: me["lock_off"].as_bool(),
         };
         let changed = {
             let st = self.shared.open_state()?;
@@ -994,6 +999,39 @@ impl Mobile {
         let t = self.shared.transport_online()?;
         let v = Shared::call(&t, "phone.bind_account", json!({"assertion": assertion}))?;
         Ok(v["bound"].as_bool().unwrap_or(false))
+    }
+
+    /// PHN-846: the owner turns this phone's app lock off on the Mac (`phone.lock_off`, the sensitive class: signed over
+    /// this exact call by `signer`, the fingerprint-only key where the phone registered one, else the lock key) or on
+    /// again (`phone.lock_on`, no proof: only ever stricter; works while locked). The Mac's answer, `lock_off`. While
+    /// off, the Mac gives this phone chat and tasks without the unlock; everything else keeps its proof. A Mac too old
+    /// to keep it refuses with `mac_link_older`. The kept `mac_info` follows, so the switch shows the Mac's state.
+    pub fn set_lock_off(&self, off: bool, signer: Option<Arc<dyn Signer>>) -> MobileResult<bool> {
+        let t = self.shared.transport_online()?;
+        let v = if off {
+            let signer = signer
+                .ok_or_else(|| MobileError::new(ErrorCode::NotSigned, "Nothing was sent."))?;
+            Shared::call_signed(&t, "phone.lock_off", json!({}), Some(&signer))?
+        } else {
+            Shared::call(&t, "phone.lock_on", json!({}))?
+        };
+        let now = v["lock_off"].as_bool().unwrap_or(off);
+        let kept = {
+            let st = self.shared.open_state()?;
+            let store = st.store.as_ref().ok_or_else(MobileError::closed)?;
+            let mut info = store
+                .meta("mac")?
+                .and_then(|t| serde_json::from_str::<MacInfo>(&t).ok());
+            if let Some(i) = info.as_mut() {
+                i.lock_off = Some(now);
+                store.set_meta("mac", &serde_json::to_string(&*i).unwrap_or_default())?;
+            }
+            info.is_some()
+        };
+        if kept {
+            self.shared.notify(Change::Mac);
+        }
+        Ok(now)
     }
 
     /// The last `mac_info` kept (no network).

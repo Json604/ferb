@@ -16,12 +16,14 @@ import com.ferb.core.Outcome
 import com.ferb.core.PhoneState
 import com.ferb.mobile.FerbException
 import com.ferb.mobile.LinkPhase
+import com.ferb.mobile.MacInfo
 import com.ferb.mobile.LinkProblem
 import com.ferb.mobile.OlderState
 import com.ferb.mobile.QuestionItem
 import com.ferb.mobile.TranscriptView
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -31,6 +33,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -86,7 +89,7 @@ class ViewModelTest {
 
     private fun view(vararg qs: QuestionItem) = TranscriptView("c1", emptyList(), qs.toList(), emptyList(), emptyList(), OlderState.Complete)
 
-    // decision: PHN-8, PHN-125, PHN-794, PHN-633
+    // decision: PHN-835, PHN-845, PHN-125, PHN-794, PHN-633
     @Test
     fun nothing_shows_before_the_screen_lock_and_the_unlock() {
         // PHN-633: the lock page needs neither the library, the store nor the link: it shows while the phone starts
@@ -97,7 +100,7 @@ class ViewModelTest {
         screenLock = true
         vm.recheck()
         assertEquals(Gate.LOCKED, vm.ui.value.gate)
-        // unlocked before the phone opened: still nothing of the app's content until it is open (PHN-8)
+        // unlocked before the phone opened: still nothing of the app's content until it is open (PHN-835)
         session.unlocked()
         assertEquals(Gate.STARTING, vm.ui.value.gate)
         session.lockNow()
@@ -129,7 +132,7 @@ class ViewModelTest {
         assertFalse(vm.ui.value.needsMacUnlock)
     }
 
-    // decision: PHN-8
+    // decision: PHN-835
     @Test
     fun a_cancelled_prompt_leaves_the_app_locked() {
         cancelPrompt = true
@@ -160,7 +163,7 @@ class ViewModelTest {
         idle()
     }
 
-    // decision: PHN-615, PHN-616, PHN-8
+    // decision: PHN-615, PHN-616, PHN-835
     @Test
     fun the_prompt_appears_by_itself_once_when_the_app_opens() {
         val vm = vm()
@@ -408,6 +411,128 @@ class ViewModelTest {
         assertTrue(phone.statements.isEmpty())
         assertTrue("unlock" in phone.calls)
         assertEquals("one more prompt, only with an older Mac", 2, shown())
+    }
+
+    // decision: PHN-835, PHN-846
+    @Test
+    fun the_lock_is_on_by_default_and_only_the_mac_taking_the_signed_call_turns_it_off() {
+        val vm = vm()
+        assertTrue("on by default", vm.settings.value.lockOn)
+        session.foreground(true)
+        vm.unlockApp()
+        idle()
+        assertEquals(1, signers.size)
+        // he closes the prompt: nothing reaches the Mac, the switch stays on
+        cancelPrompt = true
+        vm.setAppLock(false)
+        idle()
+        assertTrue("a closed prompt keeps it on", vm.settings.value.lockOn)
+        assertFalse(phone.lockOff)
+        // a Mac too old to keep it says so; the switch stays on
+        cancelPrompt = false
+        phone.lockOffRefusal = Outcome.Failed(FerbException.Refused("This needs a newer FERB on your Mac.", "mac_link_older"))
+        vm.setAppLock(false)
+        idle()
+        assertTrue(vm.settings.value.lockOn)
+        assertFalse(phone.lockOff)
+        assertNotNull(vm.ui.value.note)
+        phone.lockOffRefusal = null
+        // the Mac takes the phone's signed call: off on both
+        vm.setAppLock(false)
+        idle()
+        assertTrue(phone.lockOff)
+        assertFalse(vm.settings.value.lockOn)
+        assertFalse(Prefs(ApplicationProvider.getApplicationContext()).lockOnOpen)
+        assertEquals("signed with the phone's fresh-proof key, in its own words", Why.LOCK_OFF, whys.last())
+        assertEquals(R.string.profile_lock_off_note, vm.ui.value.note?.res)
+        val signed = signers.size
+        // on again: no prompt; the Mac is told
+        vm.setAppLock(true)
+        idle()
+        assertTrue(vm.settings.value.lockOn)
+        assertFalse(phone.lockOff)
+        assertEquals("lockoff:false", phone.calls.last { it.startsWith("lockoff") })
+        assertEquals(signed, signers.size)
+    }
+
+    // decision: PHN-835, PHN-846, PHN-15
+    @Test
+    fun with_the_lock_off_the_app_opens_straight_into_chat_and_tasks_with_no_prompt_and_no_card() {
+        Prefs(ApplicationProvider.getApplicationContext()).lockOnOpen = false
+        phone.lockOff = true
+        phone.mac = MacInfo("Studio Mac", null, null, null, true)
+        val scope = kotlinx.coroutines.MainScope()
+        tellMacOnLock(scope, session, phone, local)
+        val vm = vm()
+        assertEquals("no lock page before it opens", Gate.STARTING, vm.ui.value.gate)
+        session.foreground(true)
+        vm.windowReady(true)
+        idle()
+        assertFalse(session.locked.value)
+        assertEquals(Gate.MAIN, vm.ui.value.gate)
+        assertEquals("no prompt", 0, shown())
+        assertTrue("nothing signed: no unlock statement", phone.statements.isEmpty())
+        assertTrue("the library is told it opened", "unlocked" in phone.calls)
+        assertTrue("the chat is read at once", "sync" in phone.calls)
+        assertTrue("and the Mac's word on this phone", "mac" in phone.calls)
+        assertFalse("a cold start tells the Mac nothing", "lock" in phone.calls)
+        assertNull(vm.ui.value.macNeed)
+        assertFalse(vm.ui.value.needsMacUnlock)
+        assertFalse("the Mac's off stays off", "lockoff:false" in phone.calls)
+        // past five minutes away it locked meanwhile (the Mac told, the fetched files gone) and opens again unasked,
+        // reading the chat again: the Mac gives it without the unlock, so no card
+        phone.calls.clear()
+        away(vm, com.ferb.app.model.AppLock.LOCK_AFTER_MS + 1)
+        assertEquals("the lock still tells the Mac", 1, phone.calls.count { it == "lock" })
+        assertFalse(session.locked.value)
+        assertEquals(Gate.MAIN, vm.ui.value.gate)
+        assertTrue("sync" in phone.calls)
+        assertEquals("still no prompt", 0, shown())
+        assertNull(vm.ui.value.macNeed)
+        scope.cancel()
+    }
+
+    // decision: PHN-846
+    @Test
+    fun the_mac_s_record_of_the_switch_wins_when_it_is_stricter() {
+        // the Mac has it on (the phone was paired again, or removed): the phone asks again too
+        Prefs(ApplicationProvider.getApplicationContext()).lockOnOpen = false
+        phone.mac = MacInfo("Studio Mac", null, null, null, false)
+        val vm = vm()
+        session.foreground(true)
+        idle()
+        assertTrue(vm.settings.value.lockOn)
+        assertTrue(Prefs(ApplicationProvider.getApplicationContext()).lockOnOpen)
+        // the Mac has it off while the phone has it on (an "on" that couldn't reach it): the Mac is told on
+        phone.mac = MacInfo("Studio Mac", null, null, null, true)
+        phone.lockOff = true
+        vm.unlockApp()
+        idle()
+        assertTrue("lockoff:false" in phone.calls)
+        assertFalse(phone.lockOff)
+        // Forget this Mac: the switch comes back on with the pairing gone
+        val prefs = Prefs(ApplicationProvider.getApplicationContext())
+        prefs.lockOnOpen = false
+        prefs.forgetPairing()
+        assertTrue(prefs.lockOnOpen)
+    }
+
+    // decision: PHN-845
+    @Test
+    fun with_the_lock_off_a_phone_without_a_screen_lock_still_cant_use_the_app() {
+        Prefs(ApplicationProvider.getApplicationContext()).lockOnOpen = false
+        screenLock = false
+        val vm = vm()
+        session.foreground(true)
+        idle()
+        assertEquals(Gate.NO_SCREEN_LOCK, vm.ui.value.gate)
+        assertTrue(session.locked.value)
+        screenLock = true
+        vm.recheck()
+        idle()
+        assertFalse(session.locked.value)
+        assertEquals(Gate.MAIN, vm.ui.value.gate)
+        assertEquals(0, shown())
     }
 
     // decision: PHN-649

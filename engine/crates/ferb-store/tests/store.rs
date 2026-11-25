@@ -185,22 +185,26 @@ fn a_fresh_store_is_the_one_python_makes() {
     // 0068 (PHN-828): each paired phone's FERB account, a column of 0065's phone_devices
     let account = ferb_store::phones::ACCOUNT_VERSION;
     assert_eq!(account, memory + 1);
+    // 0069 (PHN-846): whether the owner turned a phone's app lock off, a column of 0065's phone_devices
+    let lock_off = ferb_store::phones::LOCK_OFF_VERSION;
+    assert_eq!(lock_off, account + 1);
 
     assert_eq!(
-        applied[applied.len() - 6..],
-        [stage_2, gaps, phones, repair, memory, account]
+        applied[applied.len() - 7..],
+        [stage_2, gaps, phones, repair, memory, account, lock_off]
     );
-    assert_eq!(json!(applied[..applied.len() - 6]), python["applied"]);
-    assert_eq!(known_schema(), account);
+    assert_eq!(json!(applied[..applied.len() - 7]), python["applied"]);
+    assert_eq!(known_schema(), lock_off);
     assert_eq!(json!(stage_2 - 1), python["known_schema"]);
     let versions = rust["schema_version"].as_array().unwrap();
-    let (before, last) = versions.split_at(versions.len() - 6);
+    let (before, last) = versions.split_at(versions.len() - 7);
     assert_eq!(last[0][0], json!(stage_2));
     assert_eq!(last[1][0], json!(gaps));
     assert_eq!(last[2][0], json!(phones));
     assert_eq!(last[3][0], json!(repair));
     assert_eq!(last[4][0], json!(memory));
     assert_eq!(last[5][0], json!(account));
+    assert_eq!(last[6][0], json!(lock_off));
     assert_eq!(
         json!(before),
         python["schema_version"],
@@ -722,8 +726,9 @@ fn a_populated_store_at_0063_upgrades_to_take_done_with_gaps() {
     let tasks_before = dump(c, "SELECT rowid, * FROM tasks ORDER BY rowid");
     let context_before = dump(c, "SELECT rowid, * FROM task_context ORDER BY rowid");
 
-    // 0065 (T-1202, the paired phones), 0066 (APP-979, chat_history's copies), 0067 (MEM-436) and 0068 (PHN-828) follow
-    assert_eq!(db.migrate().unwrap(), vec![64, 65, 66, 67, 68]);
+    // 0065 (T-1202, the paired phones), 0066 (APP-979, chat_history's copies), 0067 (MEM-436), 0068 (PHN-828) and
+    // 0069 (PHN-846) follow
+    assert_eq!(db.migrate().unwrap(), vec![64, 65, 66, 67, 68, 69]);
     let c = db.conn();
     assert_eq!(
         dump(c, "SELECT rowid, * FROM tasks ORDER BY rowid"),

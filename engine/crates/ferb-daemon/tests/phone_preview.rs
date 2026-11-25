@@ -220,3 +220,47 @@ async fn a_phone_s_list_names_its_own_row_and_the_mac() {
         .iter()
         .all(|p| p.get("this").is_none()));
 }
+
+/// PHN-846: a phone whose app lock the owner turned off watches its tasks live without the unlock, from a connection
+/// that proved its device key, still only on a path that carries it.
+// decision: PHN-846
+// decision: PHN-454
+#[tokio::test]
+async fn a_lock_off_phone_watches_live_without_the_unlock_on_a_path_that_carries_it() {
+    let w = world(None).await;
+    serve_preview(&w);
+    let keys = Keys::new(1);
+    pair(&w, P1, &keys, false, true).await;
+    w.clock.advance(301.0);
+    let mut direct = phone_on(&w, "d", Some("direct")).await;
+    direct.present(&keys).await;
+    assert_eq!(
+        direct
+            .call("tasks.preview", json!({"task_id": "t1"}), None)
+            .await
+            .unwrap_err()
+            .0,
+        code::LOCKED
+    );
+    direct
+        .signed_call(&keys.lock, "phone.lock_off", json!({}))
+        .await
+        .unwrap();
+    let out = direct.ok("tasks.preview", json!({"task_id": "t1"})).await;
+    assert_eq!(image(&out), FRAME);
+    // a connection that hasn't proved the device key, or one with no tier, gets nothing
+    let mut bare = phone_on(&w, "b", Some("direct")).await;
+    assert_eq!(
+        bare.call("tasks.preview", json!({"task_id": "t1"}), None)
+            .await
+            .unwrap_err()
+            .0,
+        code::LOCKED
+    );
+    let mut unknown = phone_on(&w, "u", None).await;
+    unknown.present(&keys).await;
+    assert!(unknown
+        .call("tasks.preview", json!({"task_id": "t1"}), None)
+        .await
+        .is_err());
+}

@@ -21,7 +21,7 @@ class FirstRun(
     /** What the page asks for now, in order; empty: no page. */
     fun pending(): List<Ask> = asked().let { done -> wanted.filter { it.name !in done && !allowed(it) } }
 
-    /** The page shows over the pairing page or the app itself, never before the unlock (PHN-8). */
+    /** The page shows over the pairing page or the app itself, never before the unlock (PHN-835). */
     fun showsOver(unlockedPage: Boolean): Boolean = unlockedPage && pending().isNotEmpty()
 
     /** The phone's question for [ask] was answered (either way): it is never asked again. */

@@ -234,7 +234,7 @@ private fun TypeCode(vm: FerbViewModel, insets: PhoneInsets, close: () -> Unit) 
     }
 }
 
-/** MobileScreens.swift ProfileSheet with this phone's switches (PHN-8, PHN-420, PHN-421, PHN-422) working. */
+/** MobileScreens.swift ProfileSheet with this phone's switches (PHN-835, PHN-420, PHN-421, PHN-422) working. */
 @Composable
 private fun Profile(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, host: Host, close: () -> Unit) {
     val s: PhoneSettings by vm.settings.collectAsState()
@@ -247,10 +247,9 @@ private fun Profile(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, host: H
     val since = pairedAt?.let { DateFormat.getDateInstance(DateFormat.LONG).format(Date(it)) } ?: "—"
     ProfileSheet(
         ui.mac?.name ?: stringResource(R.string.profile_mac_name), since, insets,
-        lockOn = true, // PHN-8: FERB always opens with the fingerprint or the screen lock; there is no off
-        // PHN-656: no switch that does nothing: "Always on", and a tap says why
-        lockAlways = stringResource(R.string.profile_lock_always),
-        onLockInfo = { vm.note(com.ferb.app.Note(R.string.profile_lock_why)) },
+        // kb PHN-835, PHN-845: Fingerprint to open, on by default; turning it off takes the prompt
+        lockOn = s.lockOn,
+        onLock = if ("app-lock" in ui.busy) null else ({ on -> vm.setAppLock(on) }),
         stayConnected = s.stayConnected,
         onClose = close,
         onStayConnected = host::stayConnected,

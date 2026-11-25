@@ -100,7 +100,7 @@ public enum Biometry: Sendable, Equatable {
         }
     }
 
-    /// PHN-8: a phone without a passcode cannot use the app.
+    /// kb PHN-845: a phone without a passcode cannot use the app, whether the app's own lock is on or off.
     public static var screenLockSet: Bool { LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil) }
 
     /// The system's fingerprint of the enrolled faces or fingers: it changes when one is added or removed.

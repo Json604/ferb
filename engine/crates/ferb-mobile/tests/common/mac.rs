@@ -62,6 +62,8 @@ pub struct MacState {
     pub mac_name: Option<String>,
     /// `phone.device_report` refused as locked (an app locked on a connection that hasn't proved its device key).
     pub device_locked: bool,
+    /// PHN-846: this phone's app lock is off on the Mac (`phone.lock_off`, signed; `phone.lock_on`).
+    pub lock_off: bool,
     /// Transfers by kind, with their params (get / put).
     pub transfers: Vec<(String, Value)>,
     /// Folder listings and searches answer pages of this many (PHN-589), each with its `from`, `next` and `cut`.
@@ -193,6 +195,7 @@ impl FakeMac {
             settings: serde_json::Map::new(),
             mac_name: None,
             device_locked: false,
+            lock_off: false,
             transfers: Vec::new(),
             page_size: None,
             found: Vec::new(),
@@ -733,9 +736,25 @@ impl Transport for FakeMac {
                     ));
                 }
             },
+            // PHN-846: off only with a proof (the gate checks it on the real Mac); on with none
+            "phone.lock_off" if proof_json.is_none() => {
+                return Err(LinkFailure::new(
+                    "unlock_required",
+                    "Unlock the phone first.",
+                ));
+            }
+            "phone.lock_off" => {
+                st.lock_off = true;
+                json!({"lock_off": true})
+            }
+            "phone.lock_on" => {
+                st.lock_off = false;
+                json!({"lock_off": false})
+            }
             "phone.list" => json!({"phones": [
-                {"id": "other", "name": "Old phone", "paired_at": "2026-01-01T00:00:00+00:00"},
-                {"id": "me", "name": "Pixel", "paired_at": "2026-11-10T09:00:00+00:00", "this": true}],
+                {"id": "other", "name": "Old phone", "paired_at": "2026-01-01T00:00:00+00:00", "lock_off": false},
+                {"id": "me", "name": "Pixel", "paired_at": "2026-11-10T09:00:00+00:00", "this": true,
+                 "lock_off": st.lock_off}],
                 "mac": {"name": st.mac_name}, "pairing": null, "max": 5,
                 "upload_folder": {"path": "/Users/o/Downloads/FERB from phone", "shown": "Downloads › FERB from phone",
                                   "default": true}}),

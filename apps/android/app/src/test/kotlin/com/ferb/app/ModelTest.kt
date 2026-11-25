@@ -27,7 +27,7 @@ class AppLockTest {
     private var t = 0L
     private val lock = AppLock { t }
 
-    // decision: PHN-8, PHN-15, PHN-794
+    // decision: PHN-835, PHN-15, PHN-794
     @Test
     fun locked_on_a_cold_start_and_again_after_five_minutes_away() {
         assertTrue("a cold start is locked", lock.locked)

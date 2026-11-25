@@ -90,8 +90,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * What fills the screen: one at a time, nothing private before [MAIN] (PHN-8). [SIGN_IN]: signed out of FERB's account,
- * right after the lock and before anything else (kb PHN-827); [PAIR] starts with the phone-first page (kb PHN-829).
+ * What fills the screen: one at a time, nothing private before [MAIN] (PHN-835). [SIGN_IN]: signed out of FERB's
+ * account, right after the lock and before anything else (kb PHN-827); [PAIR] starts with the phone-first page (kb PHN-829).
  */
 enum class Gate { STARTING, FAILED, NO_SCREEN_LOCK, LOCKED, SIGN_IN, PAIR, CODES, REMOVED, MAIN }
 
@@ -155,8 +155,9 @@ enum class VoicePress { DONE, ASK_MICROPHONE }
 /** A short line for the owner, in the app's words (string resources) or the Mac's own; [inner] a line said inside it. */
 data class Note(@StringRes val res: Int, val words: String? = null, val inner: Note? = null)
 
-/** This phone's own switches, as the profile sheet shows them. */
-data class PhoneSettings(val stayConnected: Boolean, val blockScreenshots: Boolean, val hideChecks: Boolean, val pairedSince: Long, val shareCity: Boolean = false)
+/** This phone's own switches, as the profile sheet shows them. [lockOn]: "Fingerprint to open" (kb PHN-835). */
+data class PhoneSettings(val stayConnected: Boolean, val blockScreenshots: Boolean, val hideChecks: Boolean, val pairedSince: Long, val shareCity: Boolean = false,
+    val lockOn: Boolean = true)
 
 /** The prompts only the screen can show: the system's fingerprint prompt, with a key or without one. */
 /** The calm line about the Mac's side once the app is open (PHN-641); never a control. */
@@ -318,6 +319,15 @@ class FerbViewModel(
     /** FERB's alerts put away on this phone this session (kb PHN-791): hidden at once, before the Mac's next status drops
      *  them. Declared first: the constructor's first read applies a status before the properties below are made. */
     private val dismissedAlerts: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /**
+     * The lock's own clearing (the `session.locked` collector) ran since the last open: the app may open unasked (kb
+     * PHN-846). Declared before the constructor's flows, which may open it.
+     */
+    private var lockHandled = false
+
+    /** Opened without the prompt and the Mac's word on this phone's lock not read since (kb PHN-846). */
+    private var macInfoDue = false
 
     /** The toast's wait before it leaves by itself (kb APP-1109): [AlertToast.SECONDS]; a test gives its own. */
     internal var alertDelay: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) }
@@ -596,6 +606,9 @@ class FerbViewModel(
                     transfers.locked()
                     outgoing.locked()
                     _ui.update { it.copy(files = FilesUi(), settings = null, macTasks = null) }
+                    // kb PHN-845: with the owner's lock switch off it opens again now, after all of the above
+                    lockHandled = true
+                    openUnasked()
                 }
             }
         }
@@ -618,6 +631,8 @@ class FerbViewModel(
                     turnTheDay()
                     markRead()
                     showPending()
+                    // kb PHN-845: locked while away, with the owner's lock switch off: open without the prompt
+                    openUnasked()
                 }
             }
         }
@@ -635,8 +650,9 @@ class FerbViewModel(
         val gate = when {
             s is PhoneState.Failed -> Gate.FAILED
             !screenLock() -> Gate.NO_SCREEN_LOCK
-            // the lock page needs neither the library, the store nor the link: it shows at the first frame (PHN-633)
-            locked -> Gate.LOCKED
+            // the lock page needs neither the library, the store nor the link: it shows at the first frame (PHN-633);
+            // with the owner's lock switch off there is no lock page: the start's, the moment before it opens (PHN-845)
+            locked -> if (_settings.value.lockOn) Gate.LOCKED else Gate.STARTING
             // kb PHN-827: FERB's account first, before anything else; it needs neither the library nor the link
             !u.account.known -> Gate.STARTING
             u.account.account == null -> Gate.SIGN_IN
@@ -672,6 +688,7 @@ class FerbViewModel(
     /** Reads the gate again (the screen lock may have been set in Android's settings meanwhile). */
     fun recheck() {
         _ui.update { gateOf(it, api.state.value, api.link.value, session.locked.value) }
+        openUnasked()
         showPending()
     }
 
@@ -941,13 +958,13 @@ class FerbViewModel(
     }
 
     private fun readMac() {
-        viewModelScope.launch { (api.cachedMacInfo() as? Outcome.Ok)?.value?.let { m -> _ui.update { it.copy(mac = m) } } }
+        viewModelScope.launch { (api.cachedMacInfo() as? Outcome.Ok)?.value?.let { macSays(it) } }
     }
 
     /** After the Mac's unlock: its name and this phone's pairing date, and whether a key waits to be registered. */
     private fun afterMacUnlock() {
         viewModelScope.launch {
-            (api.macInfo() as? Outcome.Ok)?.value?.let { m -> _ui.update { it.copy(mac = m) } }
+            (api.macInfo() as? Outcome.Ok)?.value?.let { macSays(it) }
             val fresh = api.unregisteredKeys()
             _ui.update { it.copy(newKeys = fresh?.strong != null) }
         }
@@ -964,6 +981,8 @@ class FerbViewModel(
             is Outcome.Ok -> {
                 AppLog.i("chat sync answered after ${android.os.SystemClock.elapsedRealtime() - asked} ms")
                 macPending = false; _ui.update { it.copy(needsMacUnlock = false, macNeed = null) }
+                // opened without the prompt (kb PHN-846): the Mac's word on this phone, which no unlock read
+                if (macInfoDue) { macInfoDue = false; afterMacUnlock() }
             }
         }
     }
@@ -984,7 +1003,7 @@ class FerbViewModel(
         }
     }
 
-    // ---- the app lock (PHN-8, PHN-13, PHN-125, PHN-649) ----------------------------------------------------------------
+    // ---- the app lock (PHN-835, PHN-845, PHN-13, PHN-125, PHN-649) --------------------------------------------------
 
     /**
      * One prompt opens the app, at once, whatever the link is doing (PHN-649). On a paired phone the lock key signs,
@@ -1020,12 +1039,78 @@ class FerbViewModel(
         }
     }
 
-    /** The app is open: the lock's state, the open's facts (PHN-13). */
-    private fun openApp() {
+    /** The app is open: the lock's state, the open's facts (PHN-13). [unasked]: without the prompt (PHN-846). */
+    private fun openApp(unasked: Boolean = false) {
         session.unlocked()
         opened()
         statementExpired = false
+        macInfoDue = unasked
         _ui.update { it.copy(macNeed = null, needsMacUnlock = false) }
+    }
+
+    /**
+     * The owner's lock switch is off (kb PHN-835, PHN-846): the app, locked and in front, opens without the prompt.
+     * Nothing is signed: the Mac gives this phone chat and tasks by its own record of the switch (`phone.lock_off`), and
+     * everything else asks as before (files after the idle minutes, a hard Yes, a private answer, a setting). A phone
+     * with no screen lock still can't use the app.
+     */
+    private fun openUnasked() {
+        if (!lockHandled || !session.locked.value || !session.front.value || _settings.value.lockOn || !screenLock()) return
+        if (_ui.value.gate == Gate.FAILED) return
+        AppLog.i("opened without the lock: the owner's switch is off")
+        lockHandled = false
+        openApp(unasked = true)
+        viewModelScope.launch {
+            api.unlocked()
+            // no unlock statement reads the chat this time: the link already up reads it now (else its coming online)
+            val l = api.link.value
+            if (l?.paired == true && l.phase == LinkPhase.ONLINE) syncNow()
+        }
+    }
+
+    /**
+     * This phone's "Fingerprint to open" (kb PHN-835, PHN-846). Off is the Mac's to keep: one prompt signs
+     * `phone.lock_off` (the fingerprint-only key where the phone has one, PHN-129), and only once the Mac took it does
+     * the phone open without asking, so whoever holds the unlocked phone can't quietly take the lock away. On again
+     * takes nothing: the phone asks again at once, and the Mac is told (only ever stricter; again from the Mac's next
+     * word if it can't be told now).
+     */
+    fun setAppLock(on: Boolean) = busy("app-lock", tap = true) {
+        if (on) {
+            prefs.lockOnOpen = true
+            refreshProfile()
+            api.setLockOff(false, null)
+            return@busy
+        }
+        if (!_settings.value.lockOn) return@busy
+        val signer = freshSigner(Why.LOCK_OFF) ?: return@busy
+        when (val r = api.setLockOff(true, signer())) {
+            is Outcome.Ok -> {
+                prefs.lockOnOpen = false
+                refreshProfile()
+                note(Note(R.string.profile_lock_off_note))
+            }
+            is Outcome.Failed -> if (r.error !is FerbException.NotSigned) failed(r.error)
+        }
+    }
+
+    /**
+     * The Mac's word on this phone (`phone.list`), and its record of the lock switch (kb PHN-846): the Mac has it off
+     * while the phone has it on: the Mac is told on (only ever stricter); the Mac has it on while the phone has it
+     * off (paired again, or removed): the phone asks again too. Not while the switch itself is being changed.
+     */
+    private fun macSays(m: MacInfo) {
+        _ui.update { it.copy(mac = m) }
+        if ("app-lock" in _ui.value.busy) return
+        when (m.lockOff) {
+            true -> if (prefs.lockOnOpen) viewModelScope.launch { api.setLockOff(false, null) }
+            false -> if (!prefs.lockOnOpen) {
+                AppLog.i("the Mac has this phone's lock on: on here too")
+                prefs.lockOnOpen = true
+                refreshProfile()
+            }
+            null -> Unit
+        }
     }
 
     /** The statement signed in the opening prompt, until the Mac took it (PHN-649). */
@@ -2082,7 +2167,8 @@ class FerbViewModel(
 
     fun note(n: Note?) = _ui.update { it.copy(note = n) }
 
-    private fun readSettings() = PhoneSettings(prefs.stayConnected, prefs.blockScreenshots, prefs.hideChecksOnLockScreen, prefs.pairedSince, prefs.shareCity)
+    private fun readSettings() = PhoneSettings(prefs.stayConnected, prefs.blockScreenshots, prefs.hideChecksOnLockScreen, prefs.pairedSince, prefs.shareCity,
+        prefs.lockOnOpen)
 
     /** The profile's switches changed outside the view model (the service, the screenshot switch): read them again. */
     fun refreshProfile() { _settings.value = readSettings() }

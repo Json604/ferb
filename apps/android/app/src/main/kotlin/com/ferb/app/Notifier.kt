@@ -270,7 +270,7 @@ class Notifier(
             public = R.string.n_public_mac).build())
     }
 
-    /** Show me: the app opens on the camera view (after its own unlock, PHN-8). */
+    /** Show me: the app opens on the camera view (after its own unlock, PHN-835). */
     private fun camera(): PendingIntent {
         val i = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(MainActivity.EXTRA_CAMERA, true)
         return PendingIntent.getActivity(context, "camera".hashCode(), i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)

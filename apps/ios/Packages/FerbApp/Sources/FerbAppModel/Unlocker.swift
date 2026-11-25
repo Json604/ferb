@@ -5,6 +5,8 @@ import Foundation
 /// What a prompt is for: its words (the system prompt's one line of the app's, `subtitleKey` in the catalog).
 public enum Why: Sendable, CaseIterable {
     case open, yes, file, setting, keys, insomnia
+    /// Turning off the app's lock (kb PHN-846): the Mac's signed call, the Face ID key where the phone has one.
+    case lockOff
 
     public var subtitleKey: String {
         switch self {
@@ -14,6 +16,7 @@ public enum Why: Sendable, CaseIterable {
         case .setting: "prompt_setting_subtitle"
         case .keys: "prompt_keys_subtitle"
         case .insomnia: "prompt_insomnia_subtitle"
+        case .lockOff: "prompt_lock_off_subtitle"
         }
     }
 

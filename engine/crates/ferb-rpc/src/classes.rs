@@ -9,7 +9,9 @@
 //!   memory, schedules or what FERB may do, lifts a stop, deletes, or installs an update.
 //! - `never`: calling it from a phone would break something; each row says what (PHN-117, PHN-134).
 //!
-//! Before the Mac has verified the phone's unlock a connection reaches only what [`Locked`] allows (PHN-125).
+//! Before the Mac has verified the phone's unlock a connection reaches only what [`Locked`] allows (PHN-125). A phone
+//! whose app lock the owner turned off (PHN-846) reaches [`LOCK_OFF_OPEN`] too, chat and tasks, from a connection that
+//! proved its device key; every other row keeps its check.
 //!
 //! `Role::Phone` is given only by the phone link's authenticated session (stage 3, S3): never by the local socket,
 //! whose hello names only [`crate::auth::Role::ALL`]. GATE-612 keeps the owner's words and answers (`chat.send`,
@@ -429,6 +431,17 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
          Mac's is removed (PHN-828)",
     )
     .locked(Locked::Allowed),
+    // ---- PHN-846: the phone's app lock switch, recorded on the Mac (`auth::PHONE_LOCK`). Off is signed for this call
+    //      like any sensitive change; on again only ever makes the phone stricter, so even a locked phone may say it
+    sensitive(
+        "phone.lock_off",
+        "turns this phone's app lock off: the Mac then gives it chat and tasks without the fingerprint (PHN-846)",
+    ),
+    plain(
+        "phone.lock_on",
+        "turns this phone's app lock on again: only ever stricter (PHN-846)",
+    )
+    .locked(Locked::Allowed),
     // ---- stage 3 (T-1214, T-1211): the phone's own record and finding the Mac's files (`auth::PHONE_OWN`)
     // decision: PHN-467
     plain(
@@ -492,6 +505,43 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
         "is a model worker's tool bridge, bound to its run token; the phone asks FERB through the chat",
     ),
 ];
+
+/// PHN-846 (the owner: "Truly no fingerprint for chat and tasks. Money, deleting, secrets and other important actions
+/// still need it"): what a phone whose app lock he turned off may call without the unlock window, from a connection
+/// that proved the phone's device key (PHN-126). Chat (its pages, watch and history, sending, a correction, the
+/// temporary chat, a question's picture, marking what was seen), tasks (the list and Watch live) and what the Mac page
+/// shows (this Mac and its phones, insomnia mode's state). Each is a plain or private row; an answer's own proof
+/// (a hard Yes, a hidden input), files and folders (`auth::PHONE_FILES`, `phone.recent`, `phone.search`), memory,
+/// settings, traces and every sensitive row keep their checks: tests/phone_classes.rs holds the list to that.
+pub const LOCK_OFF_OPEN: &[&str] = &[
+    "attention.ack",
+    "chat.attach",
+    "chat.correct",
+    "chat.entries.changes",
+    "chat.entries.days",
+    "chat.entries.get",
+    "chat.entries.mark",
+    "chat.entries.page",
+    "chat.entries.watch",
+    "chat.history.days",
+    "chat.history.page",
+    "chat.send",
+    "chat.temporary.get",
+    "chat.temporary.set",
+    "insomnia.status",
+    "notices.list",
+    "phone.list",
+    "questions.picture",
+    "results.ack",
+    "tasks.list",
+    "tasks.preview",
+];
+
+/// Whether a phone whose app lock is off may call `name` without the unlock window (PHN-846, [`LOCK_OFF_OPEN`]).
+pub fn lock_off_open(name: &str) -> bool {
+    LOCK_OFF_OPEN.contains(&name)
+        && phone_method(name).is_some_and(|row| matches!(row.class, Class::Plain | Class::Private))
+}
 
 /// The method's row, when it has one.
 pub fn phone_method(name: &str) -> Option<&'static PhoneMethod> {

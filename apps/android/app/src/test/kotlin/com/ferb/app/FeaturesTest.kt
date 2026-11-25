@@ -138,7 +138,7 @@ class FeaturesTest {
         // online: the Mac's unlock, then its name
         session.lockNow()
         phone.link.value = FakePhone.status()
-        phone.mac = MacInfo("Studio Mac", "2026-11-10T09:00:00+05:30", "Pixel", null)
+        phone.mac = MacInfo("Studio Mac", "2026-11-10T09:00:00+05:30", "Pixel", null, null)
         vm.unlockApp()
         // the prompt signs the unlock statement off the main thread (PHN-649); the Mac takes it, then its name
         until("the Mac's name") { vm.ui.value.mac?.name != null }
@@ -268,6 +268,30 @@ class FeaturesTest {
         phone.answerScript.add(FakePhone.refused("unlock_required"))
         vm.answer("ap-9", AnswerInput.Approve(true, 1))
         assertEquals(listOf(KeyKind.STRONG), signers.map { it.kind })
+    }
+
+    // decision: PHN-845, PHN-835, PHN-129, PHN-137, PHN-121
+    @Test
+    fun with_the_lock_off_the_macs_own_checks_still_take_the_fingerprint() {
+        Prefs(ApplicationProvider.getApplicationContext()).lockOnOpen = false
+        phone.view = empty()
+        phone.status = status(asked("ap-1", needs(unlock = true, fingerprint = true)), asked("ap-2", needs(unlock = true)))
+        phone.folders["~/Documents"] = Folder("~/Documents", "~", false, listOf(FileEntry("Keys", "~/Documents/Keys", true, false, 0u, 0, true)), 1u, false, 0u, null)
+        phone.folders["~/Documents/Keys"] = Folder("~/Documents/Keys", "~/Documents", true, listOf(FileEntry("id_ed25519", "~/Documents/Keys/id_ed25519", false, false, 10u, 0, true)), 1u, false, 0u, null)
+        val vm = vm()
+        session.foreground(true)
+        idle()
+        assertFalse("opened without a prompt", session.locked.value)
+        assertTrue(signers.isEmpty())
+        vm.answer("ap-1", AnswerInput.Approve(true, 1))
+        assertEquals("a hard Yes: the fingerprint key, as before", listOf(KeyKind.STRONG), signers.map { it.kind })
+        vm.answer("ap-2", AnswerInput.Approve(true, 1))
+        assertEquals("a Yes that needs the unlock: the lock key, as before", KeyKind.LOCK, signers.last().kind)
+        signers.clear()
+        vm.openFolder("~/Documents")
+        assertTrue("an ordinary folder asks nothing", signers.isEmpty())
+        vm.openEntry(vm.ui.value.files.folder!!.entries.single())
+        assertEquals("a key place: the fingerprint key for its path, as before", listOf(KeyKind.STRONG), signers.map { it.kind })
     }
 
     // decision: PHN-125, PHN-126
@@ -515,7 +539,7 @@ class FeaturesTest {
     fun a_fingerprint_added_after_pairing_is_offered_and_registered() {
         session.unlocked()
         phone.newKeys = PublicKeys(null, null, "STRONG-PUB")
-        phone.mac = MacInfo("Studio Mac", null, null, null)
+        phone.mac = MacInfo("Studio Mac", null, null, null, null)
         val vm = vm()
         vm.unlockMac()
         idle()

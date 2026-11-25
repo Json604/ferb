@@ -1136,6 +1136,7 @@ mirror! {
         paired_at: Option<String>,
         phone_name: Option<String>,
         upload_folder: Option<UploadFolder>,
+        lock_off: Option<bool>,
     }
 }
 

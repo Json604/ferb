@@ -12,6 +12,8 @@ use crate::{pyjson, Error, Result};
 pub const SCHEMA_VERSION: i64 = 65;
 /// The schema version of migration 0068: each pairing's FERB account (PHN-828).
 pub const ACCOUNT_VERSION: i64 = 68;
+/// The schema version of migration 0069: whether the owner turned the phone's app lock off (PHN-846).
+pub const LOCK_OFF_VERSION: i64 = 69;
 /// The tables migration 0065 adds.
 pub const TABLES: [&str; 2] = ["phone_devices", "phone_audit"];
 
@@ -36,6 +38,9 @@ pub struct Phone {
     pub removed_by: Option<String>,
     /// The FERB account the phone paired under (PHN-828, migration 0068); None for a phone paired before accounts.
     pub account_id: Option<String>,
+    /// The owner turned this phone's app lock off (PHN-846, migration 0069): the daemon gives it chat and tasks without
+    /// the unlock window. Set only by the phone's signed call; a new pairing starts with it off.
+    pub lock_off: bool,
 }
 
 /// What a pairing adds.
@@ -61,7 +66,7 @@ pub enum AddRefused {
 }
 
 const COLUMNS: &str = "id, endpoint, name, app, unlock_pub, device_pub, strong_pub, paired_at, last_seen, warned_at, \
-                       removed_at, removed_by, account_id";
+                       removed_at, removed_by, account_id, lock_off";
 
 fn phone(r: &Row<'_>) -> rusqlite::Result<Phone> {
     Ok(Phone {
@@ -78,6 +83,7 @@ fn phone(r: &Row<'_>) -> rusqlite::Result<Phone> {
         removed_at: r.get(10)?,
         removed_by: r.get(11)?,
         account_id: r.get(12)?,
+        lock_off: r.get::<_, i64>(13)? != 0,
     })
 }
 
@@ -165,7 +171,7 @@ pub fn remove(conn: &Connection, endpoint: &str, by: &str, now: &str) -> Result<
         return Ok(None);
     };
     conn.execute(
-        "UPDATE phone_devices SET removed_at = ?, removed_by = ? WHERE id = ?",
+        "UPDATE phone_devices SET removed_at = ?, removed_by = ?, lock_off = 0 WHERE id = ?",
         params![now, by, found.id],
     )?;
     Ok(Some(found))
@@ -177,6 +183,15 @@ pub fn bind_account(conn: &Connection, endpoint: &str, account_id: &str) -> Resu
     Ok(conn.execute(
         "UPDATE phone_devices SET account_id = ? WHERE endpoint = ? AND removed_at IS NULL",
         params![account_id, endpoint],
+    )? == 1)
+}
+
+/// PHN-846: the owner turned the live phone's app lock off (`true`) or on again; false when there is no such live phone.
+/// Whoever may set it is the daemon's phone gate's to decide (off only by the phone's signed call).
+pub fn set_lock_off(conn: &Connection, endpoint: &str, off: bool) -> Result<bool> {
+    Ok(conn.execute(
+        "UPDATE phone_devices SET lock_off = ? WHERE endpoint = ? AND removed_at IS NULL",
+        params![i64::from(off), endpoint],
     )? == 1)
 }
 

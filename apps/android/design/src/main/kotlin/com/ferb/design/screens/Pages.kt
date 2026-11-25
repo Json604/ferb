@@ -295,7 +295,7 @@ fun MacPage(
     }
 }
 
-/** MobileScreens.swift UnlockPage: FERB opens with the fingerprint every time (PHN-8). */
+/** MobileScreens.swift UnlockPage: FERB opens with the fingerprint (PHN-835, while the owner's lock switch is on). */
 @Composable
 fun UnlockPage(insets: PhoneInsets = PhoneInsets.Lab, onUnlock: (() -> Unit)? = {}) {
     val ink = LocalSkyInk.current

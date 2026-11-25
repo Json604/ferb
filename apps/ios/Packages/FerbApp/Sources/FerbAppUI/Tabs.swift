@@ -748,12 +748,20 @@ struct MacNeedCard: View {
         Card(padding: 16) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(L.s("mac_needs_title")).type(17, .semibold)
-                Text(L.s(need == .lapsed ? "mac_needs_lapsed" : need == .cancelled ? "mac_needs_cancelled" : "mac_needs_old"))
+                Text(Self.words(need))
                     .type(15, .regular, Ink.detail).fixedSize(horizontal: false, vertical: true)
                 Pill(title: L.s("mac_needs_unlock"), kind: .black, symbol: Words.bioSymbol, onClick: busy ? nil : onUnlock)
             }
         }
         .padding(.horizontal, 16).padding(.top, 12)
+    }
+
+    static func words(_ need: MacNeed) -> String {
+        switch need {
+        case .lapsed: L.s("mac_needs_lapsed")
+        case .cancelled: L.s("mac_needs_cancelled")
+        case .old: L.s("mac_needs_old")
+        }
     }
 }
 

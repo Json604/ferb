@@ -523,7 +523,7 @@ area = "phone"
 kind = "build"
 status = "open"
 why = "Built (journal 115-117, 121): speaking to FERB too (PHN-603..605). The strings listed on 2026-11-16 are approved (PHN-602); the ones added on 2026-11-17 (journal 121) wait for him. Left: LIVE-1100..1111, 1141..1146."
-decisions = ["PHN-8", "PHN-11", "PHN-13", "PHN-15", "PHN-16", "PHN-132", "PHN-402", "PHN-403", "PHN-404", "PHN-415", "PHN-417", "PHN-420", "PHN-421", "PHN-422", "PHN-447", "PHN-115", "PHN-406", "PHN-500", "PHN-501", "PHN-502", "PHN-503", "PHN-504", "PHN-505", "PHN-506", "PHN-507", "PHN-508", "PHN-509"]
+decisions = ["PHN-835", "PHN-11", "PHN-13", "PHN-15", "PHN-16", "PHN-132", "PHN-402", "PHN-403", "PHN-404", "PHN-415", "PHN-417", "PHN-420", "PHN-421", "PHN-422", "PHN-447", "PHN-115", "PHN-406", "PHN-500", "PHN-501", "PHN-502", "PHN-503", "PHN-504", "PHN-505", "PHN-506", "PHN-507", "PHN-508", "PHN-509"]
 
 [T-1212]
 title = "Stage 3: phone sign-ins: ChatGPT by OpenAI's route, API keys; Claude's row says why no plan"
@@ -782,13 +782,6 @@ kind = "chore"
 status = "open"
 why = "Owner 2026-11-24, work list (Later)."
 
-[T-1318]
-title = "A lock switch in the phone apps, on by default (PHN-835), then supersede PHN-8"
-area = "phone"
-kind = "build"
-status = "open"
-why = "Owner 2026-11-24: \"there should be a lock button in phone app that can be toggled by user\"; on PHN-8: \"yeah its my updated call\" (PHN-835). Build the switch on both phones (on by default; the Mac's checks unchanged), move the apps' PHN-8 citations to PHN-835, supersede PHN-8."
-decisions = ["PHN-835", "PHN-8", "PHN-129"]
 
 [T-1325]
 title = "Later: proactiveness, designed with the owner, reusing the paused import and session tracking"

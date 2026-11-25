@@ -210,7 +210,7 @@ struct TypeCode: View {
     }
 }
 
-/// MobileScreens.swift ProfileSheet with this phone's switches working (PHN-8, PHN-420, PHN-422, PHN-811, PHN-566).
+/// MobileScreens.swift ProfileSheet with this phone's switches working (PHN-835, PHN-420, PHN-422, PHN-811, PHN-566).
 struct Profile: View {
     @Bindable var model: AppModel
     let shell: AppShell
@@ -224,8 +224,10 @@ struct Profile: View {
             ?? (s.pairedSince > 0 ? Date(timeIntervalSince1970: TimeInterval(s.pairedSince) / 1000) : nil)
         let since = pairedAt?.formatted(date: .long, time: .omitted) ?? "—"
         ProfileSheet(macName: model.ui.mac?.name ?? L.s("profile_mac_name"), pairedSince: since, insets: insets,
-                     lockOn: true,   // PHN-8: FERB always opens with Face ID, Touch ID or the passcode; there is no off
-                     onClose: close, onForget: { model.show(.forget) },
+                     // kb PHN-835, PHN-845: Face ID to open, on by default; turning it off takes the prompt
+                     lockOn: s.lockOn,
+                     onClose: close, onLock: model.ui.busy.contains("app-lock") ? nil : { model.setAppLock($0) },
+                     onForget: { model.show(.forget) },
                      more: AnyView(VStack(spacing: 0) {
                          // FERB's account (kb PHN-827): who is signed in; its sheet signs out or deletes the account
                          Divide()
@@ -260,8 +262,6 @@ struct Profile: View {
                      }),
                      lockTitle: L.s("profile_lock").replacingOccurrences(of: "%@", with: Words.bioTitle),
                      instead: (title: L.s("background_title"), detail: L.s("background_detail"), onClick: { model.show(.background) }),
-                     // PHN-656: no switch that does nothing: "Always on", and a tap says why
-                     lockAlways: L.s("profile_lock_always"), onLockInfo: { model.note(Note("profile_lock_why")) },
                      // PHN-801: the connection's row (the top bar's badge); its sheet keeps Try again, the relay and the Mac tab
                      connection: AnyView(ConnectionRow(mark: linkMark(model.ui.link, lost: model.ui.linkLost),
                                                        state: linkStateWords(linkMark(model.ui.link, lost: model.ui.linkLost)),

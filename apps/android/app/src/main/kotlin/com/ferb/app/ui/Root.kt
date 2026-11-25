@@ -80,7 +80,7 @@ import kotlinx.coroutines.launch
 /**
  * Everything on screen: the live sky behind every page (PHN-420/PHN-450: the phone's coarse place while the owner
  * shares the city, else the time zone's), the page the gate allows, and a sheet over it. Nothing of FERB's is drawn
- * before the gate is MAIN (PHN-8).
+ * before the gate is MAIN (PHN-835).
  */
 @Composable
 fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
@@ -160,7 +160,7 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
             insets = insets,
             season = gate == Gate.MAIN && tab == PhoneTab.CHAT && home,
             // one sheet at a time, up from below and back down; a going one shows what it showed (kb PHN-623). Gone at
-            // once with its gate (the lock: PHN-8).
+            // once with its gate (the lock: PHN-835).
             sheet = {
                 if (gate == Gate.MAIN || gate == Gate.PAIR) {
                     MotionSwitch(sheet.takeIf { it != Sheet.Scan }, Modifier.fillMaxSize(), MotionKind.SHEET) { s ->
@@ -169,7 +169,8 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
                 }
             },
         ) {
-            // the gate's pages change with a rise and a fade; the lock (and the start) replace everything at once (PHN-8)
+            // the gate's pages change with a rise and a fade; the lock (and the start) replace everything at once
+            // (PHN-835)
             // the first run's asks come once, after the first unlock, before pairing or the app (kb PHN-636)
             val screen: Any = when {
                 asks.pending.isNotEmpty() && (gate == Gate.PAIR || gate == Gate.MAIN) -> AsksScreen

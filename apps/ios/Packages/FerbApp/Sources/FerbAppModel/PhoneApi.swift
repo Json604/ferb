@@ -105,6 +105,9 @@ public protocol PhoneApi: AnyObject {
     func dismissAlert(id: String) async -> Outcome<Void>
     func macInfo() async -> Outcome<MacInfo>
     func cachedMacInfo() async -> Outcome<MacInfo?>
+    /// kb PHN-846: this phone's app lock, kept on the Mac: off is `phone.lock_off`, signed by `signer` (the
+    /// fingerprint-only key where the Mac holds one); on is `phone.lock_on`, no proof. The Mac's `lock_off`.
+    func setLockOff(_ off: Bool, signer: Signer?) async -> Outcome<Bool>
 
     /// The owner's review of what an import brought in (kb MEM-460; both private: the Mac's unlock), and his answer to
     /// items of one part: the review as it stands after it.
@@ -263,6 +266,9 @@ public final class LibraryPhone: PhoneApi {
     public func dismissAlert(id: String) async -> Outcome<Void> { await phone.call { try $0.dismissAlert(id: id) } }
     public func macInfo() async -> Outcome<MacInfo> { await phone.call { try $0.macInfo() } }
     public func cachedMacInfo() async -> Outcome<MacInfo?> { await phone.call { try $0.cachedMacInfo() } }
+    public func setLockOff(_ off: Bool, signer: Signer?) async -> Outcome<Bool> {
+        await phone.call { try $0.setLockOff(off: off, signer: signer) }
+    }
     public func memoryReview() async -> Outcome<MemoryReview> { await phone.call { try $0.memoryReview() } }
     public func answerMemoryReview(part: String, itemIds: [String], answer: String) async -> Outcome<MemoryReview> {
         await phone.call { try $0.answerMemoryReview(part: part, itemIds: itemIds, answer: answer) }

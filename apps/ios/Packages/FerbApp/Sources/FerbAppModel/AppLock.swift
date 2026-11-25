@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// The app's own lock (kb PHN-8, PHN-15): locked on a cold start; back from the background after more than
+/// The app's own lock (kb PHN-835, PHN-15): locked on a cold start; back from the background after more than
 /// [lockAfter] it is locked again. When that time passes while still in the background it locks then too (the moment
 /// the Mac should also be told and fetched files go, PHN-15/PHN-11), through [backgroundTimer]. Time is injected (a
 /// monotonic clock in seconds), so the rule is tested without waiting. Pure. (Android: model/AppLock.kt.)
@@ -9,6 +9,9 @@ import Observation
 /// The prompt by itself (kb PHN-615, PHN-616): each time the app arrives in front locked (a new process, or back from
 /// the background, relocked or still locked) one prompt is due, taken once by [takePrompt]; leaving clears it. The
 /// owner's own lock from inside ([lock]) makes none: the page waits for his tap.
+///
+/// The owner's lock switch (kb PHN-845) doesn't change this rule: off, the app still locks here (the Mac is told, the
+/// fetched files go), and the model opens it again without the prompt.
 public final class AppLock {
     /// PHN-15: five minutes after the app was left.
     public static let lockAfter: Double = 5 * 60
@@ -79,7 +82,7 @@ public final class AppLock {
     public func lock() { locked = true }
 }
 
-/// The app's lock over the process's life (PHN-8, PHN-15; Android's Session in FerbApplication.kt): [AppLock]'s rule,
+/// The app's lock over the process's life (PHN-835, PHN-15; Android's Session in FerbApplication.kt): [AppLock]'s rule,
 /// whether the app is in front as the scene says it, and the timer that locks the app when five minutes pass in the
 /// background. On iOS that timer runs only while iOS lets the app run; a suspended app locks the moment it comes back
 /// (cameToFront), and a new process starts locked. One per process, owned by the app shell.
@@ -91,6 +94,9 @@ public final class Session {
     public private(set) var front = false
     /// The unlock prompt should appear by itself (PHN-615): the app arrived in front locked.
     public private(set) var promptDue = false
+    /// How many times the app has locked since the process began (a cold start's lock isn't one): [LockTeller] counts
+    /// these, not `locked`, because with the owner's lock switch off (kb PHN-845) the app opens again at once.
+    public private(set) var locks = 0
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private let sleep: @Sendable (Double) async -> Void
 
@@ -119,13 +125,18 @@ public final class Session {
                 self?.backgroundTimerFired()
             }
         }
-        locked = lock.locked
+        setLocked(lock.locked)
         promptDue = lock.promptDue
+    }
+
+    private func setLocked(_ v: Bool) {
+        if v && !locked { locks += 1 }
+        locked = v
     }
 
     /// The background timer's moment (called by the timer, or by a test that moved the clock).
     public func backgroundTimerFired() {
-        if lock.backgroundTimer() { locked = true }
+        if lock.backgroundTimer() { setLocked(true) }
     }
 
     public func unlocked() {
@@ -137,7 +148,7 @@ public final class Session {
     /// The owner's own lock from inside the app: the lock page waits for his tap (no prompt by itself, PHN-616).
     public func lockNow() {
         lock.lock()
-        locked = true
+        setLocked(true)
     }
 
     /// Takes the due prompt (once per arrival).

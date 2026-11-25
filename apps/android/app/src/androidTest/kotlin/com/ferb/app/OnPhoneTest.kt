@@ -73,7 +73,7 @@ class OnPhoneTest {
         assertTrue(info.receivers!!.filter { it.exported }.all { it.permission == "android.permission.DUMP" })
     }
 
-    // decision: PHN-8, PHN-420
+    // decision: PHN-845, PHN-420
     @Test
     fun without_a_screen_lock_the_app_says_how_and_shows_nothing_else() {
         shell("locksettings clear --old 1111")
@@ -83,7 +83,7 @@ class OnPhoneTest {
         }
     }
 
-    // decision: PHN-8, PHN-13, PHN-447, PHN-794, PHN-615, PHN-616, PHN-636
+    // decision: PHN-835, PHN-13, PHN-447, PHN-794, PHN-615, PHN-616, PHN-636
     @Test
     fun with_a_screen_lock_it_opens_on_the_prompt_and_shows_pairing() {
         shell("locksettings set-pin 1111")

@@ -79,7 +79,7 @@ class AccountFlowTest {
     private fun stateOf(url: String) = URI(url).rawQuery.split('&').map { it.split('=', limit = 2) }
         .first { it[0] == "state" }[1].let { URLDecoder.decode(it, "UTF-8") }
 
-    // decision: PHN-839, PHN-8
+    // decision: PHN-839, PHN-835
     @Test
     fun the_first_launch_shows_the_sign_in_page_after_the_lock_and_nothing_else_while_signed_out() {
         // a phone that is even paired and online: signed out, nothing of FERB's shows

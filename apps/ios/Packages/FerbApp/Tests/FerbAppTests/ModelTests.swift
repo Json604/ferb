@@ -5,7 +5,7 @@ import FerbMobile
 import XCTest
 
 final class AppLockTests: XCTestCase {
-    // decision: PHN-8, PHN-15, PHN-794
+    // decision: PHN-835, PHN-15, PHN-794
     func testLockedOnAColdStartAndAgainAfterFiveMinutesAway() {
         var t = 0.0
         let lock = AppLock { t }

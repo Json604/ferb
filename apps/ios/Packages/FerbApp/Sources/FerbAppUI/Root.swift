@@ -6,7 +6,7 @@ import SwiftUI
 
 /// Everything on screen (Android's Root.kt): the live sky behind every page (the shared city's coarse place, else the
 /// time zone's, PHN-420/450), the page the gate allows, and a sheet over it. Nothing of FERB's is drawn before the
-/// gate is main (PHN-8). The app switcher and screen captures are covered (Privacy.swift, PHN-811).
+/// gate is main (PHN-835). The app switcher and screen captures are covered (Privacy.swift, PHN-811).
 public struct FerbRoot: View {
     @ObservedObject var app: AppShell
     @Environment(\.scenePhase) private var phase
@@ -69,7 +69,7 @@ struct RootView: View {
                                 }
                             }, page: {
                                 // the gate's pages change with a rise and a fade; the lock and the start replace
-                                // everything at once (PHN-8), and the page after the lock comes in (kb PHN-623)
+                                // everything at once (PHN-835), and the page after the lock comes in (kb PHN-623)
                                 // the first run's asks come once, after the first unlock, before pairing or the app
                                 // (kb PHN-636)
                                 let asks = !shell.firstRun.pending.isEmpty && (gate == .pair || gate == .main)

@@ -192,6 +192,9 @@ pub const METHODS: &[Method] = &[
     m("phone.link_status", &[Role::Cli], true),
     m("phone.list", &[Role::Cli], true),
     m("phone.lock", &[], false),
+    // PHN-846: the phone's app lock switch, recorded on the Mac (PHONE_LOCK: no local role)
+    m("phone.lock_off", &[], false),
+    m("phone.lock_on", &[], false),
     m("phone.pair_cancel", &[Role::Cli], true),
     m("phone.pair_decide", &[Role::Cli], true),
     m("phone.pair_start", &[Role::Cli], true),
@@ -403,6 +406,12 @@ pub const PHONE_SESSION: [&str; 8] = [
 /// which binds a phone paired before accounts to the Mac's account, or removes it when the accounts differ. No local
 /// role may call it; the phone gate admits it by its row (plain, allowed while locked: the site's signature proves it).
 pub const PHONE_ACCOUNT: [&str; 1] = ["phone.bind_account"];
+
+/// PHN-846: the owner turns his phone's app lock off (`phone.lock_off`, the sensitive class: signed over this exact
+/// call by the phone's fingerprint-only key where it has one) or on again (`phone.lock_on`: only ever stricter, so it
+/// needs no proof). While it is off the phone gate gives that phone's device-proved connections chat and tasks without
+/// the unlock window ([`crate::classes::LOCK_OFF_OPEN`]). No local role may call them.
+pub const PHONE_LOCK: [&str; 2] = ["phone.lock_off", "phone.lock_on"];
 
 /// Stage 3 S3b (T-1203): a phone session's file calls: browse, fetch (a stream) and upload. No local role may call
 /// them; on a phone session the phone gate leaves each to the daemon's file area, which checks the unlock window, a
@@ -899,7 +908,12 @@ mod tests {
                 assert!(!allowed(role, name), "{name}");
             }
         }
-        for name in PHONE_SESSION.iter().chain(&PHONE_OWN).chain(&PHONE_ACCOUNT) {
+        for name in PHONE_SESSION
+            .iter()
+            .chain(&PHONE_OWN)
+            .chain(&PHONE_ACCOUNT)
+            .chain(&PHONE_LOCK)
+        {
             assert!(method(name).is_some_and(|m| m.roles.is_empty()), "{name}");
             for role in [Role::Cli, Role::McpShim, Role::NativeHost, Role::Link] {
                 assert!(!allowed(role, name), "{name}");

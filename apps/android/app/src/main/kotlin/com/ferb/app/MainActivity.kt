@@ -223,6 +223,7 @@ class MainActivity : ComponentActivity() {
         override fun signer(kind: KeyKind, why: Why): Signer {
             val title = when {
                 why == Why.KEYS -> R.string.prompt_keys_title
+                why == Why.LOCK_OFF -> R.string.prompt_lock_off_title
                 kind == KeyKind.STRONG -> R.string.prompt_yes_title
                 else -> R.string.prompt_unlock_title
             }
@@ -233,6 +234,7 @@ class MainActivity : ComponentActivity() {
                 Why.SETTING -> R.string.prompt_setting_subtitle
                 Why.KEYS -> R.string.prompt_keys_subtitle
                 Why.INSOMNIA -> R.string.prompt_insomnia_subtitle
+                Why.LOCK_OFF -> R.string.prompt_lock_off_subtitle
             }
             return app.phone.signer(this@MainActivity, kind, PromptText(getString(title), getString(subtitle), cancel = getString(R.string.prompt_cancel)))
         }

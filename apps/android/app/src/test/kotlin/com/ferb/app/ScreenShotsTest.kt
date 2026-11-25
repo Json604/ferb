@@ -224,7 +224,7 @@ class ScreenShotsTest {
         shoot("private-password.png")
     }
 
-    // decision: PHN-420, PHN-421, PHN-422, PHN-8
+    // decision: PHN-420, PHN-421, PHN-422, PHN-835, PHN-845
     @Test
     fun this_phone_with_its_switches() {
         compose.setContent { Frame(labMoment(6.1), base.copy(rows = labRows), sheet = Sheet.Profile) }
@@ -398,7 +398,7 @@ class ScreenShotsTest {
     @Test
     fun the_mac_by_its_name_says_it_stopped() {
         val stopped = PhoneStatus(false, true, true, emptyList(), emptyList(), emptyList(), null)
-        val ui = base.copy(status = stopped, mac = MacInfo("Studio Mac", "2026-11-10T09:00:00+05:30", "Pixel", null))
+        val ui = base.copy(status = stopped, mac = MacInfo("Studio Mac", "2026-11-10T09:00:00+05:30", "Pixel", null, null))
         compose.setContent { Frame(labMoment(22.5), ui, tab = PhoneTab.MAC) }
         shoot("mac-stopped.png")
     }
@@ -409,7 +409,7 @@ class ScreenShotsTest {
     fun the_mac_says_ferb_may_use_its_screen_until_he_is_back() {
         val use = com.ferb.mobile.ScreenUse(true, "2026-11-17T10:00:00+05:30", "phone-1", "Pixel", true)
         val ui = base.copy(status = PhoneStatus(false, true, false, emptyList(), emptyList(), emptyList(), use),
-            mac = MacInfo("Studio Mac", "2026-11-10T09:00:00+05:30", "Pixel", null))
+            mac = MacInfo("Studio Mac", "2026-11-10T09:00:00+05:30", "Pixel", null, null))
         compose.setContent { Frame(labMoment(12.5), ui, tab = PhoneTab.MAC) }
         shoot("mac-screen-use.png")
     }
@@ -439,7 +439,7 @@ class ScreenShotsTest {
         shoot("forget.png")
     }
 
-    // decision: PHN-8
+    // decision: PHN-845
     @Test
     fun a_phone_without_a_screen_lock_is_told_how() {
         val moment = labMoment(12.5)

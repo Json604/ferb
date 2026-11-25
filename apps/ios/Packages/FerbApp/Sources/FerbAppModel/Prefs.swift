@@ -10,6 +10,13 @@ public final class Prefs: @unchecked Sendable {
         d = defaults
     }
 
+    /// kb PHN-835, PHN-846: "Face ID to open" (the phone's own kind), on unless the owner turns it off. Off is the Mac's
+    /// too: set only after the Mac took the phone's signed `phone.lock_off`; the Mac's record wins when it says on.
+    public var lockOnOpen: Bool {
+        get { d.object(forKey: "app_lock") as? Bool ?? true }
+        set { d.set(newValue, forKey: "app_lock") }
+    }
+
     /// PHN-420 on iOS (kb PHN-810, PHN-811): the pictures of the Mac out of screenshots and FERB hidden while the screen
     /// is recorded or mirrored; on unless the owner turns it off. The app switcher is always covered.
     public var blockScreenshots: Bool {
@@ -113,6 +120,9 @@ public final class Prefs: @unchecked Sendable {
     }
 
     public func forgetPairing() {
-        for k in ["paired_since", "just_paired", "announced", "seen", "insomnia_said", "paired_account"] { d.removeObject(forKey: k) }
+        // the lock switch's "off" lives with the pairing on the Mac (PHN-846): a new pairing starts with it on
+        for k in ["paired_since", "just_paired", "announced", "seen", "insomnia_said", "paired_account", "app_lock"] {
+            d.removeObject(forKey: k)
+        }
     }
 }

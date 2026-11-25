@@ -511,6 +511,38 @@ fn the_mac_s_tasks_name_and_late_keys() {
     assert!(again.register_keys(None, None, signer).is_err());
 }
 
+/// PHN-846: the app lock switch is the Mac's: off is `phone.lock_off` signed over `{challenge, method, params}`, on is
+/// `phone.lock_on` with no proof; the kept `mac_info` follows at once, and `mac_info` reads it from the Mac.
+// decision: PHN-846
+#[test]
+fn the_app_lock_switch_is_kept_on_the_mac_off_signed_on_with_nothing() {
+    let mac = FakeMac::new("C1");
+    let phone = Phone::new();
+    let m = connected(&phone, &mac, "direct");
+    assert_eq!(m.mac_info().unwrap().lock_off, Some(false));
+    assert!(m.set_lock_off(true, None).is_err(), "off needs the signer");
+    assert!(!mac.lock().lock_off);
+    let signer = Arc::new(Recorded::default());
+    phone.heard.0.lock().unwrap().clear();
+    assert!(m.set_lock_off(true, Some(signer.clone())).unwrap());
+    let signed: Value = serde_json::from_str(&signer.0.lock().unwrap()[0]).unwrap();
+    assert_eq!(
+        signed,
+        json!({"challenge": "C-1", "method": "phone.lock_off", "params": {}})
+    );
+    assert!(mac.lock().lock_off);
+    assert_eq!(m.cached_mac_info().unwrap().unwrap().lock_off, Some(true));
+    assert!(phone.heard.0.lock().unwrap().contains(&Change::Mac));
+    assert_eq!(m.mac_info().unwrap().lock_off, Some(true));
+    // on again: no proof asked, none sent
+    assert!(!m.set_lock_off(false, Some(signer.clone())).unwrap());
+    assert_eq!(signer.0.lock().unwrap().len(), 1);
+    let call = mac.lock().calls.last().cloned().unwrap();
+    assert_eq!(call.0, "phone.lock_on");
+    assert!(call.2.is_none());
+    assert_eq!(m.cached_mac_info().unwrap().unwrap().lock_off, Some(false));
+}
+
 /// "Until I'm back at my Mac" (GATE-615): offered per question in the status; the answer is `chat.approve {granted,
 /// until_back}` with no proof (a signer passed is not used), refused `locked` when the unlock window is closed (the
 /// app unlocks and answers again) and refused for a question it wasn't offered on. FERB's use of the screen is read

@@ -631,20 +631,20 @@ extension Notifier {
 /// When the app locks (five minutes away, or by hand), the Mac is told (`lock`: its unlock window for this phone ends
 /// and the conversation's watch stops until the next unlock, PHN-125; kb PHN-510) and the fetched files go. A cold
 /// start is locked already and tells nothing. (Android: FerbApplication.kt tellMacOnLock.) Kept alive by the shell.
+/// Counted by `Session.locks`: with the owner's lock switch off (kb PHN-845) the app opens again at once, and a lock
+/// seen only as `locked` could be missed between the two.
 @MainActor
 public final class LockTeller {
-    private var follow: Follow<Bool>?
-    private var was: Bool
+    private var follow: Follow<Int>?
+    private var told: Int
 
     public init(session: Session, api: PhoneApi, local: LocalFiles) {
-        was = session.locked
-        follow = Follow({ session.locked }) { [weak self] locked in
-            guard let self else { return }
-            if locked && !was {
-                Task { _ = await api.lock() }
-                local.wipeFetched()
-            }
-            was = locked
+        told = session.locks
+        follow = Follow({ session.locks }) { [weak self] n in
+            guard let self, n != told else { return }
+            told = n
+            Task { _ = await api.lock() }
+            local.wipeFetched()
         }
     }
 }

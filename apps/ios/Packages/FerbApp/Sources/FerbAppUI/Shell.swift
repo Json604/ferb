@@ -10,8 +10,9 @@ import UserNotifications
 
 /// The app's process (the twin of Android's FerbApplication, kb PHN-500's iPhone half): the phone (FerbPhone), the
 /// lock over the process (Session), the app model, the signals, notifications, the phone's facts and location. A
-/// relaunch starts locked (PHN-8). iOS has no Stay connected (kb PHN-566): leaving the screen keeps the link up only
-/// while the background task iOS grants lasts; before it ends, transfers are checkpointed and the link pauses.
+/// relaunch starts locked (PHN-835; with the owner's lock switch off it then opens without the prompt, PHN-845). iOS
+/// has no Stay connected (kb PHN-566): leaving the screen keeps the link up only while the background task iOS grants
+/// lasts; before it ends, transfers are checkpointed and the link pauses.
 @MainActor
 public final class AppShell: ObservableObject {
     public let phone: FerbPhone

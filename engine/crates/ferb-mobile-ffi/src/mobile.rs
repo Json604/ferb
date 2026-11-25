@@ -1040,6 +1040,18 @@ impl Mobile {
         guard(|| Ok(self.core()?.bind_account(&assertion)?))
     }
 
+    /// PHN-846: this phone's app lock switch, kept on the Mac. `off`: `phone.lock_off`, signed by `signer` (the
+    /// fingerprint-only key where the Mac holds one, else the lock key; required); on: `phone.lock_on`, no proof (pass
+    /// none). Returns the Mac's `lock_off`. Refusals as any call's (`mac_link_older` from a Mac that doesn't keep it).
+    /// Network and, for off, the prompt: not on the UI thread.
+    pub fn set_lock_off(
+        &self,
+        off: bool,
+        signer: Option<Arc<dyn Signer>>,
+    ) -> Result<bool, FerbError> {
+        guard(|| Ok(self.core()?.set_lock_off(off, signer.map(signer_of))?))
+    }
+
     /// The last `mac_info` kept (no network).
     pub fn cached_mac_info(&self) -> Result<Option<MacInfo>, FerbError> {
         guard(|| Ok(self.core()?.cached_mac_info()?.conv()))

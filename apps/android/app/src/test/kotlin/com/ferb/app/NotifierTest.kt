@@ -268,7 +268,7 @@ class NotifierTest {
         assertNull(posted("ap-code"))
     }
 
-    // decision: PHN-760, PHN-8
+    // decision: PHN-760, PHN-835
     @Test
     fun on_the_app_s_lock_page_he_has_not_seen_it_so_leaving_brings_a_heads_up() {
         allow()

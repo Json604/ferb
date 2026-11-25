@@ -169,13 +169,11 @@ fun ProfileSheet(
     lockOn: Boolean = true,
     stayConnected: Boolean = true,
     onClose: (() -> Unit)? = {},
+    /** The lock switch's change (kb PHN-835); null: the lab's switch, drawn only. */
+    onLock: ((Boolean) -> Unit)? = null,
     onStayConnected: ((Boolean) -> Unit)? = null,
     onForget: (() -> Unit)? = null,
     more: (@Composable () -> Unit)? = null,
-    /** Not from the lab (kb PHN-656): the lock can't be turned off, so it says so ("Always on") instead of a switch that
-     *  does nothing, and a tap on the row says why. Null: the lab's switch. */
-    lockAlways: String? = null,
-    onLockInfo: (() -> Unit)? = null,
     /** PHN-801: the connection's row, first (its state as the top bar's badge shows it; its sheet on a tap). */
     connection: (@Composable () -> Unit)? = null,
 ) {
@@ -186,12 +184,8 @@ fun ProfileSheet(
                 connection()
                 Divide()
             }
-            if (lockAlways != null) {
-                CardRow("Fingerprint to open", "Every time FERB opens", onClick = onLockInfo, leading = { RowIcon(FerbIcons.lock) },
-                    trailing = { PhoneText(lockAlways, 15f, FerbType.Medium, Ink.detail) })
-            } else {
-                CardRow("Fingerprint to open", "Every time FERB opens", leading = { RowIcon(FerbIcons.lock) }, trailing = { PhoneSwitch(lockOn) })
-            }
+            CardRow("Fingerprint to open", "Every time FERB opens", leading = { RowIcon(FerbIcons.lock) },
+                trailing = { PhoneSwitch(lockOn, onLock, "Fingerprint to open") })
             Divide()
             CardRow("Stay connected", "Questions arrive while the app is closed", leading = { RowIcon(FerbIcons.bell) },
                 trailing = { PhoneSwitch(stayConnected, onStayConnected, "Stay connected") })

@@ -4,7 +4,7 @@ import FerbMobile
 import Foundation
 import Observation
 
-/// What fills the screen: one at a time, nothing private before `main` (PHN-8). `signIn`: after the lock, before
+/// What fills the screen: one at a time, nothing private before `main` (PHN-835). `signIn`: after the lock, before
 /// anything else, while no FERB account is signed in on this phone (kb PHN-827).
 public enum Gate: Sendable { case starting, failed, noScreenLock, locked, signIn, pair, codes, removed, main }
 
@@ -73,12 +73,15 @@ public struct PhoneSettings: Equatable, Sendable {
     /// Epoch ms (0: not paired yet).
     public var pairedSince: Int64
     public var shareCity: Bool
+    /// "Face ID to open" (kb PHN-835).
+    public var lockOn: Bool
 
-    public init(blockScreenshots: Bool, hideChecks: Bool, pairedSince: Int64, shareCity: Bool) {
+    public init(blockScreenshots: Bool, hideChecks: Bool, pairedSince: Int64, shareCity: Bool, lockOn: Bool = true) {
         self.blockScreenshots = blockScreenshots
         self.hideChecks = hideChecks
         self.pairedSince = pairedSince
         self.shareCity = shareCity
+        self.lockOn = lockOn
     }
 }
 
@@ -484,7 +487,7 @@ public final class AppModel {
         draft = saved.draft
         presented = Set(saved.presented)
         settings = PhoneSettings(blockScreenshots: prefs.blockScreenshots, hideChecks: prefs.hideChecksOnLockScreen,
-                                 pairedSince: prefs.pairedSince, shareCity: prefs.shareCity)
+                                 pairedSince: prefs.pairedSince, shareCity: prefs.shareCity, lockOn: prefs.lockOnOpen)
         let box = self.box
         unlocker = Unlocker(api: api, keys: { api.state.keys }, signer: { kind, why in box.prompts?.signer(kind, why: why) })
         transfers = Transfers(api: api, local: local, unlocker: unlocker)
@@ -665,6 +668,9 @@ public final class AppModel {
                 ui.files = FilesUi()
                 ui.settings = nil
                 ui.macTasks = nil
+                // kb PHN-845: with the owner's lock switch off it opens again now, after all of the above
+                lockHandled = true
+                openUnasked()
             }
         })
         // PHN-615: the lock page that came with opening or returning asks by itself, once, while the scene is active
@@ -702,6 +708,8 @@ public final class AppModel {
                 markRead()
                 showPending()
                 readTemporary()
+                // kb PHN-845: locked while away, with the owner's lock switch off: open without the prompt
+                openUnasked()
             }
         })
         readMac()
@@ -721,11 +729,12 @@ public final class AppModel {
         switch s {
         // the lock page needs neither the library, the store nor the link: it shows at the first frame (PHN-633)
         // signed out (kb PHN-827): the sign-in, right after the lock and before anything else of FERB's
-        case .closed, .starting: gate = !screenLock() ? .noScreenLock : locked ? .locked : !signedIn ? .signIn : .starting
+        // with the owner's lock switch off there is no lock page: the start's, the moment before it opens (PHN-845)
+        case .closed, .starting: gate = !screenLock() ? .noScreenLock : locked ? (settings.lockOn ? .locked : .starting) : !signedIn ? .signIn : .starting
         case .failed: gate = !signedIn && !locked && screenLock() ? .signIn : .failed
         case .open:
             if !screenLock() { gate = .noScreenLock }
-            else if locked { gate = .locked }
+            else if locked { gate = settings.lockOn ? .locked : .starting }
             else if !signedIn { gate = .signIn }
             else if let l {
                 if l.phase == .pairingWaitForMac { gate = .codes }
@@ -759,6 +768,7 @@ public final class AppModel {
     /// Reads the gate again (a passcode may have been set in Settings meanwhile).
     public func recheck() {
         gateOf(api.state, api.link, session.locked)
+        openUnasked()
         showPending()
     }
 
@@ -994,12 +1004,12 @@ public final class AppModel {
     }
 
     private func readMac() {
-        Task { if case .ok(let m?) = await api.cachedMacInfo() { ui.mac = m } }
+        Task { if case .ok(let m?) = await api.cachedMacInfo() { macSays(m) } }
     }
 
     /// After the Mac's unlock: its name and this phone's pairing date, and whether a key waits to be registered.
     private func afterMacUnlock() async {
-        if case .ok(let m) = await api.macInfo() { ui.mac = m }
+        if case .ok(let m) = await api.macInfo() { macSays(m) }
         let fresh = await api.unregisteredKeys()
         ui.newKeys = fresh?.strong != nil
     }
@@ -1016,6 +1026,8 @@ public final class AppModel {
             macPending = false
             ui.needsMacUnlock = false
             readTemporary()
+            // opened without the prompt (kb PHN-846): the Mac's word on this phone, which no unlock read
+            if macInfoDue { macInfoDue = false; await afterMacUnlock() }
         }
     }
 
@@ -1039,7 +1051,7 @@ public final class AppModel {
     @ObservationIgnored private var marking = false
     @ObservationIgnored private var markAgain = false
 
-    // ---- the app lock (PHN-8, PHN-13, PHN-125) ---------------------------------------------------------------------
+    // ---- the app lock (PHN-835, PHN-845, PHN-13, PHN-125) ----------------------------------------------------------
 
     /// One prompt opens the app, at once, whatever the link is doing (PHN-649; Android's unlockApp). On a paired phone
     /// the lock key signs, inside that prompt, an unlock statement the phone makes itself; the app opens the moment the
@@ -1087,13 +1099,79 @@ public final class AppModel {
 
     private func ms(since d: Date) -> Int { Int(Date().timeIntervalSince(d) * 1000) }
 
-    /// The app is open: the lock's state, the open's facts (PHN-13).
-    private func openApp() {
+    /// The app is open: the lock's state, the open's facts (PHN-13). `unasked`: without the prompt (PHN-846).
+    private func openApp(unasked: Bool = false) {
         session.unlocked()
         opened()
         statementExpired = false
+        macInfoDue = unasked
         ui.macNeed = nil
         ui.needsMacUnlock = false
+    }
+
+    /// Opened without the prompt and the Mac's word on this phone's lock not read since (kb PHN-846).
+    @ObservationIgnored private var macInfoDue = false
+    /// The lock's own clearing (the `session.locked` follow) ran since the last open: the app may open unasked.
+    @ObservationIgnored private var lockHandled = false
+
+    /// The owner's lock switch is off (kb PHN-835, PHN-846): the app, locked and in front, opens without the prompt.
+    /// Nothing is signed: the Mac gives this phone chat and tasks by its own record of the switch (`phone.lock_off`),
+    /// and everything else asks as before (files after the idle minutes, a hard Yes, a private answer, a setting). A
+    /// phone with no passcode still can't use the app. (Android's openUnasked.)
+    private func openUnasked() {
+        guard lockHandled, session.locked, session.front, !settings.lockOn, screenLock(), ui.gate != .failed else { return }
+        AppLog.i("opened without the lock: the owner's switch is off")
+        lockHandled = false
+        openApp(unasked: true)
+        Task {
+            _ = await api.unlocked()
+            // no unlock statement reads the chat this time: the link already up reads it now (else its coming online)
+            if api.link?.paired == true && api.link?.phase == .online { await syncNow() }
+        }
+    }
+
+    /// This phone's "Face ID to open" (kb PHN-835, PHN-846; Android's setAppLock). Off is the Mac's to keep: one prompt
+    /// signs `phone.lock_off` (the Face ID key where the phone has one, PHN-129), and only once the Mac took it does the
+    /// phone open without asking, so whoever holds the unlocked phone can't quietly take the lock away. On again takes
+    /// nothing: the phone asks again at once, and the Mac is told (only ever stricter; again from the Mac's next word if
+    /// it can't be told now).
+    @discardableResult
+    public func setAppLock(_ on: Bool) -> Task<Void, Never> {
+        busy("app-lock", tap: true) { [self] in
+            if on {
+                prefs.lockOnOpen = true
+                refreshProfile()
+                _ = await api.setLockOff(false, signer: nil)
+                return
+            }
+            guard settings.lockOn, let signer = await freshSigner(.lockOff) else { return }
+            switch await api.setLockOff(true, signer: signer) {
+            case .ok:
+                prefs.lockOnOpen = false
+                refreshProfile()
+                note(Note("profile_lock_off_note"))
+            case .failed(let e):
+                if case .NotSigned = e {} else { failed(e) }
+            }
+        }
+    }
+
+    /// The Mac's word on this phone (`phone.list`) and its record of the lock switch (kb PHN-846): the Mac has it off
+    /// while the phone has it on: the Mac is told on (only ever stricter); the Mac has it on while the phone has it off
+    /// (paired again, or removed): the phone asks again too. Not while the switch itself is being changed.
+    private func macSays(_ m: MacInfo) {
+        ui.mac = m
+        if ui.busy.contains("app-lock") { return }
+        switch m.lockOff {
+        case true?: if prefs.lockOnOpen { Task { _ = await api.setLockOff(false, signer: nil) } }
+        case false?:
+            if !prefs.lockOnOpen {
+                AppLog.i("the Mac has this phone's lock on: on here too")
+                prefs.lockOnOpen = true
+                refreshProfile()
+            }
+        case nil: break
+        }
     }
 
     /// Hands the opening prompt's statement to the Mac once the link is up and paired, with its age by the phone's
@@ -2266,7 +2344,7 @@ public final class AppModel {
     /// The profile's switches changed outside the model: read them again.
     public func refreshProfile() {
         settings = PhoneSettings(blockScreenshots: prefs.blockScreenshots, hideChecks: prefs.hideChecksOnLockScreen,
-                                 pairedSince: prefs.pairedSince, shareCity: prefs.shareCity)
+                                 pairedSince: prefs.pairedSince, shareCity: prefs.shareCity, lockOn: prefs.lockOnOpen)
     }
 
     public func hideChecks(_ on: Bool) {

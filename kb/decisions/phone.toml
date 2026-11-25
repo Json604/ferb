@@ -79,7 +79,8 @@ legacy = "ferb-phone-link@57b3f34 PHN-6; lab paths: android/app/src/main/java/lo
 title = "The app opens only with the fingerprint or device lock, every time"
 by = "owner"
 date = 2026-11-10
-status = "active"
+status = "superseded"
+superseded_by = "PHN-835"
 words = "also app open should also have fingerprint/passlock set up to open everytime"
 rule = "The phone app is locked like a banking app: on a cold start and whenever it returns from the background it asks for the fingerprint or the device lock before anything is shown. A phone with no screen lock cannot use the app."
 evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/phone.toml PHN-8."
@@ -4336,7 +4337,8 @@ words = "yeah its my updated call"
 words_source = "Owner 2026-11-24, told that turning the opening fingerprint off (his T-1318 lock button) replaces PHN-8's lock every time."
 rule = "Refines PHN-8: the app's lock on opening is a switch in the phone app, on by default. Off, the app opens without the fingerprint or device lock. The Mac's own checks stay as they are: signed actions by class (PHN-112, PHN-133) and the fingerprint for the places that need a fresh proof and sensitive changes (PHN-129)."
 why = "His updated call on his T-1318."
-untestable = "Not built yet: T-1318 builds the switch, then supersedes PHN-8 once the phone apps' tests cite this."
+supersedes = ["PHN-8"]
+live = ["LIVE-1217"]
 
 [PHN-836]
 title = "The iPhone app is signed by FERB's Apple team 8N7RNGH974"
@@ -4441,3 +4443,25 @@ why = "A site sign-out unpaired the phone even for a lost reply or 180 days unus
 rejected = ["A new link code for an unreadable Keychain: a wire change in ferb-rpc, ferb-link and both phones for a case that means what account_unconfirmed means to the phone (try again)"]
 paths = ["apps/android/app/src/main/kotlin/com/ferb/app/model/Account.kt", "apps/android/app/src/main/kotlin/com/ferb/app/model/AccountServer.kt", "apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Account.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppModel.swift", "engine/crates/ferb-daemon/src/account.rs", "engine/crates/ferb-daemon/src/phone/account.rs", "engine/crates/ferb-daemon/src/phone/mod.rs"]
 live = ["LIVE-1203", "LIVE-1204"]
+
+[PHN-845]
+title = "The phones' lock switch: off is the Mac's record, set by one signed call; the rest keeps its proof"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "For PHN-835, PHN-846. This phone's Fingerprint to open is the lab's switch. Off: one prompt signs phone.lock_off (sensitive class) and the Mac records it per phone (migration 0069); phone.lock_on clears it unsigned. The phone follows the Mac's record when stricter; removing or re-pairing clears it. Off, the app opens unasked; the five-minute lock still tells the Mac and drops fetched files. No screen lock: no app (PHN-8)."
+why = "PHN-846 needs the Mac to know which phone may skip the window, and only the phone's signed call may say so."
+rejected = ["The lock key with a validity window (Android's auth timeout, iOS's reuse duration): the Mac's unlock would prove only a recent unlock of the phone; the same key signs private answers.", "Opening without a prompt and asking for the Mac's unlock on a card after five minutes: the owner chose no fingerprint for chat and tasks (PHN-846)."]
+paths = ["engine/crates/ferb-rpc/src/classes.rs", "engine/crates/ferb-daemon/src/phone/gate.rs", "engine/crates/ferb-store/src/phones.rs", "engine/runtime/store/migrations/0069_phone_lock_off.sql", "apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppModel.swift"]
+live = ["LIVE-1217"]
+
+[PHN-846]
+title = "Phone lock off: chat and tasks need no fingerprint; money, deleting, secrets and files still do"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "(b) Truly no fingerprint for chat and tasks. Money, deleting, secrets and other important actions still need it. - i choose ths"
+words_source = "Owner 2026-11-25, shown T-1318's design: (a) as built, one fingerprint on a card after five minutes away, or (b) no fingerprint for chat and tasks."
+rule = "Refines PHN-125 and PHN-835: a phone whose app lock the owner turned off gets its chat and tasks from the Mac with no fingerprint and no unlock window, from a connection that proved the phone's device key. Money, deleting, secrets, files and other important actions keep their proofs (PHN-105, PHN-110, PHN-112, PHN-121, PHN-129, PHN-133, PHN-137). The list of what opens is classes::LOCK_OFF_OPEN."
+why = "His choice of (b)."
+live = ["LIVE-1217"]

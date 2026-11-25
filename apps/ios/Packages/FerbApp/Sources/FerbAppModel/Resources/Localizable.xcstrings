@@ -2230,7 +2230,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This app controls your Mac, so it opens only with Face ID, Touch ID or your passcode. This iPhone has no passcode. Set one in Settings, then come back."
+            "value": "This app controls your Mac, so it needs Face ID, Touch ID or your passcode. This iPhone has no passcode. Set one in Settings, then come back."
           }
         }
       }
@@ -2708,13 +2708,13 @@
         }
       }
     },
-    "profile_lock_always": {
+    "profile_lock_off_note": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Always on"
+            "value": "Done. FERB now opens your chat and tasks without %@. It still asks for it before money, deleting, passwords and secrets, and to open files from your Mac."
           }
         }
       }
@@ -2737,17 +2737,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Money, deleting, accounts"
-          }
-        }
-      }
-    },
-    "profile_lock_why": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "FERB always asks for Face ID, Touch ID or your passcode when it opens, so nobody else with your iPhone can reach your Mac. This can't be turned off."
           }
         }
       }
@@ -2847,6 +2836,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Your Mac can then ask for %@ before FERB goes ahead"
+          }
+        }
+      }
+    },
+    "prompt_lock_off_subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB will open your chat and tasks without %@"
           }
         }
       }

@@ -828,10 +828,6 @@ public struct ProfileSheet: View {
     var lockTitle: String
     /// In place of Stay connected (an iPhone has none, kb PHN-566): a row with its words that opens what it says.
     var instead: (title: String, detail: String, onClick: (() -> Void)?)?
-    /// Not from the lab (kb PHN-656): the lock can't be turned off, so it says so ("Always on") instead of a switch that
-    /// does nothing, and a tap on the row says why. Nil: the lab's switch.
-    var lockAlways: String?
-    var onLockInfo: (() -> Void)?
     /// PHN-801: the connection's row, first (its state as the top bar's badge shows it; its sheet on a tap).
     var connection: AnyView?
 
@@ -839,10 +835,8 @@ public struct ProfileSheet: View {
                 lockOn: Bool = true, stayConnected: Bool = true, onClose: (() -> Void)? = nil, onLock: ((Bool) -> Void)? = nil,
                 onStayConnected: ((Bool) -> Void)? = nil, onForget: (() -> Void)? = nil, more: AnyView? = nil,
                 lockTitle: String = "Face ID to open", instead: (title: String, detail: String, onClick: (() -> Void)?)? = nil,
-                lockAlways: String? = nil, onLockInfo: (() -> Void)? = nil, connection: AnyView? = nil) {
+                connection: AnyView? = nil) {
         self.connection = connection
-        self.lockAlways = lockAlways
-        self.onLockInfo = onLockInfo
         self.lockTitle = lockTitle
         self.instead = instead
         self.macName = macName
@@ -865,14 +859,8 @@ public struct ProfileSheet: View {
                     connection
                     Divide()
                 }
-                if let lockAlways {
-                    CardRow(title: lockTitle, detail: "Every time FERB opens", onClick: onLockInfo) { RowIcon(symbol: "lock") } trailing: {
-                        Text(lockAlways).type(15, .medium, Ink.detail)
-                    }
-                } else {
-                    CardRow(title: lockTitle, detail: "Every time FERB opens") { RowIcon(symbol: "lock") } trailing: {
-                        PhoneSwitch(on: lockOn, onChange: onLock, label: lockTitle)
-                    }
+                CardRow(title: lockTitle, detail: "Every time FERB opens") { RowIcon(symbol: "lock") } trailing: {
+                    PhoneSwitch(on: lockOn, onChange: onLock, label: lockTitle)
                 }
                 Divide()
                 if let instead {

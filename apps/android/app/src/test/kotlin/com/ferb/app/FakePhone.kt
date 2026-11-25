@@ -337,6 +337,17 @@ class FakePhone : PhoneApi {
     override suspend fun dismissAlert(id: String): Outcome<Unit> { calls += "dismissAlert"; dismissed += id; return Outcome.Ok(Unit) }
     override suspend fun macInfo(): Outcome<MacInfo> { calls += "mac"; return mac?.let { Outcome.Ok(it) } ?: Outcome.Failed(FerbException.Offline("no", null)) }
     override suspend fun cachedMacInfo(): Outcome<MacInfo?> = Outcome.Ok(mac)
+    /** The Mac's record of this phone's app lock (kb PHN-846), and a refusal to give instead when set. */
+    var lockOff = false
+    var lockOffRefusal: Outcome.Failed? = null
+    override suspend fun setLockOff(off: Boolean, signer: Signer?): Outcome<Boolean> {
+        calls += "lockoff:$off"
+        lockOffRefusal?.let { return it }
+        if (off && signer?.sign("challenge") == null) return Outcome.Failed(FerbException.NotSigned("Nothing was sent.", null))
+        lockOff = off
+        mac = mac?.copy(lockOff = off)
+        return Outcome.Ok(off)
+    }
     override suspend fun unregisteredKeys(): PublicKeys? = newKeys
     override suspend fun registerKeys(signer: (KeyKind) -> Signer): Outcome<Boolean> {
         val k = newKeys ?: return Outcome.Ok(false)

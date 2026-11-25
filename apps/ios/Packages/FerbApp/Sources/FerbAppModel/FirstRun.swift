@@ -27,7 +27,7 @@ public struct FirstRun {
         return wanted.filter { !done.contains($0.rawValue) && !decided($0) }
     }
 
-    /// The page shows over the pairing page or the app itself, never before the unlock (PHN-8).
+    /// The page shows over the pairing page or the app itself, never before the unlock (PHN-835).
     public func showsOver(unlockedPage: Bool) -> Bool { unlockedPage && !pending().isEmpty }
 
     /// iOS's question for `ask` was answered (either way): it is never asked again.

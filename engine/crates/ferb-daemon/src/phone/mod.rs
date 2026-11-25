@@ -319,14 +319,18 @@ impl Phones {
         phone: &ferb_rpc::phone_gate::PhoneSession,
     ) -> Result<ferb_mac_hands::point::PairedPhoneLink, Refusal> {
         let inner = &self.inner;
-        inner.live(&phone.device)?;
+        let dev = inner.live(&phone.device)?;
         if !matches!(phone.tier.as_deref(), Some("direct" | "own_relay")) {
             return Err(refused(
                 phone_gate::FILE_NOT_ALLOWED,
                 "Watch live crosses only a direct connection or your own relay, not the shared relay.",
             ));
         }
-        if !lock(&inner.state).is_unlocked(phone, inner.mono(), &inner.limits) {
+        let mut st = lock(&inner.state);
+        // decision: PHN-846 — a phone whose app lock the owner turned off watches its tasks without the window
+        if !st.is_unlocked(phone, inner.mono(), &inner.limits)
+            && !st.lock_off_open(&dev, phone, "tasks.preview")
+        {
             return Err(refused(
                 phone_gate::LOCKED,
                 "FERB on your Mac opens for this phone only after its fingerprint, face or PIN.",
@@ -358,7 +362,7 @@ impl Phones {
     /// Registers the area's methods and sets its gate on `server`.
     pub fn register(&self, server: &Server) {
         server.set_phone_gate(self.gate());
-        let unary: [(&str, Handler); 16] = [
+        let unary: [(&str, Handler); 18] = [
             ("phone.list", |p, s, _| p.list(&s)),
             ("phone.rename", |p, _, a| p.rename(&a)),
             ("phone.remove", |p, s, a| p.remove(&s, &a)),
@@ -388,6 +392,9 @@ impl Phones {
             }),
             ("phone.keys", |p, s, a| p.keys(&s, &a)),
             ("phone.device_report", |p, s, a| p.device_report(&s, &a)),
+            // decision: PHN-846 — the gate admitted lock_off by its signed proof (the sensitive class)
+            ("phone.lock_off", |p, s, _| p.set_lock_off(&s, true)),
+            ("phone.lock_on", |p, s, _| p.set_lock_off(&s, false)),
             // (phone.bind_account is async below: the Mac's account may be read from the Keychain)
             ("link.devices", |p, _, _| p.devices()),
             ("link.pair_cancel", |p, _, a| p.pair_cancel(&a)),
@@ -462,7 +469,7 @@ impl Phones {
             "unlock": p.unlock_pub.is_some(), "device_key": p.device_pub.is_some(),
             "fingerprint_key": p.strong_pub.is_some(),
             "unused_warning": p.warned_at.is_some(), "warned_at": p.warned_at,
-            "sessions": sessions, "unlocked": unlocked,
+            "sessions": sessions, "unlocked": unlocked, "lock_off": p.lock_off,
         })
     }
 
@@ -510,6 +517,33 @@ impl Phones {
             "unused_days".into(),
             json!(self.inner.limits.device_unused_days),
         );
+        Ok(out)
+    }
+
+    /// `phone.lock_off {}` / `phone.lock_on {}` (PHN-846): the owner turned this phone's app lock off or on again,
+    /// recorded for this live phone. The gate made each call's check before this: off is the sensitive class (signed
+    /// over this exact call with a fresh challenge, by the fingerprint-only key where the phone registered one), on is
+    /// allowed even locked (it only ever makes the phone stricter). While it is off the gate gives this phone's
+    /// device-proved connections `classes::LOCK_OFF_OPEN` without the unlock window. `{lock_off}`.
+    pub fn set_lock_off(&self, session: &Session, off: bool) -> HandlerResult {
+        let inner = &self.inner;
+        let Some(phone) = session.phone.as_ref() else {
+            return Err(coded(refused(
+                phone_gate::BAD_REQUEST,
+                "the app lock is a paired phone's own switch",
+            )));
+        };
+        let dev = inner.live(&phone.device).map_err(coded)?;
+        {
+            let db = lock(&inner.seams.db);
+            table::set_lock_off(db.conn(), &dev.endpoint, off).map_err(store_fault)?;
+        }
+        if !off {
+            // the sensitive "off" is audited with its outcome by the gate; "on", a plain call, here
+            inner.audit(&phone.device, "phone.lock_on", "plain", "ok", json!({}));
+        }
+        let mut out = Params::new();
+        out.insert("lock_off".into(), json!(off));
         Ok(out)
     }
 

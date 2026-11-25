@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use ferb_rpc::auth::{
-    allowed, Role, METHODS, PHONE_ACCOUNT, PHONE_FILES, PHONE_OWN, PHONE_SESSION,
+    allowed, Role, METHODS, PHONE_ACCOUNT, PHONE_FILES, PHONE_LOCK, PHONE_OWN, PHONE_SESSION,
 };
 use ferb_rpc::classes::{class, locked, phone_method, Class, Locked, PHONE_METHODS};
 use ferb_rpc::wire;
@@ -142,6 +142,7 @@ fn the_phone_reaches_everything_but_the_never_rows() {
             && !PHONE_FILES.contains(&m.name)
             && !PHONE_OWN.contains(&m.name)
             && !PHONE_ACCOUNT.contains(&m.name)
+            && !PHONE_LOCK.contains(&m.name)
     }) {
         assert_eq!(class(m.name), Class::Never, "{}", m.name);
     }
@@ -199,6 +200,8 @@ fn a_locked_phone_reaches_only_status_stop_and_self_proving_answers() {
     allowed_locked.extend(["phone.device_report"]);
     // and the phone's own statement of its FERB account, which the site's signature proves (PHN-828)
     allowed_locked.extend(PHONE_ACCOUNT);
+    // and turning the app's lock on again, which only ever makes the phone stricter (PHN-846)
+    allowed_locked.extend(["phone.lock_on"]);
     // and "until I'm back at my Mac": what is in force and its end, which only takes something away (GATE-615)
     allowed_locked.extend(["screen_use.end", "screen_use.status"]);
     // and insomnia mode's end, Lock my Mac and It's fine, from the notification: each only takes something away
@@ -380,4 +383,81 @@ fn the_classes_file_is_the_table() {
         .map(|c| kept["counts"][c.as_str()].as_u64().unwrap())
         .sum();
     assert_eq!(total as usize, METHODS.len());
+}
+
+/// PHN-846: what a phone whose app lock the owner turned off reaches without the unlock window is chat, tasks and the
+/// Mac page, by name; nothing sensitive, no file, no memory, setting, secret or trace, and the answers keep their own
+/// proofs. A method added to the list (or a row whose class changes) fails here first.
+// decision: PHN-846
+#[test]
+fn a_lock_off_phone_reaches_chat_and_tasks_and_nothing_that_needs_a_proof() {
+    use ferb_rpc::classes::{lock_off_open, LOCK_OFF_OPEN};
+    let listed = set(LOCK_OFF_OPEN);
+    assert_eq!(listed.len(), LOCK_OFF_OPEN.len(), "listed once each");
+    let mut sorted = LOCK_OFF_OPEN.to_vec();
+    sorted.sort_unstable();
+    assert_eq!(sorted, LOCK_OFF_OPEN, "sorted, so a review reads it");
+    for name in LOCK_OFF_OPEN {
+        let row = phone_method(name).unwrap_or_else(|| panic!("{name} has no row"));
+        assert!(matches!(row.class, Class::Plain | Class::Private), "{name}");
+        assert_eq!(
+            row.locked == Locked::Answer,
+            *name == "chat.correct",
+            "{name}"
+        );
+        assert!(lock_off_open(name), "{name}");
+    }
+    let chat_and_tasks = |n: &str| {
+        n.starts_with("chat.")
+            || n.starts_with("tasks.")
+            || [
+                "attention.ack",
+                "results.ack",
+                "notices.list",
+                "questions.picture",
+            ]
+            .contains(&n)
+    };
+    let mac_page = ["insomnia.status", "phone.list"];
+    for name in LOCK_OFF_OPEN {
+        assert!(
+            chat_and_tasks(name) || mac_page.contains(name),
+            "{name} is not chat, tasks or the Mac page"
+        );
+    }
+    // what keeps its proof whatever the switch says
+    for name in PHONE_FILES.iter().chain(&[
+        "phone.recent",
+        "phone.search",
+        "settings.get",
+        "secrets.saved",
+        "memory.list",
+        "memory.show",
+        "trace.get",
+        "timeline.get",
+        "data.rows",
+        "identity.find",
+        "recovery.list",
+        "logs.subscribe",
+        "seen.image",
+        "insomnia.camera",
+        "ps.attach",
+        "chat.approve",
+        "chat.answer",
+        "phone.lock_off",
+    ]) {
+        assert!(!lock_off_open(name), "{name}");
+    }
+    for row in PHONE_METHODS
+        .iter()
+        .filter(|r| r.class == Class::Sensitive || r.class == Class::Never)
+    {
+        assert!(!lock_off_open(row.name), "{}", row.name);
+    }
+    // the switch itself: off is signed like a sensitive change, on again is always allowed
+    assert_eq!(class("phone.lock_off"), Class::Sensitive);
+    assert_eq!(locked("phone.lock_off"), Locked::Refused);
+    assert_eq!(class("phone.lock_on"), Class::Plain);
+    assert_eq!(locked("phone.lock_on"), Locked::Allowed);
+    assert_eq!(PHONE_LOCK, ["phone.lock_off", "phone.lock_on"]);
 }

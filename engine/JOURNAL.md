@@ -13265,3 +13265,101 @@ and Claude Code's end-of-message breakpoint is written at five minutes (before R
 the hour every turn). About 8.5k input-token equivalents saved per kept-chat turn (1.25x instead of 2x on ~11.3k).
 Four Claude calls in all. Note: `ferb trace --json` shows only the total cache_write_tokens; the split is in the
 span's stored output (usage.rs writes it), read here from the database.
+
+## 2026-11-25 · 227 · The phones' lock is a switch, on by default; off, chat and tasks need no fingerprint
+
+**The owner.** On T-1318 (PHN-835, superseding PHN-8): "there should be a lock button in phone app that can be toggled
+by user"; "yeah its my updated call". A first build kept the Mac exactly as it was: with the switch off the app opened
+without asking, but after five minutes away the Mac's own unlock window had closed and a card asked for the fingerprint
+once. Shown that, (a), against (b) "Truly no fingerprint for chat and tasks. Money, deleting, secrets and other
+important actions still need it", he chose: "(b) Truly no fingerprint for chat and tasks. Money, deleting, secrets and
+other important actions still need it. - i choose ths" (PHN-846, refining PHN-125 and PHN-835). How it is built:
+PHN-845 (agent). The design is the glass lab's (PHN-416): its This phone sheet already drew "Fingerprint to open" with
+a switch; FERB had put "Always on" there (PHN-656). It is the lab's switch again, working, on both phones.
+
+**Why the Mac has to keep it.** Both lock keys need a prompt for each use (Android's LOCK key: auth timeout 0,
+`core/.../Keystore.kt:185`; the iPhone's: `.userPresence`, reuse 0, `FerbCore/Backends.swift:41,88`), so the app
+can't sign the Mac's unlock unasked. Giving that key a validity window was rejected: the Mac's unlock would prove only
+a recent unlock of the phone, and the same key signs private answers. So the Mac records, per paired phone, that the
+owner turned its lock off, and only the phone's signed call can record it.
+
+**The Mac** (ferb-rpc, ferb-daemon, ferb-store; nothing in ferb-link but its level):
+- `phone.lock_off` (sensitive class: signed over this exact call with a fresh challenge, by the fingerprint-only key
+  where the phone registered one, else the lock key: PHN-129, PHN-133) sets `phone_devices.lock_off` (migration 0069);
+  `phone.lock_on` (plain, allowed while locked: only ever stricter) clears it. Both are a phone's own calls
+  (`auth::PHONE_LOCK`, no local role); `phone.list` says `lock_off` per phone. Removing a phone clears it; pairing again
+  makes a new row with it off.
+- `classes::LOCK_OFF_OPEN`, a named list: chat (`chat.entries.*`, `chat.history.days/page`, `chat.send`,
+  `chat.attach`, `chat.correct`, `chat.temporary.get/set`, `questions.picture`, `attention.ack`, `results.ack`,
+  `notices.list`), tasks (`tasks.list`, `tasks.preview`) and the Mac page (`phone.list`, `insomnia.status`). For a
+  lock-off phone the gate admits these without the unlock window, from a connection that proved the phone's device key
+  (PHN-126): `State::lock_off_open` is one more way a plain or private row is `free` in `admit_inner`, and Watch live's
+  own check (`preview_link`) takes it too. Everything else is unchanged: an answer still goes through `check_answer`
+  (a hard Yes and a hidden answer carry their proofs), files and folders (`phone.files/tree/read`, `phone.recent`,
+  `phone.search`) need the window, settings, memory, secrets, traces and logs need it, every sensitive call needs its
+  signed proof. tests/phone_classes.rs holds the list to chat, tasks and the Mac page and to no sensitive, never, file,
+  memory, setting, secret or trace row.
+- The link's feature level is 6, so an older Mac answers `mac_link_older` to the switch.
+
+**The phones** (Android `FerbViewModel.kt`, the iPhone's `AppModel.swift`, one design):
+- On by default. Off: one prompt signs `phone.lock_off` (`freshSigner(Why.LOCK_OFF)`, which registers a newer
+  fingerprint key first where one waits); only when the Mac took it does the phone store off and say so. A closed
+  prompt or a refusal leaves it on. On again: at once, no prompt; `phone.lock_on` is sent.
+- The Mac's record wins when it is stricter: every `phone.list` the phone reads (`macSays`) turns the phone back on
+  when the Mac has it on (paired again, removed), and tells the Mac on when only the phone has it on. Forget this Mac
+  turns it back on.
+- Off, the app's lock rule is the same (a cold start is locked, five minutes away locks it, the Mac is told `lock`, the
+  fetched files go), but the locked app in front opens at once with no lock page and nothing signed (`openUnasked`,
+  after the view model's own lock clearing ran), reads the chat (`syncNow`) and the Mac's word on this phone. The Mac
+  is told of a lock by a lock count (`Session.locks`), not the `locked` state that an instant reopen could hide.
+- The card for the Mac's window (PHN-649) is unchanged and no longer comes for chat and tasks on a lock-off phone;
+  Files after the idle minutes asks as before (the Unlocker's prompt).
+- A phone with no screen lock still can't use the app (PHN-8's last sentence; PHN-845).
+
+**Words for the owner to review** (Android; the iPhone where it differs):
+- `prompt_lock_off_title` (Android's prompt title): "Turn off Fingerprint to open"
+- `prompt_lock_off_subtitle`: "FERB will open your chat and tasks without asking"; iPhone (the prompt's only line):
+  "FERB will open your chat and tasks without Face ID" (the phone's own kind)
+- `profile_lock_off_note`: "Done. FERB now opens your chat and tasks without your fingerprint. It still asks for it
+  before money, deleting, passwords and secrets, and to open files from your Mac." (iPhone: "without Face ID")
+- `no_lock_text` (changed): "This app controls your Mac, so it needs your fingerprint, face or PIN. This phone has no
+  screen lock. Set one in Android's settings, then come back." iPhone: "… so it needs Face ID, Touch ID or your
+  passcode. This iPhone has no passcode. …"
+- Removed: `profile_lock_always` ("Always on"), `profile_lock_why`.
+
+**kb.** PHN-8 superseded by PHN-835 (its `untestable` gone); PHN-845 (agent) and PHN-846 (owner) new; the apps'
+`decision: PHN-8` tags moved to PHN-835 (the lock on) or PHN-845 (no screen lock); LIVE-1106 and T-1211 cite PHN-835;
+T-1318 deleted; LIVE-1217 new. PHN-125 stays active (it is every lock-on phone's rule); PHN-656 stays for its other
+rules, its "Always on" row is gone.
+
+**Evidence.**
+- ferb-daemon `tests/phone_lock_off.rs` (new, a real ferb-rpc server): only the phone's signed call turns it off (none,
+  the PIN key on a phone with a fingerprint key, another phone's key, a proof for another call: refused), kept across a
+  daemon restart, audited; on with no proof, even unproved and locked; a phone without a fingerprint key signs with its
+  lock key; per phone. An hour after `phone.lock`, a lock-off phone reads chat, sends, marks, corrects and lists tasks
+  with no unlock, while a hard Yes and a hidden answer (`unlock_required`), files, recent files, search, settings,
+  memory, secrets and traces (`locked`) and sensitive calls (`unlock_required`) keep their proofs; a connection that
+  hasn't proved the device key gets nothing more; forgetting itself, pairing again or removal by another phone turns
+  it back on. `tests/phone_preview.rs`: Watch live for a lock-off phone with no unlock, only device-proved, only on a
+  path that carries it. ferb-rpc `phone_classes.rs` (the list's test; the fixture `classes.json` written again: two
+  rows), ferb-store `tests/phones.rs` (0069 upgrade, per phone, cleared by removal and re-pairing).
+  `cargo test -p ferb-store -p ferb-rpc -p ferb-daemon`: 383 passed, 0 failed; workspace clippy `-D warnings` and fmt.
+- Phone crates by their own manifests (build folder reached by a short link: the stand-in daemon's socket path):
+  ferb-link 76 passed, 5 ignored; ferb-mobile 110 (new `the_app_lock_switch_is_kept_on_the_mac_off_signed_on_with_nothing`);
+  ferb-mobile-ffi 23; clippy (`--features devrelay` for ferb-link) and fmt clean.
+- Android (`--offline --no-daemon`): `:app:testDebugUnitTest` 379, `:design:test` 113, 0 failures. ViewModelTest: the
+  switch is on by default and only the Mac taking the signed call turns it off (cancel, an older Mac, then off; on with
+  no prompt); with it off the app opens straight into chat and tasks (no prompt, no statement, the chat and the Mac's
+  word read, no card; five minutes away tells the Mac once and reopens with no card); the Mac's record wins when
+  stricter, and Forget turns it on; no screen lock still blocks. FeaturesTest: a hard Yes and a key place still take
+  the fingerprint key. Goldens re-recorded and looked at: `profile.png` (the switch where "Always on" was) and
+  `no-screen-lock.png` (the new sentence).
+- iPhone: `apps/ios/tools/build.sh test` on its own simulator ("FERB iOS t1318", deleted after), the phone library
+  rebuilt from this change: FerbAppTests 242, FerbDesignTests 75, FerbCoreTests 15 (1 skipped), FerbMobileTests 4,
+  FERBUITests 8, 0 failures; the same cases as Android; `strings.py --check` clean; no iPhone golden changed.
+- `tools/kb/run kb lock`, `kb gen`, `kb check`: ok. `git diff --check` clean.
+
+**Unverified.** No device, no install, no live check (LIVE-1217 is new for the owner). Not run: the Android
+instrumented tests (OnPhoneTest, only retagged); a real prompt for turning the lock off; a real process frozen past
+five minutes with the lock off (the lock count is tested, the frozen ordering read). Migration 0069 is numbered after
+HEAD's 0068; another change adding a migration at the same time would need renumbering.

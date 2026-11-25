@@ -49,7 +49,7 @@ final class FeaturesTests: XCTestCase {
         // online: the Mac's unlock, then its name
         session.lockNow()
         phone.link = FakePhone.status()
-        phone.mac = MacInfo(name: "Studio Mac", pairedAt: "2026-11-10T09:00:00+05:30", phoneName: "iPhone", uploadFolder: nil)
+        phone.mac = MacInfo(name: "Studio Mac", pairedAt: "2026-11-10T09:00:00+05:30", phoneName: "iPhone", uploadFolder: nil, lockOff: nil)
         await vm.unlockApp().value
         await eventually("the Mac's name") { vm.ui.mac?.name == "Studio Mac" }
     }
@@ -187,6 +187,22 @@ final class FeaturesTests: XCTestCase {
         phone.answerScript = [.failed(FakePhone.refused("unlock_required"))]
         await vm.answer("ap-9", .approve(granted: true, choice: 1)).value
         XCTAssertEqual(prompts.signers.map(\.kind), [.strong])
+    }
+
+    // decision: PHN-845, PHN-835, PHN-129, PHN-137
+    func testWithTheLockOffTheMacsOwnChecksStillTakeFaceId() async {
+        rig.prefs.lockOnOpen = false
+        phone.view = emptyView()
+        phone.status = phoneStatus(asked("ap-1", needs(unlock: true, fingerprint: true)), asked("ap-2", needs(unlock: true)))
+        let vm = rig.model()
+        session.foreground(true)
+        await eventually("opened without a prompt") { !session.locked }
+        XCTAssertTrue(prompts.signers.isEmpty)
+        await vm.refresh()?.value
+        await vm.answer("ap-1", .approve(granted: true, choice: 1)).value
+        XCTAssertEqual(prompts.signers.map(\.kind), [.strong], "a hard Yes: the Face ID key, as before")
+        await vm.answer("ap-2", .approve(granted: true, choice: 1)).value
+        XCTAssertEqual(prompts.signers.last?.kind, .lock, "a Yes that needs the unlock: the lock key, as before")
     }
 
     // decision: PHN-125, PHN-126, PHN-519, PHN-511
@@ -436,7 +452,7 @@ final class FeaturesTests: XCTestCase {
     func testAFaceIdKeyAddedAfterPairingIsOfferedAndRegistered() async {
         session.unlocked()
         phone.newKeys = PublicKeys(device: nil, lock: nil, strong: "STRONG-PUB")
-        phone.mac = MacInfo(name: "Studio Mac", pairedAt: nil, phoneName: nil, uploadFolder: nil)
+        phone.mac = MacInfo(name: "Studio Mac", pairedAt: nil, phoneName: nil, uploadFolder: nil, lockOff: nil)
         let vm = rig.model()
         await vm.unlockMac().value
         XCTAssertTrue(vm.ui.newKeys)

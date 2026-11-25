@@ -27,9 +27,12 @@ OUT = os.path.join(ROOT, "apps/ios/Packages/FerbApp/Sources/FerbAppModel/Resourc
 
 # The same message in iOS's words: (name, words). %@ in a fingerprint line is the phone's own kind.
 IOS = {
-    # PHN-8 on iOS: a passcode, Settings
+    # PHN-846 on iOS: a passcode, Settings
     "no_lock_title": "Set a passcode first",
-    "no_lock_text": "This app controls your Mac, so it opens only with Face ID, Touch ID or your passcode. This iPhone has no passcode. Set one in Settings, then come back.",
+    "no_lock_text": "This app controls your Mac, so it needs Face ID, Touch ID or your passcode. This iPhone has no passcode. Set one in Settings, then come back.",
+    # the app's lock switch (kb PHN-835, PHN-846): the phone's own kind; the system prompt shows only its reason line
+    "prompt_lock_off_subtitle": "FERB will open your chat and tasks without %@",
+    "profile_lock_off_note": "Done. FERB now opens your chat and tasks without %@. It still asks for it before money, deleting, passwords and secrets, and to open files from your Mac.",
     # the system prompt shows one line of the app's (its reason); Face ID's own sheet shows the app's name
     "prompt_keys_subtitle": "Your Mac can then ask for %@ before FERB goes ahead",
     "pair_reason_keys": "This phone's passcode or %@ changed, so it needs pairing again.",
@@ -65,7 +68,6 @@ IOS = {
     "voice_text_service": "Hold the microphone while you speak, and let go when you're done. Your words appear in the message box, so you can check them before you send. This iPhone turns speech into words with Apple's speech recognition, which may send the sound of your voice to Apple to do it. FERB records and keeps nothing, and your voice never goes to your Mac.",
     "voice_ask_next": "iOS asks next whether FERB may use the microphone and speech recognition.",
     "voice_denied": "The microphone or speech recognition is off for FERB, so it can't hear you. You can turn them on in Settings.",
-    "profile_lock_why": "FERB always asks for Face ID, Touch ID or your passcode when it opens, so nobody else with your iPhone can reach your Mac. This can't be turned off.",
     "mac_needs_cancelled": "The unlock prompt was closed, so your Mac's chat is still locked.",
     "mac_needs_old": "Your Mac took a while to come online, so FERB needs to unlock once more.",
     "voice_language": "This iPhone has no speech for your language on the phone itself yet. Add it in Settings under General, Keyboard, Dictation Languages, then try again.",
@@ -87,7 +89,7 @@ IOS_PLURALS = {
 # Android-only: no place on iOS (the system draws its own prompt titles and Cancel; there are no notification
 # channels, no Stay connected service, no Android settings).
 DROP = {
-    "prompt_unlock_title", "prompt_yes_title", "prompt_keys_title", "prompt_cancel",
+    "prompt_unlock_title", "prompt_yes_title", "prompt_keys_title", "prompt_cancel", "prompt_lock_off_title",
     "ch_questions", "ch_questions_desc", "ch_checks", "ch_checks_desc", "ch_done", "ch_done_desc", "ch_link",
     "ch_link_desc", "ch_stay", "ch_stay_desc", "stay_title", "stay_text",
     "cant_notify_channel", "cant_notify_stay", "cant_notify_battery",

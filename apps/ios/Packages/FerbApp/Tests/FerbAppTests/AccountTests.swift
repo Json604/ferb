@@ -110,7 +110,7 @@ final class AccountTests: XCTestCase {
         Dictionary(uniqueKeysWithValues: (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
     }
 
-    // decision: PHN-839, PHN-8
+    // decision: PHN-839, PHN-835
     func testSignedOutTheSignInShowsAfterTheLockAndNothingElse() async {
         rig.account.clearLocal()
         phone.state = .starting

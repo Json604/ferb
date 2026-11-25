@@ -350,6 +350,17 @@ final class FakePhone: PhoneApi {
     func dismissAlert(id: String) async -> Outcome<Void> { calls.append("dismissAlert"); dismissed.append(id); return .ok(()) }
     func macInfo() async -> Outcome<MacInfo> { calls.append("mac"); return mac.map { .ok($0) } ?? .failed(.Offline(detail: "no", linkCode: nil)) }
     func cachedMacInfo() async -> Outcome<MacInfo?> { .ok(mac) }
+    /// The Mac's record of this phone's app lock (kb PHN-846), and a refusal to give instead when set.
+    var lockOff = false
+    var lockOffRefusal: FerbError?
+    func setLockOff(_ off: Bool, signer: Signer?) async -> Outcome<Bool> {
+        calls.append("lockoff:\(off)")
+        if let r = lockOffRefusal { return .failed(r) }
+        if off && signer?.sign(payload: "phone.lock_off") == nil { return .failed(.NotSigned(detail: "Nothing was sent.", linkCode: nil)) }
+        lockOff = off
+        mac?.lockOff = off
+        return .ok(off)
+    }
 
     /// The review of an import as the Mac holds it; an answer takes its items out. `reviewRefusal` refuses the next call.
     @ObservationIgnored var review = MemoryReview(parts: [], count: 0)
@@ -478,6 +489,7 @@ final class FakePrompts: Prompts {
     var cancel = false
     var localResult = true
     private(set) var localAsked = 0
+
     /// Every prompt the owner saw: a signing prompt asked to sign, or the prompt alone.
     var shown: Int { signers.reduce(0) { $0 + $1.asked } + localAsked }
     func signer(_ kind: KeyKind, why: Why) -> Signer? {

@@ -96,7 +96,7 @@ class MotionSwitchTest {
         assertEquals(150f, top("b"), 0.5f)
     }
 
-    // decision: PHN-623, PHN-8
+    // decision: PHN-623, PHN-835
     @Test
     fun the_lock_replaces_everything_in_the_same_frame() {
         var target by mutableStateOf("main")

@@ -1,8 +1,8 @@
 {
   "counts": {
-    "plain": 59,
+    "plain": 60,
     "private": 44,
-    "sensitive": 52,
+    "sensitive": 53,
     "never": 31
   },
   "methods": {
@@ -926,6 +926,24 @@
       "refused_params": [],
       "owner_to_confirm": false,
       "why": "the phone session's own call: the daemon's phone gate answers it and checks the proof it carries (PHN-124)"
+    },
+    "phone.lock_off": {
+      "class": "sensitive",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "turns this phone's app lock off: the Mac then gives it chat and tasks without the fingerprint (PHN-846)"
+    },
+    "phone.lock_on": {
+      "class": "plain",
+      "locked": "allowed",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "turns this phone's app lock on again: only ever stricter (PHN-846)"
     },
     "phone.pair_cancel": {
       "class": "never",

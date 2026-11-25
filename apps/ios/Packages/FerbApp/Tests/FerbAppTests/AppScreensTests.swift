@@ -151,7 +151,7 @@ final class AppScreensTests: XCTestCase {
         shot(SignInView(account: rig.account, insets: .lab), app: "sign-in-signed-out-unheard-noon")
     }
 
-    // decision: PHN-416, PHN-8
+    // decision: PHN-416, PHN-835
     func testTheLockIsTheLabsUnlockPage() {
         same(UnlockPage(insets: .lab, bio: "Face ID", symbol: "faceid"), asDesign: "unlock-noon")
         shot(UnlockPage(insets: .lab, bio: L.bioWord(.touchID), symbol: "touchid"), app: "unlock-touch-id-noon")

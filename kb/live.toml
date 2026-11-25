@@ -4684,7 +4684,7 @@ area = "phone"
 surface = "As LIVE-1100, paired"
 request = "Open the app (fingerprint), leave it in the background 4 minutes and reopen; then 6 minutes and reopen; then fetch a disposable file."
 pass = "After 4 minutes it opens where it was; after 6 it asks for the fingerprint or device lock before showing anything, and the earlier fetched files are gone. The app's content is hidden in the recent-apps picture."
-decisions = ["PHN-8", "PHN-11", "PHN-15", "PHN-420"]
+decisions = ["PHN-835", "PHN-11", "PHN-15", "PHN-420"]
 sitting = "after S11"
 
 [LIVE-1107]
@@ -5231,3 +5231,12 @@ request = "Send three short messages a minute or two apart in the same chat (for
 pass = "Each planner turn's cache_write_1h_tokens is only the new stable part (about the previous exchange, a few hundred tokens, or 0), and its cache_write_5m_tokens is the changing tail (the 8.7k-10k a kept chat wrote at one hour in journal 208); cached_input_tokens on the second and third turns still covers FERB's prefix (about 52k-54k in a kept chat), as before; nothing else changes in the replies."
 decisions = ["RUN-476", "RUN-436", "ORCH-325"]
 sitting = "one sitting, about 5 minutes"
+
+[LIVE-1217]
+title = "Fingerprint to open turns off and on; chat and tasks open without it, the rest still asks"
+area = "phone"
+surface = "FERB.app and the Android APK and iPhone build of this change, paired; a disposable file in a key place (e.g. ~/.ssh's stand-in)"
+request = "In This phone, turn Fingerprint to open (Face ID to open) off, cancel the prompt, then turn it off again. Close and reopen the app; reopen after 10 minutes away and read the chat, send a message, open Tasks. Answer a money check, open a file in Files and the key place's file. Turn the switch on and reopen."
+pass = "Off asks once; a cancel keeps it on. Off, the app opens straight in, even after 10 minutes: chat, sending and tasks with no fingerprint and no card. A money check, Files and the key place still ask. FERB.app's Settings, Phone shows the phone. On again, opening asks as before."
+decisions = ["PHN-835", "PHN-845", "PHN-846"]
+sitting = "about 15 minutes, one phone after the other"

@@ -21,8 +21,9 @@
 /// Mac's window open while the app is unlocked and in front (`link.present {active}`), PHN-646..649. 4: the
 /// planner's question that waits is in `chat.status` (`kind` "clarify", answered by a message), PHN-761..763. 5: insomnia
 /// mode (T-1274): the `insomnia.*` calls, its state in `chat.status`, and `link.get` of the Mac's camera
-/// (`what: "camera"`), APP-980..APP-984.
-pub const LEVEL: u32 = 5;
+/// (`what: "camera"`), APP-980..APP-984. 6: the app's lock switch kept on the Mac (`phone.lock_off`, `phone.lock_on`;
+/// `phone.list` says `lock_off`), and chat and tasks without the unlock for a phone whose lock is off, PHN-846.
+pub const LEVEL: u32 = 6;
 /// The level from which an app knows the planner's question in `chat.status`; an older app is never sent one (it
 /// would take it for a gateway question and answer it with `chat.answer`).
 pub const LEVEL_CLARIFY: u32 = 4;

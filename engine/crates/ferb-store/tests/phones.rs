@@ -55,7 +55,9 @@ fn a_store_at_0064_upgrades_with_its_rows_kept_and_no_phones() {
             // 0067 (MEM-436): the memory import's profile
             ferb_store::chat_history::REPAIR_VERSION + 1,
             // 0068 (PHN-828): each pairing's FERB account
-            phones::ACCOUNT_VERSION
+            phones::ACCOUNT_VERSION,
+            // 0069 (PHN-846): whether the owner turned the phone's app lock off
+            phones::LOCK_OFF_VERSION
         ]
     );
     assert_eq!(journal(&db), before);
@@ -205,7 +207,10 @@ fn a_phone_paired_before_accounts_keeps_its_row_with_no_account_and_a_new_pairin
             [],
         )
         .unwrap();
-    assert_eq!(db.migrate().unwrap(), vec![phones::ACCOUNT_VERSION]);
+    assert_eq!(
+        db.migrate().unwrap(),
+        vec![phones::ACCOUNT_VERSION, phones::LOCK_OFF_VERSION]
+    );
     let old = phones::by_endpoint(db.conn(), "old").unwrap().unwrap();
     assert_eq!(old.name, "Old phone");
     assert_eq!(old.unlock_pub.as_deref(), Some("lock-key"));
@@ -215,4 +220,71 @@ fn a_phone_paired_before_accounts_keeps_its_row_with_no_account_and_a_new_pairin
         .unwrap();
     assert_eq!(added.account_id.as_deref(), Some("acct-1"));
     assert!(db.migrate().unwrap().is_empty());
+}
+
+/// Migration 0069: a store at 0068 with a paired phone upgrades with the phone's app lock on (it was never turned off);
+/// turning it off is kept per live phone, and removing the phone or pairing it again leaves it on.
+// decision: PHN-846
+// decision: STORE-403
+#[test]
+fn the_lock_off_mark_starts_off_is_kept_per_phone_and_goes_with_a_removal_or_a_new_pairing() {
+    let tmp = TempDir::new().unwrap();
+    let db = Db::open(tmp.path().join("ferb.db")).unwrap();
+    let upto: Vec<Migration> = Migration::embedded()
+        .into_iter()
+        .filter(|m| m.name.as_ref() < "0069")
+        .collect();
+    db.migrate_files(&upto).unwrap();
+    db.conn()
+        .execute(
+            "INSERT INTO phone_devices (endpoint, name, app, unlock_pub, paired_at, last_seen, account_id) \
+             VALUES ('old', 'Old phone', 'FERB for Android', 'lock-key', '2026-11-16T10:00:00+05:30', \
+             '2026-11-16T10:00:00+05:30', 'acct-1')",
+            [],
+        )
+        .unwrap();
+    assert_eq!(db.migrate().unwrap(), vec![phones::LOCK_OFF_VERSION]);
+    let old = phones::by_endpoint(db.conn(), "old").unwrap().unwrap();
+    assert!(!old.lock_off);
+    assert_eq!(old.account_id.as_deref(), Some("acct-1"));
+    phones::add(&db, &new("e1"), "2026-11-25T10:00:00+05:30", 5)
+        .unwrap()
+        .unwrap();
+    assert!(phones::set_lock_off(db.conn(), "e1", true).unwrap());
+    assert!(
+        phones::by_endpoint(db.conn(), "e1")
+            .unwrap()
+            .unwrap()
+            .lock_off
+    );
+    assert!(
+        !phones::by_endpoint(db.conn(), "old")
+            .unwrap()
+            .unwrap()
+            .lock_off,
+        "per phone"
+    );
+    assert!(phones::set_lock_off(db.conn(), "e1", false).unwrap());
+    assert!(
+        !phones::by_endpoint(db.conn(), "e1")
+            .unwrap()
+            .unwrap()
+            .lock_off
+    );
+    assert!(phones::set_lock_off(db.conn(), "e1", true).unwrap());
+    phones::remove(db.conn(), "e1", "owner", "2026-11-25T11:00:00+05:30")
+        .unwrap()
+        .unwrap();
+    assert!(
+        !phones::set_lock_off(db.conn(), "e1", true).unwrap(),
+        "not a live phone"
+    );
+    assert!(
+        phones::all(db.conn()).unwrap().iter().all(|p| !p.lock_off),
+        "the removal cleared it"
+    );
+    let again = phones::add(&db, &new("e1"), "2026-11-25T12:00:00+05:30", 5)
+        .unwrap()
+        .unwrap();
+    assert!(!again.lock_off, "a new pairing starts with the lock on");
 }
