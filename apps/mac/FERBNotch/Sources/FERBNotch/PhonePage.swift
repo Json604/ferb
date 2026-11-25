@@ -11,6 +11,7 @@ struct PhoneSettingsPage: View {
     @State private var renaming: String?
     @State private var newName = ""
     @State private var removing: PhoneEntry?
+    @State private var stoppingRelay = false
     @State private var byAddress = false
 
     var body: some View {
@@ -47,6 +48,13 @@ struct PhoneSettingsPage: View {
             Button("Cancel", role: .cancel) { removing = nil }
         } message: { _ in
             Text(PhoneWords.removeMessage)
+        }
+        // decision: APP-1142
+        .alert(PhoneWords.stopRelayTitle, isPresented: $stoppingRelay) {
+            Button(PhoneWords.stopRelayConfirm, role: .destructive) { Task { await model.stopUsingRelay() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(PhoneWords.stopRelayMessage)
         }
     }
 
@@ -247,7 +255,7 @@ struct PhoneSettingsPage: View {
                 HStack(spacing: 12) {
                     Text(PhoneWords.savedRelay(address)).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
                     Spacer(minLength: 12)
-                    Button("Stop using my relay") { Task { await model.stopUsingRelay() } }
+                    Button("Stop using my relay…") { stoppingRelay = true }
                 }
                 Toggle(PhoneWords.always, isOn: Binding(get: { link.alwaysUseRelay },
                                                        set: { on in Task { await model.setAlwaysUseRelay(on) } }))

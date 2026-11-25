@@ -13081,3 +13081,13 @@ are not seen on a real phone, nor a real freeze and thaw (the frozen gap is test
 instants; the loop's use of it is read, not run frozen). The 3:40 sequence is inferred from the code, not from the
 phone's log. A probe made at the very moment of a network change can fail if the new network isn't usable yet; the
 next one is then the regular `own_relay_probe_s` later (or the next change or opening).
+
+## 2026-11-25 · 223 · "Stop using my relay" asks first
+
+At 3:45 the owner pressed "Stop using my relay" in Settings → Phone by mistake (journal `phone.relay_set {"on": false}`,
+the only caller FERB.app's PhonePage button); the Mac keeps no copy of a removed relay link, so the phone then showed
+"Not set" correctly. The link was read back from his relay server (`/opt/ferb-relay`, over his own SSH shortcut,
+straight into his clipboard, never shown). He said yes to asking first (APP-1142): the button is "Stop using my
+relay…" and opens an alert, "Stop using your relay?", "Your phones move to the public relay. FERB doesn't keep the
+relay's link, so to use it again you'll need the link from your server.", with Stop Using It (destructive) and Cancel.
+PhoneSettingsTests pass; the alert itself is the owner's to see (untestable reason recorded).

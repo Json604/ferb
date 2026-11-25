@@ -4861,3 +4861,13 @@ why = "Google: the standard G unmodified, fixed size and padding, its theme colo
 rejected = ["The four-colour flat G: Google's guidelines now call an outdated G a don't; its current asset bundle has the gradient G", "Google's dark theme on the Mac's black notch: Apple's black style is only for light backgrounds; the light theme is Google's own other form", "Apple's Design Resources logo file on Android: its licence covers only mock-ups for Apple's systems; the web button's glyph is the one Apple serves to every platform", "The words 43 % of the button's height (Apple's proportion): Google's iOS proportion (14 of 44) is FERB's own 16 of 52, and both buttons must match"]
 paths = ["apps/android/design/src/main/kotlin/com/ferb/design/components/SignInButton.kt", "apps/ios/Packages/FerbDesign/Sources/FerbDesign/SignInButton.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SignInButton.swift", "apps/mac/FERBNotch/Sources/FERBNotch/IntroNarration.swift"]
 live = ["LIVE-1213"]
+
+[APP-1142]
+title = "Stop using my relay asks first"
+by = "owner"
+date = "2026-11-25"
+status = "active"
+words = "yes"
+words_source = "Owner 2026-11-25, asked whether \"Stop using my relay\" should ask \"Are you sure?\" first, after he turned his relay off by mistake and its link was gone from the Mac."
+rule = "In Settings → Phone, \"Stop using my relay…\" asks \"Stop using your relay?\" with what happens (the phones move to the public relay; FERB keeps no copy of the link) before it turns the relay off; Cancel changes nothing."
+untestable = "A SwiftUI alert in front of an existing call (stopUsingRelay, tested in PhoneSettingsTests); seen by the owner on his Mac."

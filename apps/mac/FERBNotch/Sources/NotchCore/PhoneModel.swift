@@ -799,6 +799,10 @@ public enum PhoneWords {
     public static let notConnected = "Not connected"
     public static func removeTitle(_ name: String) -> String { "Remove “\(name)”?" }
     public static let removeMessage = "It's disconnected right away and can't reach FERB again. You can pair it again later as a new phone."
+    // decision: APP-1142
+    public static let stopRelayTitle = "Stop using your relay?"
+    public static let stopRelayMessage = "Your phones move to the public relay. FERB doesn't keep the relay's link, so to use it again you'll need the link from your server."
+    public static let stopRelayConfirm = "Stop Using It"
 
     // pairing
     public static let pairIntro = "Shows a code for your phone to scan. It works once, for two minutes, and you confirm the phone here."
