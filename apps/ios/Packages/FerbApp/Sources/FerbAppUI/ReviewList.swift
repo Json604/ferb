@@ -3,24 +3,35 @@ import FerbDesign
 import FerbMobile
 import SwiftUI
 
-/// The review of what an import brought in (kb MEM-460), drawn in its question's card in place of the question's
-/// detail: each part's title and line, its groups, each item with its note and its buttons (its own, or the part's
-/// answers), a group's own buttons for all of its items when it has them, and the part's buttons for all of its items.
-/// Every word is the Mac's; "Show all N" and "Show less" are the app's. The list is read when the card shows; a
-/// button's answer brings the review back as it stands (answered items leave it); a failure leaves it as it was.
+/// The review of what FERB learned (kb MEM-460, MEM-485, MEM-486), as FERB.app draws it: the list's own buttons on top
+/// (Approve all, "Approve 2" while some lines are unticked, Decline all), the line above the items (`showHint`: the
+/// sheet; the card's question already says it), then each part's title and line, its groups by topic, and every line
+/// with its tick. A tap on a line unticks it (the exception); Approve all gives every ticked line its part's yes and
+/// every unticked one its no. Every word is the Mac's. The list is read when it shows; the Mac's reply replaces it.
 struct ReviewList: View {
     let model: AppModel
     let ink: CardInk
+    var showHint = false
     @Environment(\.busy) private var busySet
 
     var body: some View {
         let busy = busySet.contains("review")
-        let parts = model.review.parts
+        let r = model.review
         VStack(alignment: .leading, spacing: 14) {
-            ForEach(Array(parts.enumerated()), id: \.element.id) { i, p in
-                if i > 0 { Rectangle().fill(ink.line).frame(height: 1) }
-                part(p, busy)
+            if !r.parts.isEmpty {
+                if showHint, let h = r.hint { Text(h).type(13.5, .regular, ink.secondary).fixedSize(horizontal: false, vertical: true) }
+                ReviewFlow(spacing: 6) {
+                    if let label = r.approveLabel {
+                        chip(label, strong: true, busy: busy) { model.answerMemoryReviewAll(approve: true) }
+                            .accessibilityIdentifier("review:approve")
+                    }
+                    if let label = r.declineLabel {
+                        chip(label, strong: false, busy: busy) { model.answerMemoryReviewAll(approve: false) }
+                            .accessibilityIdentifier("review:decline")
+                    }
+                }
             }
+            ForEach(r.parts) { p in part(p, busy) }
         }
         .padding(.top, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -36,66 +47,84 @@ struct ReviewList: View {
             ForEach(p.groups) { g in
                 VStack(alignment: .leading, spacing: 6) {
                     if let t = g.title { Text(t).type(12.5, .medium, ink.secondary).padding(.top, 4) }
-                    ForEach(g.items) { item in self.item(item, p, busy) }
-                    // the group's own buttons for all of its items (Keep all / Remove all, MEM-464)
-                    if !g.all.isEmpty {
-                        allButtons(g.all, part: p.id, ids: g.ids, busy: busy, tag: g.id)
-                    }
-                    if let toggle = g.toggle {
-                        Text(toggle).type(13.5, .medium, ink.primary).padding(.vertical, 4)
-                            .pressable({ model.review.toggle(g.id) })
-                            .accessibilityIdentifier("review-toggle:\(g.id)")
-                    }
+                    ForEach(g.items) { item in self.item(item, busy) }
                 }
             }
-            // the part's, apart from the last group's own so each reads as its own
-            if !p.all.isEmpty { allButtons(p.all, part: p.id, ids: p.ids, busy: busy, tag: p.id).padding(.top, 8) }
         }
     }
 
-    private func item(_ item: ReviewLayout.Item, _ p: ReviewLayout.Part, _ busy: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    /// One line: its tick, its words and the small note under them; the whole row is the tick's button.
+    private func item(_ item: ReviewLayout.Item, _ busy: Bool) -> some View {
+        let ticked = model.review.isTicked(item.id)
+        return HStack(alignment: .top, spacing: 10) {
+            ZStack {
+                Circle().fill(ticked ? ink.primary : Color.clear)
+                Circle().strokeBorder(ticked ? ink.primary : ink.secondary, lineWidth: 1.5)
+                if ticked { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(ink.card) }
+            }
+            .frame(width: 20, height: 20).padding(.top, 1)
             VStack(alignment: .leading, spacing: 4) {
-                Text(item.text).type(14.5, .regular, ink.primary).fixedSize(horizontal: false, vertical: true)
+                Text(item.text).type(14.5, .regular, ticked ? ink.primary : ink.secondary).fixedSize(horizontal: false, vertical: true)
                 if let n = item.note { Text(n).type(12.5, .regular, ink.secondary).fixedSize(horizontal: false, vertical: true) }
             }
-            ReviewFlow(spacing: 6) {
-                ForEach(Array(item.answers.enumerated()), id: \.offset) { _, b in
-                    chip(b.label, strong: false, busy: busy) {
-                        model.answerMemoryReview(part: p.id, itemIds: [item.id], answer: b.answer)
-                    }
-                    .accessibilityLabel(Text("\(b.label): \(item.text)"))
-                    .accessibilityIdentifier("review-item:\(item.id):\(b.answer)")
-                }
-            }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ink.fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(ticked ? ink.fill : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(ticked ? Color.clear : ink.line, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .pressable(busy ? nil : { model.review.toggle(item.id) })
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(ticked ? [.isButton, .isSelected] : .isButton)
+        .accessibilityValue(Text(ticked ? "Ticked" : "Not ticked"))
+        .accessibilityIdentifier("review-item:\(item.id)")
     }
 
-    /// Buttons answering every item of a part or a group (`ids`), the first in the card's inverse (Android's AllButtons).
-    private func allButtons(_ buttons: [ReviewButton], part: String, ids: [String], busy: Bool, tag: String) -> some View {
-        ReviewFlow(spacing: 6) {
-            ForEach(Array(buttons.enumerated()), id: \.offset) { j, b in
-                chip(b.label, strong: j == 0, busy: busy) {
-                    model.answerMemoryReview(part: part, itemIds: ids, answer: b.answer)
-                }
-                .accessibilityIdentifier("review-all:\(tag):\(b.answer)")
-            }
-        }
-        .padding(.top, 2)
-    }
-
-    /// A small button: the Mac's words in a capsule, the first of a part's "all" buttons in the card's inverse, the rest
-    /// on a light fill (Android's SmallButton).
+    /// A small button: the Mac's words in a capsule, the main one in the card's inverse, the other on a light fill
+    /// (Android's SmallButton).
     private func chip(_ label: String, strong: Bool, busy: Bool, _ act: @escaping () -> Void) -> some View {
         Text(label).type(13.5, .medium, (strong ? ink.card : ink.primary).opacity(busy ? 0.5 : 1))
             .lineLimit(1)
-            .padding(.horizontal, 12)
-            .frame(minHeight: 32)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 34)
             .background(strong ? ink.primary : ink.onFerb ? Color.white.opacity(0.14) : ink.line, in: Capsule())
             .pressable(busy ? nil : act)
+    }
+}
+
+/// The review of what FERB learned in a sheet (MEM-485: the day's note's Review; the Mac's Memory page → To check):
+/// the list, scrolling when long; "nothing to check" once all is answered.
+struct ReviewSheet: View {
+    let model: AppModel
+    let insets: PhoneInsets
+    let close: () -> Void
+    /// False only for a still picture (a scroll view draws nothing there).
+    var scrolls = true
+
+    var body: some View {
+        Sheet(bottomInset: insets.bottom, onDismiss: close) {
+            SheetTitle(L.s("review_sheet_title"), onClose: close)
+            if scrolls {
+                ScrollView { content }.frame(maxHeight: 560)
+            } else {
+                content
+            }
+        }
+    }
+
+    private var content: some View {
+        Group {
+            if model.review.review == nil {
+                Text(L.s("review_sheet_reading")).type(15, .regular, Ink.detail)
+            } else if model.review.parts.isEmpty {
+                Text(L.s("review_sheet_empty")).type(15, .regular, Ink.detail)
+            } else {
+                ReviewList(model: model, ink: CardInk(false), showHint: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 12)
     }
 }
 

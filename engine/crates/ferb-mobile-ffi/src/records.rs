@@ -1585,9 +1585,13 @@ mirror! {
 }
 
 mirror! {
-    /// The review as it stands: its parts and how many items are left.
+    /// The review as it stands: its parts, how many items are left, and the whole list's buttons at its top (MEM-486):
+    /// `all` (Approve all, Decline all), `some` ("Approve {n}" while some lines are unticked) and `hint`.
     MemoryReview from ferb_mobile::review::MemoryReview {
         parts: Vec<ReviewPart>,
         count: u64,
+        all: Vec<ReviewButton>,
+        some: String,
+        hint: String,
     }
 }

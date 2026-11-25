@@ -220,15 +220,16 @@ async fn run_import(st: &Rc<State>, run_id: &str, tell: Tell) {
 }
 
 /// The review after an import (MEM-444, MEM-460, MEM-462): this import's round is marked (the offers and older
-/// lines asked once, the always-on suggestions) and FERB's own question is asked when anything is to answer and none
-/// waits. The card is its face; the owner answers item by item there, or in his own words.
+/// lines asked once, the always-on suggestions). Nothing is asked now (MEM-485): what waits is shown at the day's
+/// first open ([`daily`]).
 pub fn ask_offers(st: &Rc<State>) {
     let _ = job(st).review_round();
-    ask_review(st);
+    fold_imported_notices(st);
 }
 
-/// FERB's review question, asked when the review has anything to answer and none waits (MEM-460): earlier "Now always
-/// on" notices about imported lines are folded into it first (MEM-461).
+/// The review's card (FERB's own question, MEM-460), asked when the review has anything to answer and none waits:
+/// earlier "Now always on" notices about imported lines are folded into it first (MEM-461). Since MEM-485 only the
+/// day's first open asks it ([`daily`]), with one to `CARD_MOST` waiting.
 pub fn ask_review(st: &Rc<State>) {
     fold_imported_notices(st);
     if super::memory::pending_own(st, REVIEW_KIND).is_some() {
@@ -241,15 +242,12 @@ pub fn ask_review(st: &Rc<State>) {
 }
 
 /// The review's start step (MEM-461): the lines an earlier build put in the profile by themselves are marked for the
-/// owner's word (they stay on until he declines each), the "Now always on" notices about imported lines are folded
-/// into the one list, and the question is asked when the marking found new ones or an older build's offers question
-/// was waiting (`converted`). A review question that waits is asked again by `restore_memory_questions`.
-pub fn review_start(st: &Rc<State>, converted: bool) {
-    let marked = job(st).suggest_always_on().unwrap_or(0);
+/// owner's word, and the "Now always on" notices about imported lines are folded into the one list. Nothing is asked
+/// at the start (MEM-485): what waits, an older build's offers question's items included, is shown at the day's
+/// first open ([`daily`]). A card that waits is asked again by `restore_memory_questions`.
+pub fn review_start(st: &Rc<State>) {
+    let _ = job(st).suggest_always_on();
     fold_imported_notices(st);
-    if marked > 0 || converted {
-        ask_review(st);
-    }
 }
 
 /// An older build's offers question waiting at start (MEM-444's numbered list): its older lines that steer FERB's work
@@ -286,15 +284,107 @@ pub fn review_settled(st: &Rc<State>) {
         .review()
         .map(|r| r["count"].as_u64() == Some(0))
         .unwrap_or(false);
-    if !empty {
-        return;
+    if empty {
+        close_cards(st);
     }
+}
+
+/// The review's card closed without an answer (nothing left, or the day's note stands for it, MEM-485).
+fn close_cards(st: &Rc<State>) {
     while let Some(id) = super::memory::pending_own(st, REVIEW_KIND) {
         // published, so the card goes on every client and the chat's question entry closes (it stayed open: the
         // phone kept a review card with no list, owner 2026-11-23)
         super::memory::set_aside(st, &id);
         let _ = super::memory::close_own(st, &id);
     }
+}
+
+/// The journal row of each day's check (MEM-485, MEM-486): `{day, count, shows, client, note, note_count}`, where
+/// `note` is the day's note standing after it ("" for none) and `note_count` the number it says. The day's one
+/// record, and what the next day's check compares with.
+pub const DAILY_KIND: &str = "memory.review_daily";
+
+fn last_daily(st: &State) -> Option<Value> {
+    st.store
+        .one(
+            "SELECT data_json FROM journal WHERE kind = ? ORDER BY seq DESC LIMIT 1",
+            ferb_learning::sql![DAILY_KIND],
+        )
+        .ok()
+        .flatten()
+        .and_then(|r| serde_json::from_str(&r.s_at(0)).ok())
+}
+
+/// The owner opened FERB (FERB.app's notch or window, or a phone; `memory.review.daily`). The first open of each day
+/// on this Mac's calendar (his time zone) checks, by code and with no model, what waits for him in the review
+/// (MEM-485, MEM-486): none, nothing is shown; one to `CARD_MOST`, the card with all of them (asked unless one waits);
+/// more, the card closes and one note says how many, its button opening the list. A note that says the same number
+/// stays as it is; a new number takes the old note's place (folded, never deleted), so the note changes at most once
+/// a day. Every later open that day does nothing. Nothing expires: what he hasn't answered waits for the next day.
+pub fn daily(st: &Rc<State>, client: &str) -> Value {
+    use ferb_learning::import_review::{note_line, Daily, NOTE_BUTTON};
+    let j = job(st);
+    let today = j.local_today();
+    let last = last_daily(st);
+    let field = |k: &str| {
+        last.as_ref()
+            .map(|v| ferb_py::value::py_str(&v[k]))
+            .unwrap_or_default()
+    };
+    // before setup is done the owner is in the intro: nothing about memory then
+    if !setup_done(st) || field("day") == today {
+        return json!({"day": today, "checked": false});
+    }
+    let _ = j.suggest_always_on();
+    fold_imported_notices(st);
+    let count = j
+        .review()
+        .map(|r| r["count"].as_u64().unwrap_or(0))
+        .unwrap_or(0) as usize;
+    let shows = Daily::of(count);
+    let standing = field("note");
+    let said = last
+        .as_ref()
+        .and_then(|v| v["note_count"].as_u64())
+        .unwrap_or(0) as usize;
+    let note = match shows {
+        Daily::Note if !standing.is_empty() && said == count => standing,
+        Daily::Note => {
+            if !standing.is_empty() {
+                st.owner.fold_notices(vec![standing], REVIEW_FOLD);
+            }
+            let id = format!("memory-review-note-{}", ferb_clock::py::iso(&st.now()));
+            let card = json!({"type": "page", "page": "review", "line": NOTE_BUTTON});
+            let fut = st.owner.tell_owner(
+                &id,
+                Vec::new(),
+                &note_line(count),
+                ferb_sanitize::origin::FERB,
+                Some(json!([card])),
+            );
+            tokio::task::spawn_local(fut);
+            id
+        }
+        _ => {
+            if !standing.is_empty() {
+                st.owner.fold_notices(vec![standing], REVIEW_FOLD);
+            }
+            String::new()
+        }
+    };
+    if shows == Daily::Card {
+        ask_review(st);
+    } else {
+        close_cards(st);
+    }
+    let note_count = if note.is_empty() { 0 } else { count };
+    let _ = st.journal(
+        DAILY_KIND,
+        json!({"day": today, "count": count, "shows": shows.as_str(), "client": client,
+               "note": note, "note_count": note_count}),
+        None,
+    );
+    json!({"day": today, "checked": true, "count": count, "shows": shows.as_str()})
 }
 
 /// The owner's reply in his own words to the review (MEM-444, MEM-460): the model reads which items he meant
@@ -328,7 +418,7 @@ pub fn offers_answered(st: &Rc<State>, state: &str, words: &str, ident: &str) ->
             None,
         );
         fut.await;
-        ask_review(&me);
+        // MEM-485: what is left waits for the list and the next day's first open; nothing is asked again now
     });
     "Thanks, I'll update them.".into()
 }
@@ -376,7 +466,43 @@ pub(crate) fn handlers() -> Vec<(&'static str, Handler)> {
         ("memory.import.switch", |s, p| Box::pin(switch(s, p))),
         ("memory.review", |s, p| Box::pin(review(s, p))),
         ("memory.review.answer", |s, p| Box::pin(review_answer(s, p))),
+        ("memory.review.all", |s, p| Box::pin(review_all(s, p))),
+        ("memory.review.daily", |s, p| Box::pin(review_daily(s, p))),
     ]
+}
+
+fn ids_of(params: &Params, key: &str) -> Vec<String> {
+    params
+        .get(key)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|v| v.as_str().map(str::to_owned))
+        .collect()
+}
+
+/// `memory.review.all {approve, decline}`: the whole list answered at once (MEM-486), as the card's and the list's
+/// Approve all / Decline all send it: each id in `approve` gets its part's yes, each in `decline` its part's no (an
+/// unticked line). Answers with the review as it stands now; the card closes when nothing is left.
+async fn review_all(st: Rc<State>, params: Params) -> HandlerResult {
+    let j = job(&st);
+    let answered = j
+        .answer_all(
+            &st.profile,
+            &ids_of(&params, "approve"),
+            &ids_of(&params, "decline"),
+        )
+        .map_err(unreadable)?;
+    review_settled(&st);
+    let mut out = j.review().map_err(learning_error)?;
+    out["answered"] = json!(answered);
+    ok(out)
+}
+
+/// `memory.review.daily {client}`: a client says the owner opened FERB there ("mac", "android", "iphone"); the day's
+/// first open shows what waits (MEM-485, [`daily`]). `{day, checked}`, and when it checked, `count` and `shows`.
+async fn review_daily(st: Rc<State>, params: Params) -> HandlerResult {
+    ok(daily(&st, &text(&params, "client")))
 }
 
 /// `memory.review {}`: the review of what imports brought in, as every client draws it (MEM-460): its parts (keep in
@@ -389,13 +515,7 @@ async fn review(st: Rc<State>, _params: Params) -> HandlerResult {
 /// (MEM-460): always_on approve | decline, still_true yes | no | unsure, offers open | done | not interested. Answers
 /// with the review as it stands now; the question closes when nothing is left.
 async fn review_answer(st: Rc<State>, params: Params) -> HandlerResult {
-    let ids: Vec<String> = params
-        .get("item_ids")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|v| v.as_str().map(str::to_owned))
-        .collect();
+    let ids = ids_of(&params, "item_ids");
     let j = job(&st);
     let answered = j
         .answer_review(
@@ -877,21 +997,13 @@ pub fn site_request(site: &str, profile: &str) -> (String, String) {
 }
 
 /// What the hourly memory pass does here: the coding assistants' history and work log kept up to date when the owner
-/// said Yes (quietly), exports FERB fetched whose import failed or was cancelled deleted a day later, told once, and
-/// the review asked when a remembered fact's check date has come (MEM-472) or FERB's understanding waits for the
-/// owner's Yes (MEM-481).
+/// said Yes (quietly), and exports FERB fetched whose import failed or was cancelled deleted a day later, told once.
+/// It asks nothing about memory (MEM-485).
 pub async fn hourly(st: &Rc<State>) {
     let j = job(st);
-    // decision: MEM-472 — a fact whose check date has come joins the review's "Are these still true?", by code alone:
-    // the question is asked when none waits; one that waits shows it, as its card reads the list as it stands
-    // decision: MEM-481 — so does FERB's understanding that would once have joined always on by itself: it waits in
-    // "Keep these in mind all the time?" for his Approve
-    if j.due_checks().is_ok_and(|due| !due.is_empty())
-        || (super::memory::pending_own(st, REVIEW_KIND).is_none()
-            && j.review_lines().is_ok_and(|(on, _, _)| !on.is_empty()))
-    {
-        ask_review(st);
-    }
+    // decision: MEM-485 — a fact whose check date has come (MEM-472) and FERB's understanding waiting for his Yes
+    // (MEM-481) join the review by code alone, read from their dates and rows whenever the list is read: the hourly
+    // pass asks nothing; the day's first open shows what waits (`daily`)
     if let Ok(gone) = j.delete_fetched(None) {
         for (source, _) in gone {
             let name = ferb_memory::import_sources::source_name(&source)

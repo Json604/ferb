@@ -364,7 +364,7 @@ final class FakePhone: PhoneApi {
     }
 
     /// The review of an import as the Mac holds it; an answer takes its items out. `reviewRefusal` refuses the next call.
-    @ObservationIgnored var review = MemoryReview(parts: [], count: 0)
+    @ObservationIgnored var review = MemoryReview(parts: [], count: 0, all: [], some: "", hint: "")
     @ObservationIgnored var reviewRefusal: FerbError?
     @ObservationIgnored var reviewAnswers: [(part: String, ids: [String], answer: String)] = []
     func memoryReview() async -> Outcome<MemoryReview> {
@@ -384,6 +384,25 @@ final class FakePhone: PhoneApi {
         }
         review.count = UInt64(review.parts.flatMap(\.groups).flatMap(\.items).count)
         return .ok(review)
+    }
+    /// Each Approve all / Decline all as (approved ids, declined ids) (MEM-486); as the Mac does, every line named leaves.
+    @ObservationIgnored var reviewAll: [(approve: [String], decline: [String])] = []
+    func answerMemoryReviewAll(approve: [String], decline: [String]) async -> Outcome<MemoryReview> {
+        calls.append("review-all")
+        if let e = reviewRefusal { reviewRefusal = nil; return .failed(e) }
+        reviewAll.append((approve, decline))
+        let gone = Set(approve + decline)
+        review.parts = review.parts.compactMap { p in
+            var p = p
+            p.groups = p.groups.map { g in var g = g; g.items.removeAll { gone.contains($0.id) }; return g }.filter { !$0.items.isEmpty }
+            return p.groups.isEmpty ? nil : p
+        }
+        review.count = UInt64(review.parts.flatMap(\.groups).flatMap(\.items).count)
+        return .ok(review)
+    }
+    func reviewOpened() async -> Outcome<Void> {
+        calls.append("review-opened")
+        return .ok(())
     }
 
     /// The temporary chat as the Mac holds it (memory only); a refusal answers the next toggle; a send adds the

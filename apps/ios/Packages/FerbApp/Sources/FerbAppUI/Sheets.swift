@@ -63,6 +63,8 @@ struct SheetsView: View {
                               shield: { AnyView($0.screenshotShielded()) })
                     .padding(.top, 8)
             }
+        case .review:
+            ReviewSheet(model: model, insets: insets, close: close)
         case .sites(let row):
             let sites: [String] = model.rows.lazy.compactMap { if case .answer(let k, let ui) = $0, k == row { return ui.sites } else { return nil } }.first ?? []
             Sheet(bottomInset: insets.bottom, onDismiss: close) {

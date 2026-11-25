@@ -712,8 +712,8 @@ fn older_offers_and_lines_are_asked_once_each_under_its_own_question() {
     let question = job.review_question().unwrap().unwrap();
     assert_eq!(
         question,
-        "Can you check a few things I brought in?\n1 older thing that may not be true any more and 5 things I could \
-         help with. Answer each one here, or just tell me."
+        "Can you check a few things I learned about you?\n1 older thing that may not be true any more and 5 things I \
+         could help with. Untick anything that isn't right, or just tell me."
     );
     // his buttons: one offer done, the older line still true
     let water = line_of(&job, "water");

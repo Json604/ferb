@@ -3116,13 +3116,35 @@
         }
       }
     },
-    "review_show_all": {
+    "review_sheet_empty": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show all %1$lld"
+            "value": "Nothing to check right now."
+          }
+        }
+      }
+    },
+    "review_sheet_reading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getting the list from your Mac…"
+          }
+        }
+      }
+    },
+    "review_sheet_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To check"
           }
         }
       }

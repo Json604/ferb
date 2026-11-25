@@ -132,6 +132,7 @@ final class FERBWindowController: NSObject, NSWindowDelegate {
 
     func show(_ section: FERBSection, tab: SettingsTab? = nil) {
         select(section, tab: tab)
+        store.memoryReview.opened()        // MEM-485: the owner opened FERB's window
         if window == nil {
             let created = FERBAppWindow(contentRect: NSRect(x: 0, y: 0, width: 1020, height: 760),
                                         styleMask: [.titled, .closable, .miniaturizable, .resizable,

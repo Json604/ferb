@@ -88,7 +88,7 @@ fun QuestionBox(vm: FerbViewModel, approvalId: String, title: String?, reason: S
             return@Column
         }
         val m = live.shown
-        // FERB's review of what an import brought in (kb MEM-460): its list stands where the detail line would
+        // FERB's review of what it learned (kb MEM-460, MEM-486): its list stands where the detail line would
         val review = m?.review == true
         Words(
             ink,
@@ -111,12 +111,13 @@ fun QuestionBox(vm: FerbViewModel, approvalId: String, title: String?, reason: S
     }
 }
 
-/** The review's list in its question's box: read from the Mac when the box first shows, answered in place. */
+/** The review's list in its question's box: read from the Mac when the box first shows, answered in place (MEM-486). */
 @Composable
 private fun ReviewIn(vm: FerbViewModel, ink: CardInk) {
     val review by vm.review.collectAsState()
+    val unticked by vm.unticked.collectAsState()
     review?.let { r ->
-        MemoryReviewList(r, LocalBusy.current, ink) { part, ids, answer, key -> vm.answerReview(part, ids, answer, key) }
+        MemoryReviewList(r, unticked, LocalBusy.current, ink, onToggle = vm::toggleReview, onAll = { vm.answerReviewAll(it) })
     }
 }
 

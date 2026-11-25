@@ -115,6 +115,10 @@ public protocol PhoneApi: AnyObject {
     /// items of one part: the review as it stands after it.
     func memoryReview() async -> Outcome<MemoryReview>
     func answerMemoryReview(part: String, itemIds: [String], answer: String) async -> Outcome<MemoryReview>
+    /// Approve all (MEM-486): `approve` the ticked lines, `decline` the unticked ones (Decline all: every line).
+    func answerMemoryReviewAll(approve: [String], decline: [String]) async -> Outcome<MemoryReview>
+    /// The owner opened FERB on this phone (MEM-485): the Mac's first open of the day shows what waits to check.
+    func reviewOpened() async -> Outcome<Void>
 
     /// The temporary chat (the owner, 2026-11-23): one conversation the Mac holds in memory only, with every tool and
     /// no prior context; on and off only by the chat's dashed bubble. Read it (private: the Mac's unlock), turn it on
@@ -276,6 +280,12 @@ public final class LibraryPhone: PhoneApi {
     public func memoryReview() async -> Outcome<MemoryReview> { await phone.call { try $0.memoryReview() } }
     public func answerMemoryReview(part: String, itemIds: [String], answer: String) async -> Outcome<MemoryReview> {
         await phone.call { try $0.answerMemoryReview(part: part, itemIds: itemIds, answer: answer) }
+    }
+    public func answerMemoryReviewAll(approve: [String], decline: [String]) async -> Outcome<MemoryReview> {
+        await phone.call { try $0.answerMemoryReviewAll(approve: approve, decline: decline) }
+    }
+    public func reviewOpened() async -> Outcome<Void> {
+        await phone.call { try $0.reviewOpened(client: "iphone") }
     }
     public func temporaryChat() async -> Outcome<TemporaryChat> { await Self.laidOut(await phone.call { try $0.temporaryChat() }) }
     public func setTemporaryChat(on: Bool) async -> Outcome<TemporaryChat> {

@@ -203,6 +203,12 @@ interface PhoneApi {
     suspend fun memoryReview(): Outcome<MemoryReview>
     suspend fun answerMemoryReview(part: String, itemIds: List<String>, answer: String): Outcome<MemoryReview>
 
+    /** Approve all (MEM-486): [approve] the ticked lines, [decline] the unticked ones (Decline all: every line). */
+    suspend fun answerMemoryReviewAll(approve: List<String>, decline: List<String>): Outcome<MemoryReview>
+
+    /** The owner opened FERB on this phone (MEM-485): the Mac's first open of the day shows what waits to check. */
+    suspend fun reviewOpened(): Outcome<Unit>
+
     /**
      * The temporary chat (the owner, 2026-11-23): read from the Mac when the app opens (`chat.temporary.get`), turned on
      * and off by the one dashed bubble (`chat.temporary.set`), and a message sent now with `fresh: true` (with files as
@@ -311,6 +317,9 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun memoryReview() = phone.call { it.memoryReview() }
     override suspend fun answerMemoryReview(part: String, itemIds: List<String>, answer: String) =
         phone.call { it.answerMemoryReview(part, itemIds, answer) }
+    override suspend fun answerMemoryReviewAll(approve: List<String>, decline: List<String>) =
+        phone.call { it.answerMemoryReviewAll(approve, decline) }
+    override suspend fun reviewOpened() = phone.call { it.reviewOpened("android") }
 
     // FERB's words laid out off the main thread, as the chat's (ChatModel.prepare)
     override suspend fun temporaryChat() = phone.call { it.temporaryChat().also { t -> ChatModel.prepare(t.transcript) } }

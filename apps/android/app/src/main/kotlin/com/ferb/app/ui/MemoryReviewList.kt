@@ -2,141 +2,137 @@ package com.ferb.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
-import com.ferb.app.R
 import com.ferb.app.model.Review
+import com.ferb.design.FerbIcon
+import com.ferb.design.FerbIcons
 import com.ferb.design.FerbType
 import com.ferb.design.components.CardInk
 import com.ferb.design.components.PhoneText
 import com.ferb.design.components.pressable
 import com.ferb.mobile.MemoryReview
-import com.ferb.mobile.ReviewButton
-import com.ferb.mobile.ReviewGroup
+import com.ferb.mobile.ReviewItem
 import com.ferb.mobile.ReviewPart
 
 /**
- * FERB's review of what an import brought in (kb MEM-460..457), inside its question's box as FERB.app draws it
- * (MemoryReviewList.swift): each part's question and the line under it, its groups, each item with its note and its
- * buttons (its own when it has them, as an item already always on does: Keep / Remove; else the part's), a group's own
- * buttons for all of its items when it has them (MEM-464), and the part's buttons for all of them at once (shown when
- * the part has more than one item). Every word is the Mac's; the app adds only "Show all N" / "Show less" for a group
- * of more than [Review.SHOWN_AT_FIRST].
- * An answered item leaves the list when the Mac's reply comes back ([onAnswer]'s caller shows it).
+ * FERB's review of what it learned (kb MEM-460..457, MEM-485, MEM-486), as FERB.app draws it (MemoryReviewList.swift):
+ * the list's own buttons on top (Approve all, "Approve 2" while some lines are unticked, Decline all), the line above
+ * the items ([showHint]: the sheet; the card's question already says it), then each part's question and the line under
+ * it, its groups by topic, and every line with its tick. A tap on a line unticks it (the exception); Approve all gives
+ * every ticked line its part's yes and every unticked one its no. Every line shows: Approve all answers only what he
+ * can see. Every word is the Mac's. The Mac's reply is the new list ([onAll]'s caller shows it).
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MemoryReviewList(
     review: MemoryReview,
+    unticked: Set<String>,
     busy: Set<String>,
     ink: CardInk,
-    /** An answer to [ids] of [part]; [key] is its `ui.busy` key ([Review.key], [Review.groupKey]). */
-    onAnswer: (part: String, ids: List<String>, answer: String, key: String) -> Unit,
+    showHint: Boolean = false,
+    onToggle: (String) -> Unit,
+    /** Approve all (true: the ticked lines approved, the unticked declined) or Decline all (false). */
+    onAll: (approve: Boolean) -> Unit,
 ) {
+    val sending = Review.ALL in busy
     Column(Modifier.fillMaxWidth().padding(top = 4.dp).testTag("review"), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        for (part in review.parts) ReviewPartView(part, busy, ink, onAnswer)
+        if (review.parts.isNotEmpty()) {
+            if (showHint && review.hint.isNotEmpty()) PhoneText(review.hint, 13.5f, color = ink.secondary)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Review.approveLabel(review, unticked)?.let { label ->
+                    SmallButton(label, ink, primary = true, tag = "review:approve", onClick = if (sending) null else ({ onAll(true) }))
+                }
+                review.all.getOrNull(1)?.let { b ->
+                    SmallButton(b.label, ink, primary = false, tag = "review:decline", onClick = if (sending) null else ({ onAll(false) }))
+                }
+            }
+        }
+        for (part in review.parts) ReviewPartView(part, unticked, sending, ink, onToggle)
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ReviewPartView(part: ReviewPart, busy: Set<String>, ink: CardInk, onAnswer: (String, List<String>, String, String) -> Unit) {
-    val ids = Review.ids(part)
+private fun ReviewPartView(part: ReviewPart, unticked: Set<String>, sending: Boolean, ink: CardInk, onToggle: (String) -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             PhoneText(part.title, 15f, FerbType.Semibold, ink.primary)
             if (part.hint.isNotEmpty()) PhoneText(part.hint, 13f, color = ink.secondary)
         }
-        for (group in part.groups) ReviewGroupView(part, group, busy, ink, onAnswer)
-        if (ids.size > 1 && part.all.isNotEmpty()) {
-            val key = Review.key(part.part, null)
-            AllButtons(part.all, ink, "review:${part.part}:all", sending = key in busy, part = true) { b -> onAnswer(part.part, ids, b.answer, key) }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ReviewGroupView(part: ReviewPart, group: ReviewGroup, busy: Set<String>, ink: CardInk, onAnswer: (String, List<String>, String, String) -> Unit) {
-    var open by remember(part.part, group.title) { mutableStateOf(false) }
-    val shown = if (open) group.items else group.items.take(Review.SHOWN_AT_FIRST)
-    val groupKey = Review.groupKey(part.part, group.title)
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (group.title.isNotEmpty()) PhoneText(group.title, 12.5f, FerbType.Medium, ink.secondary, Modifier.padding(top = 2.dp))
-        for (item in shown) {
-            val key = Review.key(part.part, item.id)
-            val sending = key in busy || Review.key(part.part, null) in busy || groupKey in busy
-            Column(
-                Modifier.fillMaxWidth().background(ink.fill, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 10.dp)
-                    .testTag("review-item:${item.id}"),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                PhoneText(item.text, 14.5f, color = ink.primary)
-                if (item.note.isNotEmpty()) PhoneText(item.note, 12.5f, color = ink.secondary)
-                FlowRow(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (b in item.answers.ifEmpty { part.answers }) {
-                        SmallButton(b, ink, primary = false, tag = "review:${part.part}:${item.id}:${b.answer}",
-                            onClick = if (sending) null else ({ onAnswer(part.part, listOf(item.id), b.answer, key) }))
-                    }
-                }
-            }
-        }
-        if (group.items.size > Review.SHOWN_AT_FIRST) {
-            PhoneText(
-                if (open) stringResource(R.string.show_less) else stringResource(R.string.review_show_all, group.items.size),
-                13.5f, FerbType.Medium, ink.primary,
-                Modifier.pressable({ open = !open }).padding(vertical = 4.dp),
-            )
-        }
-        // the group's own buttons for all of its items (Keep all / Remove all, MEM-464); usually none
-        if (group.all.isNotEmpty()) {
-            val ids = group.items.map { it.id }
-            AllButtons(group.all, ink, "review:${part.part}:group:${group.title}", sending = groupKey in busy || Review.key(part.part, null) in busy) { b ->
-                onAnswer(part.part, ids, b.answer, groupKey)
+        for (group in part.groups) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (group.title.isNotEmpty()) PhoneText(group.title, 12.5f, FerbType.Medium, ink.secondary, Modifier.padding(top = 2.dp))
+                for (item in group.items) ItemRow(item, item.id !in unticked, sending, ink, onToggle)
             }
         }
     }
 }
 
-/**
- * Buttons for all of a part's or a group's items at once. A part's sit a little apart with the first in the card's
- * inverse; a group's are quiet, so they read as that group's, not the whole part's.
- */
-@OptIn(ExperimentalLayoutApi::class)
+/** One line: its tick, its words and the small note under them; the whole row is the tick's button. */
 @Composable
-private fun AllButtons(buttons: List<ReviewButton>, ink: CardInk, tag: String, sending: Boolean, part: Boolean = false, onClick: (ReviewButton) -> Unit) {
-    FlowRow(Modifier.padding(top = if (part) 6.dp else 0.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        buttons.forEachIndexed { i, b ->
-            SmallButton(b, ink, primary = part && i == 0, tag = "$tag:${b.answer}", onClick = if (sending) null else ({ onClick(b) }))
+private fun ItemRow(item: ReviewItem, ticked: Boolean, sending: Boolean, ink: CardInk, onToggle: (String) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(if (ticked) ink.fill else Color.Transparent, RoundedCornerShape(12.dp))
+            .border(1.dp, if (ticked) Color.Transparent else ink.line, RoundedCornerShape(12.dp))
+            .pressable(if (sending) null else ({ onToggle(item.id) }), label = item.text)
+            .semantics { role = Role.Checkbox; selected = ticked; stateDescription = if (ticked) "Ticked" else "Not ticked" }
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("review-item:${item.id}"),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Tick(ticked, ink)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            PhoneText(item.text, 14.5f, color = if (ticked) ink.primary else ink.secondary)
+            if (item.note.isNotEmpty()) PhoneText(item.note, 12.5f, color = ink.secondary)
         }
     }
 }
 
-/** A small button of the review: the first of a part's "all" buttons in the card's inverse, the rest on its fill. */
+/** A round tick: filled with a check while ticked, an empty ring once unticked. */
 @Composable
-private fun SmallButton(b: ReviewButton, ink: CardInk, primary: Boolean, tag: String, onClick: (() -> Unit)?) {
-    val bg = if (primary) ink.primary else if (ink.onFerb) Color.White.copy(alpha = 0.14f) else ink.line
-    val fg = if (primary) ink.card else ink.primary
-    androidx.compose.foundation.layout.Box(
-        Modifier.pressable(onClick, label = b.label).heightIn(min = 32.dp).background(bg, RoundedCornerShape(50))
-            .padding(horizontal = 12.dp, vertical = 6.dp).testTag(tag),
+private fun Tick(ticked: Boolean, ink: CardInk) {
+    Box(
+        Modifier.padding(top = 1.dp).size(20.dp)
+            .background(if (ticked) ink.primary else Color.Transparent, CircleShape)
+            .border(1.5.dp, if (ticked) ink.primary else ink.secondary, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        PhoneText(b.label, 13.5f, FerbType.Medium, if (onClick == null) fg.copy(alpha = 0.5f) else fg)
+        if (ticked) FerbIcon(FerbIcons.check, 12f, ink.card)
+    }
+}
+
+/** A small button of the review: the main one in the card's inverse, the other on its fill. */
+@Composable
+private fun SmallButton(label: String, ink: CardInk, primary: Boolean, tag: String, onClick: (() -> Unit)?) {
+    val bg = if (primary) ink.primary else if (ink.onFerb) Color.White.copy(alpha = 0.14f) else ink.line
+    val fg = if (primary) ink.card else ink.primary
+    Box(
+        Modifier.pressable(onClick, label = label).heightIn(min = 34.dp).background(bg, RoundedCornerShape(50))
+            .padding(horizontal = 14.dp, vertical = 6.dp).testTag(tag),
+        contentAlignment = Alignment.Center,
+    ) {
+        PhoneText(label, 13.5f, FerbType.Medium, if (onClick == null) fg.copy(alpha = 0.5f) else fg)
     }
 }

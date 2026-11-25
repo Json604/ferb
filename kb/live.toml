@@ -5276,7 +5276,7 @@ sitting = "after this change is installed"
 title = "What you approved stays always on; what FERB works out waits for your Yes"
 area = "memory"
 surface = "FERB.app with this build installed over the owner's current store (his 65 approved imported lines always on), its Memory page, and a phone"
-request = "After the update, open the Memory page and read Always on and To check. Over two days, mention the same new preference in passing in the chat (not \"remember …\"), then look at To check and the chat's \"Can you check a few things I brought in?\". Approve it, or Decline it and say the same thing again a day later. Open the same card on a phone. Quit and reopen FERB.app."
+request = "After the update, open the Memory page and read Always on and To check. Over two days, mention the same new preference in passing in the chat (not \"remember …\"), then look at To check and, the next day's first open, the chat's \"Can you check a few things I learned about you?\". Approve it, or untick it and Approve (it is declined), and say the same thing again a day later. Open the same card on a phone. Quit and reopen FERB.app."
 pass = "Always on still shows your words, what FERB saw on your Mac and the 65 lines you approved, and nothing asks about them again; the preference FERB worked out is not always on by itself and is listed under \"Keep these in mind all the time?\" with Approve / Decline; approved, it shows under Always on at once; declined, it stays off, is still on the Memory page and found when FERB looks it up, and isn't asked again; after the reopen nothing you answered is asked again."
 decisions = ["MEM-480", "MEM-481", "MEM-482", "MEM-483"]
 sitting = "after this build is installed, over two days"
@@ -5289,3 +5289,12 @@ request = "Ask for a small browsing task with a few steps (for example \"open ka
 pass = "The first task's model.usage records carry `requests` (several, not 1); the stopped task has a model.usage record marked recorded_at_end with its tokens; `ferb stats` shows both under worker, claude without the ~ mark for today."
 decisions = ["RUN-477", "ORCH-720"]
 sitting = "one sitting, about 5 minutes"
+
+[LIVE-1223]
+title = "Memory questions come once a day: a card for a few, a note for more"
+area = "memory"
+surface = "FERB.app with this build, its Memory page, and a phone"
+request = "Over a few days, let FERB learn things about you as you use it (preferences said in passing on two days, or a fact with a check date). Each morning open FERB first on the phone one day and on the Mac another. With five or fewer waiting, untick one line on the card and press Approve; with more than five, press the note's Review and use the list (Approve all, or untick some first; Decline all once). Leave one day's card or note unanswered."
+pass = "Nothing about memory is asked while you work or at a start; the day's first open (either device) shows at most one card or note, later opens nothing new; the card lists all with Approve all on top and a tick per line; Approve answers the ticked and declines the unticked in one tap; the note's Review opens To check (Mac) or a sheet (phone); an unanswered card or note waits and the note's number changes at most once a day."
+decisions = ["MEM-485", "MEM-486", "MEM-487", "MEM-488"]
+sitting = "after this build is installed, over three or four days"

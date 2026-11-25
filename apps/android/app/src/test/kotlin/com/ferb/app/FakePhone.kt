@@ -359,7 +359,7 @@ class FakePhone : PhoneApi {
     }
 
     // ---- FERB's review of what an import brought in (kb MEM-460..457): the Mac's list, the answers it got, a refusal ----
-    var memoryReview = com.ferb.mobile.MemoryReview(emptyList(), 0uL)
+    var memoryReview = com.ferb.mobile.MemoryReview(emptyList(), 0uL, emptyList(), "", "")
     var reviewRefusal: Outcome.Failed? = null
     /** Each answer as (part, item ids, answer). */
     val reviewAnswers = ArrayList<Triple<String, List<String>, String>>()
@@ -375,8 +375,26 @@ class FakePhone : PhoneApi {
         val parts = memoryReview.parts.map { p ->
             if (p.part != part) p else p.copy(groups = p.groups.map { g -> g.copy(items = g.items.filter { it.id !in itemIds }) }.filter { it.items.isNotEmpty() })
         }.filter { it.groups.isNotEmpty() }
-        memoryReview = com.ferb.mobile.MemoryReview(parts, parts.sumOf { p -> p.groups.sumOf { it.items.size } }.toULong())
+        memoryReview = memoryReview.copy(parts = parts, count = parts.sumOf { p -> p.groups.sumOf { it.items.size } }.toULong())
         return Outcome.Ok(memoryReview)
+    }
+    /** Each Approve all / Decline all as (approved ids, declined ids) (MEM-486). */
+    val reviewAll = ArrayList<Pair<List<String>, List<String>>>()
+    /** As the Mac does: every line named leaves the list. */
+    override suspend fun answerMemoryReviewAll(approve: List<String>, decline: List<String>): Outcome<com.ferb.mobile.MemoryReview> {
+        calls += "memory-review-all"
+        reviewRefusal?.let { return it }
+        reviewAll += approve to decline
+        val gone = (approve + decline).toSet()
+        val parts = memoryReview.parts.map { p ->
+            p.copy(groups = p.groups.map { g -> g.copy(items = g.items.filter { it.id !in gone }) }.filter { it.items.isNotEmpty() })
+        }.filter { it.groups.isNotEmpty() }
+        memoryReview = memoryReview.copy(parts = parts, count = parts.sumOf { p -> p.groups.sumOf { it.items.size } }.toULong())
+        return Outcome.Ok(memoryReview)
+    }
+    override suspend fun reviewOpened(): Outcome<Unit> {
+        calls += "review-opened"
+        return Outcome.Ok(Unit)
     }
 
     /** The Mac's temporary chat (memory only on the Mac); [temporaryItems] are its turns as the library folds them. */

@@ -356,11 +356,13 @@ fn told(d: &Daemon) -> Vec<Value> {
         .collect()
 }
 
-// decision: MEM-444, MEM-460
+// decision: MEM-444, MEM-460, MEM-485
 #[tokio::test]
-async fn the_review_after_an_import_is_one_question_answered_on_its_card_or_in_words() {
+async fn the_review_after_an_import_waits_for_the_days_first_open_and_is_answered_on_its_card_or_in_words(
+) {
     let tmp = tempfile::tempdir().unwrap();
     let d = daemon(tmp.path()).await;
+    setup_done(&d).await;
     // a line 45 days old carrying an offer, as an earlier import placed it
     d.on(|st| {
         Box::pin(async move {
@@ -376,20 +378,28 @@ async fn the_review_after_an_import_is_one_question_answered_on_its_card_or_in_w
         })
     })
     .await;
+    assert!(asks(&d).is_empty(), "nothing is asked when it is learned");
+    d.on(|st| Box::pin(async move { memory_import::daily(&st, "mac") }))
+        .await;
     let asked = asks(&d);
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0]["kind"], "memory_review");
     assert_eq!(
         asked[0]["summary"],
-        "Can you check a few things I brought in?"
+        "Can you check a few things I learned about you?"
     );
     assert_eq!(
         asked[0]["detail"],
-        "1 thing I could help with. Answer each one here, or just tell me."
+        "1 thing I could help with. Untick anything that isn't right, or just tell me."
     );
-    // asked once: the next import's round asks it no more
-    d.on(|st| Box::pin(async move { memory_import::ask_offers(&st) }))
-        .await;
+    // asked once: the next import's round and the day's later opens ask it no more
+    d.on(|st| {
+        Box::pin(async move {
+            memory_import::ask_offers(&st);
+            memory_import::daily(&st, "mac");
+        })
+    })
+    .await;
     assert_eq!(asks(&d).len(), 1);
     // his reply in his own words goes to FERB's reading of it (no model in this daemon: nothing is changed, and FERB
     // says so)
@@ -429,11 +439,12 @@ async fn the_review_after_an_import_is_one_question_answered_on_its_card_or_in_w
     );
 }
 
-// decision: MEM-460, MEM-461, MEM-465
+// decision: MEM-460, MEM-461, MEM-465, MEM-485
 #[tokio::test]
 async fn a_start_folds_the_old_notices_into_one_review_and_answers_close_it() {
     let tmp = tempfile::tempdir().unwrap();
     let d = daemon(tmp.path()).await;
+    setup_done(&d).await;
     // what an earlier build left: two imported lines it put in always on by itself, and its offers question waiting
     let (rent, tea) = d
         .on(|st| {
@@ -457,13 +468,17 @@ async fn a_start_folds_the_old_notices_into_one_review_and_answers_close_it() {
                         ferb_learning::sql![],
                     )
                     .unwrap();
-                let converted = memory::restore_memory_questions(&st).unwrap();
-                memory_import::review_start(&st, converted);
+                memory::restore_memory_questions(&st).unwrap();
+                memory_import::review_start(&st);
                 (rent, tea)
             })
         })
         .await;
-    // one review asked; the "Now always on" notices about imported lines are folded into it
+    // nothing is asked at the start (MEM-485); the day's first open asks the one review, and the "Now always on"
+    // notices about imported lines are folded into it
+    assert!(asks(&d).is_empty());
+    d.on(|st| Box::pin(async move { memory_import::daily(&st, "mac") }))
+        .await;
     let asked = asks(&d);
     assert_eq!(asked.len(), 1, "{asked:?}");
     assert_eq!(asked[0]["kind"], "memory_review");
@@ -532,6 +547,7 @@ async fn a_start_folds_the_old_notices_into_one_review_and_answers_close_it() {
 async fn answering_the_last_items_closes_the_review_on_every_client() {
     let tmp = tempfile::tempdir().unwrap();
     let d = daemon(tmp.path()).await;
+    setup_done(&d).await;
     *d.stand.keeps.lock().unwrap() = Some(Default::default());
     let ids = d
         .on(|st| {
@@ -547,7 +563,8 @@ async fn answering_the_last_items_closes_the_review_on_every_client() {
                         )
                         .unwrap();
                 }
-                memory_import::review_start(&st, false);
+                memory_import::review_start(&st);
+                memory_import::daily(&st, "mac");
                 vec![a, b]
             })
         })
@@ -969,11 +986,12 @@ async fn a_website_watch_made_every_15_minutes_looks_at_the_mail_once_an_hour_af
     assert_eq!(changed().await, first, "a later start changes nothing");
 }
 
-// decision: MEM-472
+// decision: MEM-472, MEM-485 — the hourly pass puts it in the list by code; the day's first open asks
 #[tokio::test]
-async fn the_hourly_pass_asks_about_a_fact_on_its_check_date_with_no_model() {
+async fn a_fact_on_its_check_date_is_asked_at_the_days_first_open_with_no_model() {
     let tmp = tempfile::tempdir().unwrap();
     let d = daemon(tmp.path()).await;
+    setup_done(&d).await;
     // a fact the planner saved with review_in_days 30 (remember.rs)
     let id = d
         .on(|st| {
@@ -1001,16 +1019,18 @@ async fn the_hourly_pass_asks_about_a_fact_on_its_check_date_with_no_model() {
             })
         })
         .await;
+    daily(&d).await;
     assert!(asks(&d).is_empty(), "nothing before the date");
     d.clock.advance(30.0 * 86_400.0);
-    // (one that waits is not asked twice: `pending_own`, which this stand-in's questions never report)
     hourly(&d).await;
+    assert!(asks(&d).is_empty(), "the hourly pass asks nothing");
+    daily(&d).await;
     let asked = asks(&d);
     assert_eq!(asked.len(), 1, "{asked:?}");
     assert_eq!(asked[0]["kind"], "memory_review");
     assert_eq!(
         asked[0]["detail"],
-        "1 thing I said I'd check with you. Answer each one here, or just tell me."
+        "1 thing I said I'd check with you. Untick anything that isn't right, or just tell me."
     );
     // "Not sure" by its button: the question closes, and it is asked again a week later
     let again = id.clone();
@@ -1027,9 +1047,12 @@ async fn the_hourly_pass_asks_about_a_fact_on_its_check_date_with_no_model() {
     })
     .await;
     hourly(&d).await;
+    d.clock.advance(86_400.0);
+    daily(&d).await;
     assert_eq!(asks(&d).len(), 1);
-    d.clock.advance(7.0 * 86_400.0);
+    d.clock.advance(6.0 * 86_400.0);
     hourly(&d).await;
+    daily(&d).await;
     assert_eq!(asks(&d).len(), 2);
     // no model is set up in this daemon: a model call would have failed the pass's steps, none was tried
     assert!(
@@ -1040,6 +1063,11 @@ async fn the_hourly_pass_asks_about_a_fact_on_its_check_date_with_no_model() {
 
 async fn hourly(d: &Daemon) {
     d.on(|st| Box::pin(async move { memory_import::hourly(&st).await }))
+        .await;
+}
+
+async fn daily(d: &Daemon) {
+    d.on(|st| Box::pin(async move { memory_import::daily(&st, "mac") }))
         .await;
 }
 

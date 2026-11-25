@@ -30,6 +30,21 @@ async fn call(d: &Daemon, method: &str, params: Value) -> Value {
     serde_json::from_str(&raw.recv().await).unwrap()
 }
 
+async fn setup_done(d: &Daemon) {
+    d.on(|st| {
+        Box::pin(async move {
+            st.journal("setup.finished", json!({"done": true}), None)
+                .unwrap();
+        })
+    })
+    .await;
+}
+
+async fn daily(d: &Daemon) {
+    d.on(|st| Box::pin(async move { memory_import::daily(&st, "mac") }))
+        .await;
+}
+
 fn asks(d: &Daemon) -> Vec<Value> {
     d.stand
         .calls
@@ -207,13 +222,17 @@ async fn the_upgrade_keeps_what_he_approved_and_asks_about_what_an_earlier_build
         })
     })
     .await;
-    // one question in the chat for what waits, as the card the chat, the Memory page and the phones draw
+    // nothing asked at the start (MEM-485); the day's first open: one card in the chat for what waits, as the chat,
+    // the Memory page and the phones draw it
+    assert!(asks(&d).is_empty());
+    setup_done(&d).await;
+    daily(&d).await;
     let asked = asks(&d);
     assert_eq!(asked.len(), 1, "{asked:?}");
     assert_eq!(asked[0]["kind"], "memory_review");
     assert_eq!(
         asked[0]["detail"],
-        "3 things to keep in mind all the time. Answer each one here, or just tell me."
+        "3 things to keep in mind all the time. Untick anything that isn't right, or just tell me."
     );
     // the Memory page's "To check" reads the same list, any time
     let review = call(&d, "memory.review", json!({})).await;
@@ -274,12 +293,13 @@ async fn the_upgrade_keeps_what_he_approved_and_asks_about_what_an_earlier_build
     .await;
 }
 
-// decision: MEM-481 — FERB's own understanding seen on two days waits in the same list, the hourly pass asks it when
-// no question waits, and Not always on on the Memory page is his No
+// decision: MEM-481, MEM-485 — FERB's own understanding seen on two days waits in the same list, the day's first
+// open asks it, and Not always on on the Memory page is his No
 #[tokio::test]
 async fn ferbs_own_understanding_is_suggested_and_the_memory_pages_no_keeps_it_out() {
     let tmp = tempfile::tempdir().unwrap();
     let d = daemon(tmp.path()).await;
+    setup_done(&d).await;
     let id = d
         .on(|st| {
             Box::pin(async move {
@@ -315,11 +335,13 @@ async fn ferbs_own_understanding_is_suggested_and_the_memory_pages_no_keeps_it_o
             })
         })
         .await;
+    assert!(asks(&d).is_empty(), "the hourly pass asks nothing");
+    daily(&d).await;
     let asked = asks(&d);
     assert_eq!(asked.len(), 1, "{asked:?}");
     assert_eq!(
         asked[0]["detail"],
-        "1 thing to keep in mind all the time. Answer each one here, or just tell me."
+        "1 thing to keep in mind all the time. Untick anything that isn't right, or just tell me."
     );
     let review = call(&d, "memory.review", json!({})).await;
     let item = &review["result"]["parts"][0]["groups"][0];

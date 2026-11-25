@@ -119,6 +119,9 @@ sealed interface Sheet {
     /** A running task's short view (kb PHN-725; FERB.app's TaskShortView): its picture, title and line, Watch live, Stop. */
     data class Task(val taskId: String, val worker: String? = null) : Sheet
 
+    /** The review of what FERB learned (MEM-485: the day's note's Review): the list, as the Mac's To check. */
+    data object Review : Sheet
+
     /** The sites a task contacted (FERB.app's "Sites visited" list), by the chat row that has them. */
     data class Sites(val row: String) : Sheet
 
@@ -401,11 +404,24 @@ class FerbViewModel(
     // FERB's review of what an import brought in (kb MEM-460..457): read when its question's card shows, memory only
     // (declared before `init`, whose lock collector clears it)
     private val _review = MutableStateFlow<com.ferb.mobile.MemoryReview?>(null)
-    /** The review as the Mac last said it (null before the first read): its question's card draws it. */
+    /** The review as the Mac last said it (null before the first read): its question's card and its sheet draw it. */
     val review: StateFlow<com.ferb.mobile.MemoryReview?> = _review.asStateFlow()
+    private val _unticked = MutableStateFlow<Set<String>>(emptySet())
+    /** The review's lines the owner unticked (MEM-486): the exceptions Approve all declines. Only lines still listed. */
+    val unticked: StateFlow<Set<String>> = _unticked.asStateFlow()
 
     /** Show me (APP-983): the Mac's camera, pulled only while its view shows. */
     val camera = com.ferb.app.model.CameraWatch(viewModelScope, api)
+
+    init {
+        viewModelScope.launch {
+            // MEM-485: the owner opened FERB here (in front, unlocked, the Mac reachable): the Mac's first open of the day
+            // shows what waits for him to check; every later open does nothing there. Once per coming to that state.
+            combine(session.front, session.locked, api.link.map { it?.phase == LinkPhase.ONLINE && it.paired }) { front, locked, online ->
+                front && !locked && online
+            }.distinctUntilChanged().collect { if (it) api.reviewOpened() }
+        }
+    }
 
     /** The work row's round live pictures (kb PHN-725), only while it shows, unlocked, in front and not on the shared relay. */
     val thumbnails = com.ferb.app.model.Thumbnails(viewModelScope, api)
@@ -603,6 +619,7 @@ class FerbViewModel(
                     if (_sheet.value is Sheet.Live || _sheet.value is Sheet.Task || _sheet.value is Sheet.Settings || _sheet.value is Sheet.Days ||
                         _sheet.value is Sheet.Location || _sheet.value is Sheet.Camera || _sheet.value is Sheet.Insomnia) _sheet.value = null
                     _review.value = null
+                    _unticked.value = emptySet()
                     transfers.locked()
                     outgoing.locked()
                     _ui.update { it.copy(files = FilesUi(), settings = null, macTasks = null) }
@@ -1988,7 +2005,7 @@ class FerbViewModel(
     /** The review as the Mac has it now, read when its card shows (the Mac's unlock if its window closed). A failure keeps the list. */
     fun loadReview() = busy(com.ferb.app.model.Review.LOAD) {
         when (val r = unlocker.run { api.memoryReview() }) {
-            is Outcome.Ok -> _review.value = r.value
+            is Outcome.Ok -> showReview(r.value)
             is Outcome.Failed -> AppLog.i("memory review not read: ${r.error.linkCode ?: r.error.javaClass.simpleName}")
         }
     }
@@ -2002,13 +2019,47 @@ class FerbViewModel(
         busy(key, tap = true) {
             when (val r = unlocker.run { api.answerMemoryReview(part, ids, answer) }) {
                 is Outcome.Ok -> {
-                    _review.value = r.value
+                    showReview(r.value)
                     // the last answer closes FERB's question on the Mac: the chat follows
                     if (r.value.count == 0uL) refresh()
                 }
                 is Outcome.Failed -> if (r.error !is FerbException.NotSigned) failed(r.error)
             }
         }
+
+    private fun showReview(r: com.ferb.mobile.MemoryReview) {
+        _review.value = r
+        val listed = com.ferb.app.model.Review.ids(r).toSet()
+        _unticked.update { it intersect listed }
+    }
+
+    /** One tap on a line (MEM-486): ticked lines are approved by Approve all, unticked ones declined. */
+    fun toggleReview(id: String) = _unticked.update { if (id in it) it - id else it + id }
+
+    /**
+     * Approve all ([approve]: every ticked line its part's yes, every unticked one its no) or Decline all (every line its
+     * no), in one call; the Mac's reply is the list from then on. A failure leaves it as it was and says why.
+     */
+    fun answerReviewAll(approve: Boolean) = busy(com.ferb.app.model.Review.ALL, tap = true) {
+        val r = _review.value ?: return@busy
+        val ids = com.ferb.app.model.Review.ids(r)
+        val off = _unticked.value
+        val yes = if (approve) ids.filter { it !in off } else emptyList()
+        val no = if (approve) ids.filter { it in off } else ids
+        when (val out = unlocker.run { api.answerMemoryReviewAll(yes, no) }) {
+            is Outcome.Ok -> {
+                showReview(out.value)
+                if (out.value.count == 0uL) refresh()
+            }
+            is Outcome.Failed -> if (out.error !is FerbException.NotSigned) failed(out.error)
+        }
+    }
+
+    /** The day's note's Review (MEM-485): the review in a sheet (the phone has no Memory page), read now. */
+    fun openReview() {
+        show(Sheet.Review)
+        loadReview()
+    }
 
     // ---- Watch live (PHN-454) ----------------------------------------------------------------------------------------
 

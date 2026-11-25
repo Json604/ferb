@@ -1,7 +1,7 @@
 {
   "counts": {
-    "plain": 60,
-    "private": 44,
+    "plain": 61,
+    "private": 45,
     "sensitive": 53,
     "never": 31
   },
@@ -783,6 +783,15 @@
       "owner_to_confirm": false,
       "why": "what FERB asks the owner to check after an import"
     },
+    "memory.review.all": {
+      "class": "private",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner's answer to everything FERB asks him to check"
+    },
     "memory.review.answer": {
       "class": "private",
       "locked": "refused",
@@ -791,6 +800,15 @@
       "refused_params": [],
       "owner_to_confirm": false,
       "why": "the owner's answer to FERB's review of an import"
+    },
+    "memory.review.daily": {
+      "class": "plain",
+      "locked": "refused",
+      "stream": false,
+      "on_mac_screen": false,
+      "refused_params": [],
+      "owner_to_confirm": false,
+      "why": "the owner opened FERB: the day's first open shows what waits to check"
     },
     "memory.show": {
       "class": "private",

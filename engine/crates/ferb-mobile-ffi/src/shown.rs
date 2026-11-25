@@ -179,6 +179,14 @@ pub fn rich_text(source: String) -> Vec<RichBlock> {
     blocks(fr::document(&source))
 }
 
+/// The review's main button with `ticked` of its lines ticked (MEM-486): Approve all, "Approve {n}" while some are
+/// unticked, nil when none is ticked. Pure.
+#[uniffi::export]
+pub fn review_approve_label(review: crate::records::MemoryReview, ticked: u32) -> Option<String> {
+    let core: ferb_mobile::review::MemoryReview = review.conv();
+    core.approve_label(ticked as usize)
+}
+
 /// The plain words of `source` as Copy gives them.
 #[uniffi::export]
 pub fn rich_plain(source: String) -> String {

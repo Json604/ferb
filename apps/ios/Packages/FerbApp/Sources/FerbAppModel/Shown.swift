@@ -57,7 +57,17 @@ public struct NoticeUi: Equatable, Sendable {
     public var above: [ResultShown]
     public var notes: [ResultShown]
     public var pages: [String]
+    /// MEM-485: the day's note's button (its page is the review, which the phone shows in a sheet), else nil.
+    public var review: String? = nil
     static let none = NoticeUi(boxSays: false, above: [], notes: [], pages: [])
+
+    public init(boxSays: Bool, above: [ResultShown], notes: [ResultShown], pages: [String], review: String? = nil) {
+        self.boxSays = boxSays
+        self.above = above
+        self.notes = notes
+        self.pages = pages
+        self.review = review
+    }
 }
 
 public enum Present {
@@ -146,7 +156,8 @@ public enum Present {
             MainGuard.offMain("notice_shown")
             let s = FerbMobile.noticeShown(text: text, quotes: UInt32(quotes), cards: cards, hidden: hidden)
             return NoticeUi(boxSays: s.boxSays, above: s.above.compactMap { shown($0, words: s.boxWords) },
-                            notes: s.notes.compactMap { shown($0, words: nil) }, pages: s.pages.map(page))
+                            notes: s.notes.compactMap { shown($0, words: nil) }, pages: s.pages.map(page),
+                            review: s.pages.first { $0.page == "review" }.map { $0.line ?? "Review" })
         }
     }
 

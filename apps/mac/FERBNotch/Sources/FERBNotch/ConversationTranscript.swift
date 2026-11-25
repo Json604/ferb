@@ -453,7 +453,7 @@ private struct LateReplyView: View {
 
 /// A background message, with typed reminder cards above it and attributed outside text kept as a quote. A timer's or
 /// reminder's arrival is its one box (APP-769): no bubble repeats it, and a reminder's own words show inside the box.
-private struct NoticeView: View {
+struct NoticeView: View {
     let notice: ConversationNotice
     var hidden: Set<String> = []
     @ObservedObject var model: NotchModel
@@ -503,6 +503,11 @@ private struct NoticeView: View {
                     if card.page == "memory" {
                         Button(card.line ?? "Open the Memory page") { model.onOpenMemory?(card.importedFrom) }
                             .buttonStyle(FerbButtonStyle())
+                            .pointingHand("page")
+                    } else if card.page == ResultCard.reviewPage {
+                        // MEM-485: the day's note opens the review list, the Memory page's To check
+                        Button(card.line ?? "Review") { model.openReview() }
+                            .buttonStyle(FerbButtonStyle(primary: true))
                             .pointingHand("page")
                     } else if card.page == "phone" {
                         Button(card.line ?? PhoneWords.openPhoneSettings) { model.onOpenPhone?() }

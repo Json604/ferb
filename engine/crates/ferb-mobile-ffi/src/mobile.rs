@@ -712,6 +712,27 @@ impl Mobile {
         })
     }
 
+    /// The whole list answered at once (`memory.review.all`, MEM-486; needs the unlock): `approve` the ticked lines,
+    /// `decline` the unticked ones (Decline all: every line). The review as it stands after it. Network.
+    pub fn answer_memory_review_all(
+        &self,
+        approve: Vec<String>,
+        decline: Vec<String>,
+    ) -> Result<MemoryReview, FerbError> {
+        guard(|| {
+            Ok(self
+                .core()?
+                .answer_memory_review_all(&approve, &decline)?
+                .conv())
+        })
+    }
+
+    /// The owner opened FERB on this phone (`memory.review.daily`, MEM-485): the Mac's first open of the day shows
+    /// what waits to check. `client`: "android" or "iphone". Network; a failure is for the caller to ignore.
+    pub fn review_opened(&self, client: String) -> Result<(), FerbError> {
+        guard(|| Ok(self.core()?.review_opened(&client)?))
+    }
+
     /// Ends insomnia mode now (`insomnia.end`; allowed while locked, no unlock; never queued). Network.
     pub fn end_insomnia(&self) -> Result<InsomniaEnded, FerbError> {
         guard(|| Ok(self.core()?.end_insomnia()?.conv()))

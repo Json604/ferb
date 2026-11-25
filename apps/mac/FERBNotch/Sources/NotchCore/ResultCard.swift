@@ -53,6 +53,8 @@ public struct ResultCard: Codable, Equatable {
     // page (step 12c): a FERB window page to open, with its filter (the memory import's notice: Memory, imported_from)
     public var page: String?
     public var importedFrom: String?
+    /// MEM-485: the day's note's page: the review list (on the Mac, the Memory page's To check).
+    public static let reviewPage = "review"
     // event (T-1066): a schedule changed in place: its timing and instructions before (`was_*`) and its instructions now
     public var changed: Bool = false
     public var wasRepeat: String?

@@ -98,8 +98,9 @@ extension NotchModel {
     func refreshDaemonStatus() async {
         guard !refreshingStatus else { return }
         refreshingStatus = true
-        // Before the snapshot below, so this extra read never makes it stale.
-        if bodyVisible && viewingToday { await fetchLearningDigest(); await fetchGuessBacklog() }
+        // Before the snapshot below, so this extra read never makes it stale. MEM-487: the day's list of guesses to
+        // confirm one by one (the learning digest) is never read: what FERB learned waits in the one review (MEM-485)
+        if bodyVisible && viewingToday { await fetchGuessBacklog() }
         let rootsBefore = Set(workSessions.values.compactMap(\.backendTaskID))
             .union(session.backendTaskID.map { [$0] } ?? [])
             .union(conversation.turns.filter { Self.waitingStatuses.contains($0.status) }.compactMap(\.backendTaskID))
@@ -1006,18 +1007,6 @@ extension NotchModel {
     func alertToastLapsed(_ id: String) {
         guard let alert = alerts.first(where: { $0.id == id }), !OwnerAlerts.needsOwner(alert) else { return }
         dismissAlert(id)
-    }
-
-    /// The day's learning digest (`memory.learning {op: digest}`, the read `ferb chat` makes when it opens). It marks
-    /// the digest seen for the day, so it is read only while the owner has today's chat open, and shown at once.
-    func fetchLearningDigest() async {
-        guard let reply = try? await rpc.call("memory.learning", params: ["op": "digest"]),
-              let digest = reply["digest"] as? [String: Any] else { return }
-        let proposals = learningProposals(digest["proposals"], kind: nil)
-        guard !proposals.isEmpty else { return }
-        let day = digest["day"] as? String ?? proposals.map(\.id).joined(separator: ",")
-        showLearningNotice(id: "learned:" + day, text: "Here are things I learned that need your confirmation:",
-                           proposals: proposals)
     }
 
     /// FERB's guesses that were waiting before it asked about each at once (L36): offered once as one list

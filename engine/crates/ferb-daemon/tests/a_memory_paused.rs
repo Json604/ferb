@@ -263,11 +263,12 @@ async fn a_start_turns_an_earlier_builds_switches_off_and_cancels_the_watches_on
     assert_eq!(entry["decision"], json!("MEM-478"));
 }
 
-// decision: MEM-478, MEM-472
+// decision: MEM-478, MEM-472, MEM-485
 #[tokio::test]
 async fn the_review_list_still_asks_and_answers_while_paused() {
     let tmp = tempfile::tempdir().unwrap();
     let d = daemon(tmp.path()).await;
+    setup_done(&d).await;
     let id = d
         .on(|st| {
             Box::pin(async move {
@@ -290,6 +291,9 @@ async fn the_review_list_still_asks_and_answers_while_paused() {
                 let at = ferb_learning::py::shift(&st.memory.clock.now(), 0);
                 st.memory.set_review(&item.id, Some(&at)).unwrap();
                 memory_import::hourly(&st).await;
+                assert!(memory::pending_own(&st, memory_import::REVIEW_KIND).is_none());
+                // the day's first open shows it (MEM-485)
+                memory_import::daily(&st, "mac");
                 item.id
             })
         })

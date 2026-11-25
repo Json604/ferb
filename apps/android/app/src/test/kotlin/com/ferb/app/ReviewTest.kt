@@ -4,6 +4,10 @@ import android.app.Application
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -17,7 +21,12 @@ import com.ferb.app.model.Question
 import com.ferb.app.ui.LocalBusy
 import com.ferb.app.ui.LocalQuestions
 import com.ferb.app.ui.MemoryReviewList
+import com.ferb.app.ui.Host
 import com.ferb.app.ui.QuestionBox
+import com.ferb.app.ui.Sheets
+import com.ferb.core.KeyHealth
+import com.ferb.core.KeyState
+import com.ferb.design.screens.PhoneInsets
 import com.ferb.core.Outcome
 import com.ferb.design.components.CardInk
 import com.ferb.mobile.FerbException
@@ -41,9 +50,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * FERB's review of what an import brought in (kb MEM-460..457) in its question's box: the Mac's parts, groups, items,
- * notes and buttons laid out as they come; an item's button answers that item, a part's "all" button every item of the
- * part; the Mac's reply is the list from then on; a failure leaves the list as it was; the typed answer stays.
+ * FERB's review of what it learned (kb MEM-460..457, MEM-485, MEM-486): the Mac's parts, groups, lines and notes laid
+ * out as they come, each line ticked until the owner unticks it, Approve all and Decline all on top answering the whole
+ * list in one call; in its question's box and in the sheet the day's note opens; the Mac told when the owner opens FERB
+ * here; a failure leaves the list as it was; the typed answer stays.
  */
 @RunWith(RobolectricTestRunner::class)
 // tall enough that every button is on screen, where a tap lands
@@ -56,80 +66,59 @@ class ReviewTest {
     @After
     fun tearDown() { root.deleteRecursively() }
 
-    // decision: MEM-460
+    private fun vm(phone: FakePhone, session: Session = Session { 0L }) =
+        FerbViewModel(phone, session, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
+            LocalFiles(root) { null }, account = testAccount())
+
+    // decision: MEM-460, MEM-488
     @Test
-    fun the_list_lays_out_the_macs_parts_groups_items_notes_and_buttons() {
-        val sent = ArrayList<List<Any>>()
-        compose.setContent { MemoryReviewList(ReviewData.review, emptySet(), CardInk.ferb) { p, ids, a, key -> sent += listOf(p, ids, a, key) } }
+    fun the_list_lays_out_the_macs_parts_groups_and_lines_with_a_tick_each() {
+        val toggled = ArrayList<String>()
+        val all = ArrayList<Boolean>()
+        var unticked by mutableStateOf(emptySet<String>())
+        compose.setContent {
+            MemoryReviewList(ReviewData.review, unticked, emptySet(), CardInk.white, showHint = true,
+                onToggle = { toggled += it; unticked = if (it in unticked) unticked - it else unticked + it }, onAll = { all += it })
+        }
         for (t in listOf("Keep these in mind all the time?", ReviewData.HINT, "How you like me to work", "Your setup",
             "You prefer short, concise text in chat.", "You want to talk things through before coding starts.", "You like replies in bullet points.",
             "You test on a Motorola Edge 60 Fusion over wireless debugging.", "Are these still true?", "You told me these a while ago.",
-            "You value sound feedback in apps.", "Last said 20 Sep 2026", "Still want help with these?", "Book the dentist for March")) {
+            "You value sound feedback in apps.", "Last said 20 Sep 2026", "Still want help with these?", "Book the dentist for March",
+            ReviewData.UNTICK)) {
             compose.onNodeWithText(t).assertExists()
         }
-        compose.onAllNodesWithText("Already always on").assertCountEquals(2)
-        // every item has its part's buttons, with the Mac's words, or its own (an item already always on: Keep / Remove)
-        compose.onAllNodesWithText("Approve").assertCountEquals(2)
-        compose.onAllNodesWithText("Decline").assertCountEquals(2)
-        compose.onAllNodesWithText("Keep").assertCountEquals(2)
-        compose.onAllNodesWithText("Remove").assertCountEquals(2)
-        compose.onNodeWithTag("review:always_on:a1:approve").assertExists()
-        compose.onNodeWithTag("review:always_on:a4:decline").assertExists()
-        compose.onNodeWithTag("review:still_true:s1:not_sure").assertExists()
-        compose.onNodeWithTag("review:offers:o1:done").assertExists()
-        // a part's "all" buttons under it when it has more than one item (FERB.app's rule)
-        compose.onNodeWithText("Approve all").assertExists()
-        compose.onNodeWithText("Decline all").assertExists()
+        // no button per line: one tick each, and the list's two buttons on top
+        compose.onAllNodesWithText("Approve").assertCountEquals(0)
+        compose.onAllNodesWithText("Keep").assertCountEquals(0)
         compose.onAllNodesWithText("Yes to all").assertCountEquals(0)
-
-        compose.onNodeWithTag("review:always_on:a2:decline").performClick()
-        compose.onNodeWithTag("review:always_on:a1:decline").performClick()
-        compose.onNodeWithText("Approve all").performClick()
-        compose.onNodeWithTag("review:still_true:s1:no").performClick()
-        assertEquals(listOf(
-            listOf("always_on", listOf("a2"), "decline", "review:always_on:a2"),
-            listOf("always_on", listOf("a1"), "decline", "review:always_on:a1"),
-            listOf("always_on", listOf("a1", "a2", "a3", "a4"), "approve", "review:always_on:*"),
-            listOf("still_true", listOf("s1"), "no", "review:still_true:s1"),
-        ), sent)
+        compose.onNodeWithTag("review-item:a2").assertIsSelected()
+        compose.onNodeWithText("Approve all").assertExists()
+        // a tap on a line unticks it; the main button then names how many it approves
+        compose.onNodeWithTag("review-item:a2").performClick()
+        compose.onNodeWithTag("review-item:a2").assertIsNotSelected()
+        compose.onNodeWithText("Approve 5").performClick()
+        compose.onNodeWithText("Decline all").performClick()
+        assertEquals(listOf("a2"), toggled)
+        assertEquals(listOf(true, false), all)
     }
 
-    // decision: MEM-460
+    // decision: MEM-488 — every line shows: Approve all answers only what he can see
     @Test
-    fun a_group_of_more_than_three_shows_three_until_opened() {
-        val items = (1..5).map { ReviewItem("x$it", "Line $it", "", emptyList()) }
-        val r = MemoryReview(listOf(ReviewData.review.parts[0].copy(groups = listOf(ReviewGroup("Many", items, emptyList())))), 5uL)
-        compose.setContent { MemoryReviewList(r, emptySet(), CardInk.ferb) { _, _, _, _ -> } }
-        compose.onNodeWithText("Line 3").assertExists()
-        compose.onAllNodesWithText("Line 4").assertCountEquals(0)
-        compose.onNodeWithText("Show all 5").performClick()
-        compose.onNodeWithText("Line 5").assertExists()
-        compose.onNodeWithText("Show less").performClick()
-        compose.onAllNodesWithText("Line 5").assertCountEquals(0)
+    fun every_line_shows_however_many() {
+        val items = (1..8).map { ReviewItem("x$it", "Line $it", "", emptyList()) }
+        val r = ReviewData.review.copy(parts = listOf(ReviewData.review.parts[0].copy(groups = listOf(ReviewGroup("Many", items, emptyList())))), count = 8uL)
+        compose.setContent { MemoryReviewList(r, emptySet(), emptySet(), CardInk.ferb, onToggle = {}, onAll = {}) }
+        for (n in 1..8) compose.onNodeWithText("Line $n").assertExists()
+        compose.onAllNodesWithText("Show all 8").assertCountEquals(0)
     }
 
-    // decision: MEM-464
+    // decision: MEM-460, MEM-488
     @Test
-    fun a_group_of_items_already_on_has_its_own_buttons_for_all_of_them() {
-        val sent = ArrayList<List<Any>>()
-        compose.setContent { MemoryReviewList(ReviewData.setupGroup, emptySet(), CardInk.ferb) { p, ids, a, key -> sent += listOf(p, ids, a, key) } }
-        compose.onNodeWithText("Keep all").assertExists()
-        compose.onNodeWithText("Remove all").performClick()
-        compose.onNodeWithText("Approve all").performClick()
-        assertEquals(listOf(
-            listOf("always_on", listOf("a4", "a5"), "decline", "review:always_on:group:Your setup"),
-            listOf("always_on", listOf("a1", "a2", "a3", "a4", "a5"), "approve", "review:always_on:*"),
-        ), sent)
-    }
-
-    // decision: MEM-460, MEM-462
-    @Test
-    fun in_the_question_box_it_is_read_from_the_mac_answered_in_place_and_the_reply_replaces_it() {
+    fun in_the_question_box_approve_all_sends_the_ticked_and_the_unticked_and_the_reply_replaces_it() {
         val phone = FakePhone()
         phone.memoryReview = ReviewData.review
         phone.status = PhoneStatus(false, true, false, listOf(ReviewData.statusQuestion), emptyList(), emptyList(), null)
-        val vm = FerbViewModel(phone, Session { 0L }, Prefs(ApplicationProvider.getApplicationContext()), { true }, null, SavedStateHandle(),
-            LocalFiles(root) { null }, account = testAccount())
+        val vm = vm(phone)
         compose.setContent {
             val ui by vm.ui.collectAsState()
             CompositionLocalProvider(LocalQuestions provides ui.questions, LocalBusy provides ui.busy) { QuestionBox(vm, "ap-r", null, null) }
@@ -142,30 +131,79 @@ class ReviewTest {
         compose.onNodeWithText("Or type your answer…").assertExists()
         compose.onNodeWithText("Skip").assertExists()
 
-        compose.onNodeWithTag("review:always_on:a3:decline").performClick()
-        compose.waitForIdle()
-        assertEquals(Triple("always_on", listOf("a3"), "decline"), phone.reviewAnswers.last())
-        compose.onAllNodesWithText("You like replies in bullet points.").assertCountEquals(0)
-        compose.onNodeWithText("You prefer short, concise text in chat.").assertExists()
-
-        compose.onNodeWithText("Approve all").performClick()
-        compose.waitForIdle()
-        assertEquals(Triple("always_on", listOf("a1", "a2", "a4"), "approve"), phone.reviewAnswers.last())
-        compose.onAllNodesWithText("Keep these in mind all the time?").assertCountEquals(0)
-        compose.onNodeWithText("Are these still true?").assertExists()
-
         // a refusal leaves the list as it was and says why
         phone.reviewRefusal = Outcome.Failed(FerbException.Offline("No link.", null))
-        compose.onNodeWithTag("review:offers:o1:done").performClick()
+        compose.onNodeWithText("Approve all").performClick()
         compose.waitForIdle()
         compose.onNodeWithText("Book the dentist for March").assertExists()
         assertEquals(Note(R.string.err_offline), vm.ui.value.note)
+        phone.reviewRefusal = null
+
+        compose.onNodeWithTag("review-item:a3").performClick()
+        compose.onNodeWithTag("review-item:s1").performClick()
+        compose.onNodeWithText("Approve 4").performClick()
+        compose.waitForIdle()
+        assertEquals(listOf("a1", "a2", "a4", "o1") to listOf("a3", "s1"), phone.reviewAll.last())
+        // everything answered: the card goes
+        compose.onAllNodesWithText("Keep these in mind all the time?").assertCountEquals(0)
+        assertTrue(vm.unticked.value.isEmpty())
     }
+
+    // decision: MEM-485 — the day's note's Review opens the list in a sheet (the phone has no Memory page)
+    @Test
+    fun the_notes_review_opens_the_list_in_a_sheet() {
+        val phone = FakePhone()
+        phone.memoryReview = ReviewData.review
+        val vm = vm(phone)
+        val ui = UiState(gate = Gate.MAIN, link = FakePhone.status(), keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.OK))
+        vm.openReview()
+        assertEquals(Sheet.Review, vm.sheet.value)
+        compose.setContent {
+            val sheet by vm.sheet.collectAsState()
+            Sheets(vm, ui, sheet, PhoneInsets.Lab, NoHost)
+        }
+        compose.waitForIdle()
+        assertTrue("memory-review" in phone.calls)
+        compose.onNodeWithText("To check").assertExists()
+        compose.onNodeWithText(ReviewData.UNTICK).assertExists()
+        compose.onNodeWithText("Decline all").performClick()
+        compose.waitForIdle()
+        assertEquals(emptyList<String>() to listOf("a1", "a2", "a3", "a4", "s1", "o1"), phone.reviewAll.last())
+        compose.onNodeWithText("Nothing to check right now.").assertExists()
+    }
+
+    // decision: MEM-485 — opening FERB here (in front, unlocked, the Mac reachable) tells the Mac; locked or away, nothing
+    @Test
+    fun opening_the_app_tells_the_mac_once_each_time() {
+        val phone = FakePhone()
+        val session = Session { 0L }
+        vm(phone, session)
+        compose.waitForIdle()
+        assertEquals(0, phone.calls.count { it == "review-opened" })
+        session.foreground(true)
+        session.unlocked()
+        compose.waitForIdle()
+        assertEquals(1, phone.calls.count { it == "review-opened" })
+        session.foreground(false)
+        session.foreground(true)
+        session.unlocked()
+        compose.waitForIdle()
+        assertEquals(2, phone.calls.count { it == "review-opened" })
+    }
+}
+
+private object NoHost : Host {
+    override fun stayConnected(on: Boolean) {}
+    override fun blockScreenshots(on: Boolean) {}
+    override fun askNotifications() {}
+    override fun pickFiles(forChat: Boolean) {}
+    override fun handOut(key: String, file: java.io.File, name: String, share: Boolean) {}
 }
 
 /** The invented review the tests and the screenshots draw. */
 object ReviewData {
-    const val QUESTION = "Can you check a few things I brought in?"
+    const val QUESTION = "Can you check a few things I learned about you?"
+    const val UNTICK = "Untick anything that isn't right."
     const val HINT = "I'll remember all of them either way. The ones you approve, I'll keep in mind in everything I do."
 
     private val keep = listOf(ReviewButton("approve", "Keep"), ReviewButton("decline", "Remove"))
@@ -187,15 +225,7 @@ object ReviewData {
         ReviewPart("offers", "Still want help with these?", "I won't start any of them on my own.", listOf(
             ReviewGroup("", listOf(ReviewItem("o1", "Book the dentist for March", "", emptyList())), emptyList()),
         ), listOf(ReviewButton("open", "Yes"), ReviewButton("done", "Done already"), ReviewButton("not_interested", "No thanks")), emptyList()),
-    ), 6uL)
-
-    /** The variant: "Your setup" holds two items already always on, with its own Keep all / Remove all (MEM-464). */
-    val setupGroup = review.copy(parts = review.parts.mapIndexed { i, p ->
-        if (i != 0) p else p.copy(groups = listOf(p.groups[0], ReviewGroup("Your setup", listOf(
-            p.groups[1].items[0],
-            ReviewItem("a5", "You use Arc as your main browser.", "Already always on", keep),
-        ), listOf(ReviewButton("approve", "Keep all"), ReviewButton("decline", "Remove all")))))
-    }, count = 7uL)
+    ), 6uL, listOf(ReviewButton("approve", "Approve all"), ReviewButton("decline", "Decline all")), "Approve {n}", UNTICK)
 
     /** The question as ferb-mobile shows it (`question.rs`: no options, the typed answer's box). */
     val shown = QuestionShown(

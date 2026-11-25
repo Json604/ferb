@@ -14039,3 +14039,131 @@ the whole workspace (only the five crates above). Rebuilt on fe836ff8 (T-1330's 
 
 **kb.** Agent: ORCH-724, ORCH-725, MEM-484, PRM-383 (ORCH-718 from 252). T-1331 deleted (T-1332 waits on no other step now); T-1336's
 why carries the checker measurement.
+
+## 2026-11-25 · 253 · Memory questions wait for one review a day: a card for five or fewer, a note for more
+
+**The owner (MEM-485).** On the review card: "this one tick for every question is toooooo tedious. about all the
+questions ferb has for me for memory, if the count is more than 5 then it makes a note for that for me to review, maybe
+this is done by code each day. idk, lets plan this correctly too". To the coordinator's plan (no one-by-one questions;
+code collects them; at the day's first open, 1-5 one card with Approve all and unticking, more than 5 one note opening
+the list; the list grouped with Approve all / Decline all on top; nothing expires or nags; nothing approved without
+him; every memory question in this one review) he said "yes to all your suggestions". MEM-485 records both with the
+plan as its rule; it refines MEM-460, MEM-462, MEM-464 and MEM-472 (how and when he is asked; what an answer does is
+unchanged). How it is built: MEM-486, MEM-487, MEM-488 (agent).
+
+**When he is asked (MEM-486).** Nothing is asked when something is learned any more: `ask_offers` (an import's end)
+only marks its round, `review_start` (each start) only marks and folds, the hourly pass asks nothing (the facts whose
+date came, MEM-472, and FERB's own understanding, MEM-481, are read from their dates and rows whenever the list is
+read), and his typed answer is applied without a new question after it. The one moment is `memory_import::daily`,
+behind a new RPC `memory.review.daily {client}`:
+- who calls it: FERB.app on the owner's own open: `NotchModel.expand(focus: true)` (his press, hover, shortcut, the menu's Open FERB;
+  never FERB opening the notch itself, `focus: false`, or for a question or an answer), a file drag, History, and
+  `FERBWindow.show`; each phone every time
+  it is in front, unlocked and its Mac online and paired (one Follow / one combine, once per coming to that state).
+  Clients don't count days; the daemon does.
+- which day: the Mac's calendar (`ImportJob::local_today`, Memory's zone: the owner's time zone), whichever client
+  calls first; nothing before `setup.finished`. The day's check is journaled once, `memory.review_daily {day, count,
+  shows, client, note, note_count}`, and every later call that day answers `{day, checked: false}`. The journal row
+  is the record the next day compares with; it is written only by this RPC, so no recorded start changes.
+- what it shows (`import_review::Daily::of`, `CARD_MOST = 5`, the owner's number): none waiting, nothing (a card
+  waiting closes, a note standing is folded); 1-5, the review's own question (memory_review), asked unless one waits,
+  a standing note folded; more, the card closes (set aside, as when nothing is left) and one notice "I learned N
+  things about you. Review them when you like." with a page card `{type: page, page: review, line: Review}`. A note
+  that says the same number stays as it is; a new number folds the old one (`fold_notices`, kept, never drawn again)
+  and tells a new one, so it changes at most once a day. Nothing expires: unanswered lines wait, the card waits (a
+  restart asks it again with the list as it stands, as before), the note waits.
+
+**How he answers (MEM-488).** `memory.review` now also carries the whole list's buttons: `all` (Approve all, Decline
+all), `some` ("Approve {n}") and `hint` ("Untick anything that isn't right."). Every line is drawn with a tick, ticked
+until he unticks it; nothing folds (a group showed three and "Show all N"; Approve all must answer only what he sees).
+A new RPC `memory.review.all {approve, decline}` (`ImportJob::answer_all`) gives each ticked line its part's yes
+(Approve, Yes, Yes) and each unticked one its no (Decline, No, not any more, No thanks), through `answer_review` as
+before, and answers with the list as it stands; the card closes when nothing is left. The main button reads "Approve
+{n}" while some are unticked and is gone when none is ticked (`MemoryReview::approve_label`, exported to the phones as
+`review_approve_label`). Not sure and Done already have no button now; they stay answerable in his words
+(`import_answer.md` is unchanged). `memory.review.answer` stays for an older client.
+
+**The sweep (MEM-487).** The one other path that asked about memory one by one was FERB.app's daily "Here are things I
+learned that need your confirmation:" with Confirm / Not right on each (`memory.learning {op: digest}`, read whenever
+today's chat showed). Nothing in this engine writes the `identity_proposal` nodes it lists (MEM-12), so only an older
+build's could show; the op now answers `{"digest": null}` (what daemon-a's recorded transcript already expects) and
+FERB.app no longer reads it (its read of the older guesses' backlog stays: the daemon has answered that with null
+since MEM-12, and the answers to an older notice still work). Not changed, since they ask nothing about him: "Now always on" notices
+(observed facts, MEM-463), the weekly pass's "stopped using" / "look over" notices, a forget's Yes / No (his request),
+the paused import's setup questions (MEM-478). No runtime prompt changes.
+
+**Clients.**
+- FERB.app: `MemoryReviewList` redrawn (Approve all / Decline all on top, a tick per line, the hint on the Memory page,
+  no per-line buttons, no folding); `MemoryReviewModel` keeps the unticked lines (shared by the card and To check),
+  `answerAll(approve:)`, `opened()`; the note's page `review` draws a Review button opening the Memory page
+  (`NotchModel.openReview`, To check is near its top). `NoticeView` is internal now (for the drawing test).
+- Phones (Android and iPhone the same): `MemoryReviewList` / `ReviewList` redrawn the same way; the ticks in the model
+  (cleared at the lock); the note's Review (`NoticeUi.review`) opens a new sheet `Review` ("To check") with the list,
+  "Getting the list from your Mac…" while it reads and "Nothing to check right now." when empty; `reviewOpened()` on
+  each open. ferb-mobile: `MemoryReview.{all, some, hint}`, `answer_memory_review_all`, `review_opened`; FFI the same.
+- ferb-rpc: `memory.review.all` (Cli; phone class private, as `memory.review.answer`) and `memory.review.daily` (Cli;
+  phone class plain: it only says he opened FERB); `engine/fixtures/phone/classes.json` gains both rows (a Rust-written
+  fixture; counts plain 61, private 45).
+
+**Words for the owner to review** (new or changed; each one constant, easy to change):
+- card title (`import_review::ASK_TITLE`), was "Can you check a few things I brought in?": "Can you check a few things
+  I learned about you?"
+- under it (`ASK_ANSWER_HOW`), was "Answer each one here, or just tell me.": "Untick anything that isn't right, or just
+  tell me."
+- main button `APPROVE_ALL` "Approve all" (unchanged words), while some are unticked `APPROVE_SOME` "Approve {n}";
+  `DECLINE_ALL` "Decline all"; above the list (`UNTICK_HINT`): "Untick anything that isn't right."
+- the day's note (`NOTE_LINE`): "I learned {n} things about you. Review them when you like." (his "FERB learned N
+  things about you. Review when you like", in FERB's own first person as its other chat lines are); its button
+  (`NOTE_BUTTON`): "Review"
+- phones only (strings.xml, copied to iOS by strings.py): sheet title `review_sheet_title` "To check" (the Mac's
+  section name), `review_sheet_reading` "Getting the list from your Mac…", `review_sheet_empty` "Nothing to check right
+  now."; `review_show_all` ("Show all %1$d") is gone.
+
+**Goldens (looked at).** Android: `apps/android/app/src/test/screenshots/review-box.png`, `review-chat.png` (re-recorded),
+`review-note.png`, `review-sheet.png` (new), `review-box-group-kept.png` (deleted: no group buttons any more). iPhone:
+`apps/ios/Packages/FerbApp/Tests/FerbAppTests/Screenshots/app/parity/question-review.png` (re-recorded),
+`review-note.png`, `review-sheet.png` (new), `question-review-setup.png` (deleted). FERB.app has no pixel goldens: its
+drawings (`MEMORY_REVIEW_SHOTS`) were made and looked at: the card, the card with a line unticked ("Approve 2"), the
+Memory page's To check, the note.
+
+**Evidence** (a worktree at 59687311, `nice -n 10`, 2 jobs, temporary folders, no model; after the merge onto 491dad5e,
+which touched none of the code files here, `cargo test -p ferb-learning -p ferb-rpc -p ferb-daemon`: 363 passed, 0
+failed, clippy and fmt clean):
+- `cargo test -p ferb-learning -p ferb-rpc -p ferb-daemon -p ferbd --no-fail-fast`: 548 passed, 1 failed, then ferb-rpc's
+  golden (its Cli count, +2 for the two methods) fixed and passing. The one failure was ferbd `follow_up_grid` (Paused x
+  NewTask, ORCH-308: "the step holds for the owner" timed out, its journal with no memory row) under a load average
+  over 50 from other agents; alone it passed (2 passed). `chat_replay` passed: the start asks nothing new and the
+  daily check writes nothing at a start. ferb-mobile and ferb-mobile-ffi: 126 passed, 2 failed: the FFI's two
+  real-link tests could not bind their Unix socket ("path must be shorter than SUN_LEN": the session's temporary
+  folder is a long path), before any review code runs; not rerun with a shorter one. clippy `-D warnings` (ferb-learning,
+  ferb-daemon, ferb-rpc all targets; ferb-mobile, ferb-mobile-ffi) and `cargo fmt --check` (workspace and both phone
+  crates) clean.
+- FERB.app `swift test`: 988 tests, 22 skipped, 0 failures. On the way: the settings-key scan read a constant named
+  `allKey` as a preference key (renamed `allAnswers`); the digest's old test became "never read or shown"; a first
+  hook on the chat's window brought back in window mode (`openWindowByOwner`) failed WindowModeTests' window-level
+  check twice and passed without it, so it was left out (the window's first open still goes through `expand`).
+- Android `./gradlew --no-daemon :app:testDebugUnitTest :design:test`: app 385, design 113, 0 failures.
+- iPhone `apps/ios/tools/build.sh test` on its own simulator: FerbAppTests 248, FerbDesignTests 75, FerbCoreTests 15
+  (1 skipped), FerbMobileTests 4, FERBUITests 8, 0 failures; `make_project.py --check` and `strings.py --check` ok.
+- ferb-daemon `tests/a_memory_daily_review.rs` (new, real ferb-rpc server, a model stand-in that counts calls: 0):
+  the first open checks once a day on the Mac's calendar (Asia/Kolkata: 18:45 UTC on the 25th is a new day, 01:00 UTC
+  on the 26th is not); a phone first counts and FERB.app later does nothing; nothing waiting, nothing; five a card and
+  six a note with its page card (the card closed); the same six for forty days, one note; a seventh, the old note
+  folded and "I learned 7 things"; an eighth the same day, no change; all answered, the note folded the next day;
+  Approve all with one unticked answers three lines across two parts in one call (the approved one always on, the
+  unticked fact ended, the card closed and published `superseded`); Decline all.
+- the earlier memory tests now say nothing is asked at an import's end, a start or by the hourly pass, and the day's
+  first open asks (a_memory_flow, a_memory_inferred_waits, a_memory_paused); ferb-learning `review_dates.rs`: the
+  threshold and `answer_all`; ferb-mobile: the review's new fields and the main button's words.
+- FERB.app `MemoryReviewTests`: Approve all sends the ticked and the unticked in one call ("Approve 2", Decline all,
+  none ticked); the owner's open calls `memory.review.daily` with client mac and FERB's own open doesn't; the note's
+  page opens the Memory page.
+- Android `ReviewTest` / iPhone `ImportReviewTests`: the list's ticks and buttons, Approve all with exceptions through
+  the view model and a refusal leaving the list, the note's Review opening the sheet, opening the app telling the Mac.
+
+**Unverified.** Not installed or run live (LIVE-1223 new, LIVE-1221's request updated). Not run against the owner's
+store: whether an older build's unconfirmed guesses exist there (which the digest's end now hides from the chat) was
+not read. A card asked with five can grow past five the same day (it reads the list as it stands) until the next day's
+open turns it into the note. The phones' open is "in front, unlocked, online": a phone that opens while its Mac is
+offline tells it when the link comes up while still in front. MEM-485..487 and LIVE-1223 were the next free IDs at
+HEAD 59687311.

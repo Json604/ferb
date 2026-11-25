@@ -1267,3 +1267,42 @@ rule = "The hourly check (`due`) keeps its weekly pass, the early pass for a wai
 why = "Python's `due` (and the port) held whenever anything was left out, so once the profile was over its size every hourly check ran the pass: live it resent one byte-identical 20.7k-character input 38 times, 274k tokens written to Claude's cache and never read."
 evidence = "ferb-learning tests/profile_due.rs: 47 hourly checks with nothing changed make no call, a new fact makes one, the weekly pass still runs; an older row is due once. Both fail with the old rule. tests/fixtures.rs compares the recorded pass rows without `input` (the named difference)."
 paths = ["engine/crates/ferb-learning/src/profile.rs"]
+
+[MEM-485]
+title = "Memory questions wait for one review a day: up to five a card with Approve all, more a note"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "this one tick for every question is toooooo tedious. about all the questions ferb has for me for memory, if the count is more than 5 then it makes a note for that for me to review, maybe this is done by code each day. idk, lets plan this correctly too | yes to all your suggestions"
+words_source = "Relayed verbatim by the coordinator, 2026-11-25: his message on the review card, then his answer to the coordinator's plan (MEM-485's rule is that plan)."
+rule = "Refines MEM-460, MEM-462, MEM-464, MEM-472 (how and when asked). Nothing asked one by one or when learned: code collects it, no model. At his first open of FERB each day (Mac or phone): 1-5 waiting, one card showing all with Approve all (lines ticked; untick any first); more, one note \"I learned N things about you. Review them when you like.\" opening the list (Mac: Memory → To check; phones: a sheet), grouped, Approve all / Decline all on top. Nothing expires or nags; the note's count changes at most once a day. Waiting items stay out of always on, findable. Every memory question uses it."
+paths = ["engine/crates/ferb-learning/src/import_review.rs", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs", "engine/crates/ferb-daemon/src/areas_a/memory.rs", "apps/mac/FERBNotch/Sources/FERBNotch/MemoryReviewList.swift", "apps/mac/FERBNotch/Sources/NotchCore/MemoryReview.swift", "apps/android/app/src/main/kotlin/com/ferb/app/ui/MemoryReviewList.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppUI/ReviewList.swift"]
+live = ["LIVE-1223"]
+
+[MEM-486]
+title = "The day's first open: who says it, which day, card or note"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "For MEM-485. `memory.review.daily {client}` (phone: plain) from FERB.app on his own open of the notch (not FERB opening it) or window, and from a phone each time it is in front, unlocked, online. After setup the first call of a day on the Mac's calendar (Memory's zone) checks, journaled `memory.review_daily`; later calls do nothing. 1-5: the memory_review card (unless one waits). More: the card closes; a notice with a page card {page: review}; same number, it stays; a new one folds the old and is told. Nothing is asked at an import's end, a start, the hourly pass or after his typed answer."
+why = "The daemon owns the day so whichever device opens first counts and nothing is asked twice; folding keeps one note without deleting what was said."
+paths = ["engine/crates/ferb-daemon/src/areas_a/memory_import.rs", "engine/crates/ferb-daemon/src/areas_a/memory.rs", "engine/crates/ferb-rpc/src/auth.rs", "engine/crates/ferb-rpc/src/classes.rs", "engine/fixtures/phone/classes.json", "apps/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "apps/mac/FERBNotch/Sources/FERBNotch/FERBWindow.swift", "apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppModel.swift"]
+live = ["LIVE-1223"]
+
+[MEM-487]
+title = "No other path asks a memory question one by one"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "For MEM-485, the sweep. The daily list of guesses to confirm (Confirm / Not right each, `memory.learning {op: digest}`) is never offered: the op answers null, as backlog does, and FERB.app no longer reads it; nothing writes such a guess (MEM-12). Unchanged, as they ask nothing about him: \"Now always on\" notices (MEM-463), the weekly pass's out-of-date notices, a forget's Yes / No, the paused import's setup questions (MEM-478)."
+paths = ["engine/crates/ferb-daemon/src/areas_a/memory.rs", "apps/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift"]
+untestable = "An absence: the digest op's null is what daemon-a's recorded transcript expects, and FERB.app's removed reads leave nothing to call."
+
+[MEM-488]
+title = "One list with a tick per line; Approve all gives each line its part's yes or no"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "For MEM-485. Card and list draw every line with a tick (no folding: Approve all answers only what he sees), the words from the engine (`memory.review`'s all, some, hint). `memory.review.all {approve, decline}` (phone: private) gives each ticked line its part's yes (Approve, Yes, Yes) and each unticked one its no (Decline, No, not any more, No thanks); the main button reads \"Approve {n}\" while some are unticked, none when nothing is. Not sure and Done already stay answerable in his words."
+paths = ["engine/crates/ferb-learning/src/import_review.rs", "engine/crates/ferb-mobile/src/review.rs", "engine/crates/ferb-mobile-ffi/src/mobile.rs", "apps/mac/FERBNotch/Sources/NotchCore/MemoryReview.swift", "apps/android/app/src/main/kotlin/com/ferb/app/ui/MemoryReviewList.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/ImportReview.swift"]
+live = ["LIVE-1223"]

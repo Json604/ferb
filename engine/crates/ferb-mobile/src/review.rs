@@ -1,7 +1,8 @@
-//! The owner's review of what an import brought in (kb MEM-460..457), as both phones draw it: FERB's own question
-//! whose card is a list he answers item by item or all at once (`memory.review`, `memory.review.answer`, both private:
-//! the unlock window). The words, the parts, the groups and the buttons are the Mac's (ferb-learning `import_review`);
-//! the phone only lays them out. Nothing here is stored on the phone.
+//! The owner's review of what FERB learned about him (kb MEM-460..457, MEM-485, MEM-486), as both phones draw it: one
+//! list, each line ticked until he unticks it, answered all at once (`memory.review`, `memory.review.all`, both
+//! private: the unlock window), in FERB's own question's card (one to five waiting) or in the sheet the day's note
+//! opens. The words, the parts, the groups and the buttons are the Mac's (ferb-learning `import_review`); the phone
+//! only lays them out. Nothing here is stored on the phone. `memory.review.daily` tells the Mac the owner opened FERB.
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -68,11 +69,16 @@ pub struct ReviewPart {
     pub all: Vec<ReviewButton>,
 }
 
-/// The review as it stands: its parts (none when everything is answered) and how many items are left.
+/// The review as it stands: its parts (none when everything is answered), how many items are left, and the whole
+/// list's buttons at its top (MEM-486): `all` (Approve all, Decline all), `some` ("Approve {n}", in place of
+/// Approve all while some lines are unticked) and `hint` (the line above the items).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 pub struct MemoryReview {
     pub parts: Vec<ReviewPart>,
     pub count: u64,
+    pub all: Vec<ReviewButton>,
+    pub some: String,
+    pub hint: String,
 }
 
 fn text(v: &Value, k: &str) -> String {
@@ -118,7 +124,34 @@ impl MemoryReview {
                 all: list(p, "all", button),
             }),
             count: v.get("count").and_then(Value::as_u64).unwrap_or(0),
+            all: list(v, "all", button),
+            some: text(v, "some"),
+            hint: text(v, "hint"),
         }
+    }
+
+    /// Every item's id, in the order shown.
+    pub fn ids(&self) -> Vec<String> {
+        self.parts.iter().flat_map(ReviewPart::ids).collect()
+    }
+
+    /// The main button's words with `ticked` of the list's items ticked (MEM-486): Approve all when every one is,
+    /// "Approve {n}" when some are unticked, none when no item is ticked (only Decline all is left).
+    pub fn approve_label(&self, ticked: usize) -> Option<String> {
+        let total = self.ids().len();
+        if ticked == 0 || total == 0 {
+            return None;
+        }
+        let all = self
+            .all
+            .first()
+            .map(|b| b.label.clone())
+            .unwrap_or_default();
+        Some(if ticked >= total || self.some.is_empty() {
+            all
+        } else {
+            self.some.replace("{n}", &ticked.to_string())
+        })
     }
 }
 
@@ -158,6 +191,30 @@ impl Mobile {
             json!({"part": part, "item_ids": item_ids, "answer": answer}),
         )?))
     }
+
+    /// The whole list answered at once (`memory.review.all`; needs the unlock): `approve` the ticked lines, `decline`
+    /// the unticked ones (Decline all: every line). The review as it stands after it. Network.
+    pub fn answer_memory_review_all(
+        &self,
+        approve: &[String],
+        decline: &[String],
+    ) -> MobileResult<MemoryReview> {
+        let t = self.shared.transport_online()?;
+        Ok(MemoryReview::read(&Shared::call(
+            &t,
+            "memory.review.all",
+            json!({"approve": approve, "decline": decline}),
+        )?))
+    }
+
+    /// The owner opened FERB on this phone (`memory.review.daily`, MEM-485): the Mac's first open of the day shows
+    /// what waits to check in the chat. `client` names the phone ("android", "iphone"). Network; a failure is the
+    /// caller's to ignore (the next open says it again).
+    pub fn review_opened(&self, client: &str) -> MobileResult<()> {
+        let t = self.shared.transport_online()?;
+        Shared::call(&t, "memory.review.daily", json!({"client": client}))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -188,5 +245,21 @@ mod tests {
         assert_eq!(g.items[1].buttons(&r.parts[0])[1].label, "Remove");
         assert!(g.all.is_empty());
         assert_eq!(MemoryReview::read(&json!({})), MemoryReview::default());
+    }
+
+    // decision: MEM-488 — the whole list's buttons come from the Mac; the main one names how many are ticked
+    #[test]
+    fn the_main_button_says_how_many_are_ticked() {
+        let v = json!({"count": 3, "some": "Approve {n}", "hint": "Untick anything that isn't right.",
+            "all": [{"answer": "approve", "label": "Approve all"}, {"answer": "decline", "label": "Decline all"}],
+            "parts": [{"part": "always_on", "groups": [{"title": "", "items": [{"id": "a"}, {"id": "b"}]}]},
+                      {"part": "still_true", "groups": [{"title": "", "items": [{"id": "c"}]}]}]});
+        let r = MemoryReview::read(&v);
+        assert_eq!(r.ids(), vec!["a", "b", "c"]);
+        assert_eq!(r.hint, "Untick anything that isn't right.");
+        assert_eq!(r.all[1].label, "Decline all");
+        assert_eq!(r.approve_label(3).as_deref(), Some("Approve all"));
+        assert_eq!(r.approve_label(2).as_deref(), Some("Approve 2"));
+        assert_eq!(r.approve_label(0), None);
     }
 }

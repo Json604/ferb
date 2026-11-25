@@ -4,13 +4,41 @@ import XCTest
 @testable import FERBNotch
 @testable import NotchCore
 
-/// FERB's review of what an import brought in (kb MEM-460..457) on the Mac: the daemon's list read as it comes, an
-/// answer sent for one item or a whole part and the reply shown at once, the old "Now always on" notices folded away
-/// (MEM-461), and a burst told as one notice whose cards open (MEM-463). The PNGs for the owner's review are drawn
-/// only when MEMORY_REVIEW_SHOTS names a folder.
+/// FERB's review of what it learned (kb MEM-460..457, MEM-485, MEM-486) on the Mac: the daemon's list read as it comes,
+/// each line ticked until he unticks it, Approve all sending the ticked and the unticked in one call and the reply shown
+/// at once, the owner's own open telling the daemon (FERB opening the notch by itself doesn't), the day's note opening
+/// the list, the old "Now always on" notices folded away (MEM-461), and a burst told as one notice whose cards open
+/// (MEM-463). The PNGs for the owner's review are drawn only when MEMORY_REVIEW_SHOTS names a folder.
 @MainActor
 final class MemoryReviewTests: XCTestCase {
-    static let sample: [String: Any] = [
+    static let top: [String: Any] = [
+        "all": [["answer": "approve", "label": "Approve all"], ["answer": "decline", "label": "Decline all"]],
+        "some": "Approve {n}", "hint": "Untick anything that isn't right.",
+    ]
+
+    /// Three waiting, as the day's card shows them (MEM-485: five or fewer).
+    static let card: [String: Any] = top.merging([
+        "count": 3,
+        "parts": [
+            ["part": "always_on", "title": "Keep these in mind all the time?",
+             "hint": "I'll remember all of them either way. The ones you approve, I'll keep in mind in everything I do.",
+             "groups": [
+                ["title": "How you like me to work", "items": [
+                    ["id": "c1", "text": "The owner prefers short answers in chat.", "note": ""],
+                    ["id": "c2", "text": "The owner wants sources named when I answer from the web.", "note": ""]]],
+             ],
+             "answers": [["answer": "approve", "label": "Approve"], ["answer": "decline", "label": "Decline"]],
+             "all": [["answer": "approve", "label": "Approve all"], ["answer": "decline", "label": "Decline all"]]],
+            ["part": "still_true", "title": "Are these still true?", "hint": "You told me these a while ago.",
+             "groups": [["title": "", "items": [
+                ["id": "c3", "text": "The owner is in Goa this week.", "note": "I said I'd check this on 25 Nov 2026"]]]],
+             "answers": [["answer": "yes", "label": "Yes"], ["answer": "no", "label": "No, not any more"],
+                         ["answer": "unsure", "label": "Not sure"]],
+             "all": [["answer": "yes", "label": "Yes to all"], ["answer": "no", "label": "No to all"]]],
+        ],
+    ]) { a, _ in a }
+
+    static let sample: [String: Any] = top.merging([
         "count": 8,
         "parts": [
             ["part": "always_on", "title": "Keep these in mind all the time?",
@@ -43,7 +71,7 @@ final class MemoryReviewTests: XCTestCase {
                          ["answer": "not interested", "label": "No thanks"]],
              "all": [["answer": "open", "label": "Yes to all"], ["answer": "not interested", "label": "No to all"]]],
         ],
-    ]
+    ]) { a, _ in a }
 
     // decision: MEM-460
     func testTheReviewReadsAsTheDaemonSendsIt() {
@@ -61,7 +89,71 @@ final class MemoryReviewTests: XCTestCase {
         XCTAssertTrue(work.all.isEmpty)
         XCTAssertEqual(review.parts[1].answers.map(\.label), ["Yes", "No, not any more", "Not sure"])
         XCTAssertEqual(review.parts[0].groups[0].items[0].note, "Already always on")
+        XCTAssertEqual(review.ids, ["i1", "i2", "i3", "i4", "i5", "i8", "i6", "i7"])
+        XCTAssertEqual(review.hint, "Untick anything that isn't right.")
+        XCTAssertEqual(review.all.map(\.label), ["Approve all", "Decline all"])
         XCTAssertEqual(MemoryReview([:]), .empty)
+    }
+
+    // decision: MEM-488 — every line ticked until he unticks it; Approve all sends the ticked lines and the unticked ones
+    // in one call, and names how many it approves while some are unticked; Decline all sends every line
+    func testApproveAllSendsTheTickedAndTheUntickedInOneCall() async {
+        let rpc = ScriptedRPC()
+        rpc.replies["memory.review"] = Self.card
+        rpc.replies["memory.review.all"] = ["count": 0, "parts": [[String: Any]]()]
+        let model = MemoryReviewModel(rpc: rpc)
+        await model.load()
+        XCTAssertTrue(["c1", "c2", "c3"].allSatisfy(model.isTicked))
+        XCTAssertEqual(model.approveLabel, "Approve all")
+        model.toggle("c3")
+        XCTAssertFalse(model.isTicked("c3"))
+        XCTAssertEqual(model.approveLabel, "Approve 2")
+        model.toggle("c3")
+        XCTAssertEqual(model.approveLabel, "Approve all")
+        model.toggle("c2")
+        await model.answerAll(approve: true)
+        let sent = rpc.calls.filter { $0.0 == "memory.review.all" }.map { $0.1 }
+        XCTAssertEqual(sent.count, 1)
+        XCTAssertEqual(sent[0]["approve"] as? [String], ["c1", "c3"])
+        XCTAssertEqual(sent[0]["decline"] as? [String], ["c2"])
+        XCTAssertEqual(model.review, .empty)
+        XCTAssertTrue(model.unticked.isEmpty, "nothing listed, nothing unticked")
+        // Decline all: every line, whatever is ticked
+        await model.load()
+        await model.answerAll(approve: false)
+        let last = rpc.calls.filter { $0.0 == "memory.review.all" }.map { $0.1 }.last!
+        XCTAssertEqual(last["approve"] as? [String], [])
+        XCTAssertEqual(last["decline"] as? [String], ["c1", "c2", "c3"])
+        // nothing ticked: no Approve, only Decline all
+        await model.load()
+        for id in ["c1", "c2", "c3"] { model.toggle(id) }
+        XCTAssertNil(model.approveLabel)
+    }
+
+    // decision: MEM-485 — the owner's own open tells the daemon (it decides once a day); FERB opening the notch by itself
+    // does not; the day's note's Review opens the list
+    func testTheOwnersOpenTellsTheDaemonAndTheNoteOpensTheList() async throws {
+        let rpc = ScriptedRPC()
+        rpc.replies["memory.review.daily"] = ["day": "2026-11-25", "checked": true, "count": 6, "shows": "note"]
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults("ferb-review-daily"))
+        model.expand(focus: false)
+        model.collapse()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertFalse(rpc.calls.contains { $0.0 == "memory.review.daily" }, "FERB's own open isn't his")
+        model.expand()
+        for _ in 0..<50 where !rpc.calls.contains(where: { $0.0 == "memory.review.daily" }) {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let daily = rpc.calls.filter { $0.0 == "memory.review.daily" }.map { $0.1 }
+        XCTAssertEqual(daily.count, 1)
+        XCTAssertEqual(daily[0]["client"] as? String, "mac")
+        // the note's button: a page card naming the review
+        let card = try XCTUnwrap(ResultCard(["type": "page", "page": "review", "line": "Review"]))
+        XCTAssertEqual(CardLayout.pages([card]).first?.page, ResultCard.reviewPage)
+        var opened: [String?] = []
+        model.onOpenMemory = { opened.append($0) }
+        model.openReview()
+        XCTAssertEqual(opened, [nil])
     }
 
     // decision: MEM-460 — one item or a whole part, and the daemon's reply is the list at once
@@ -124,18 +216,29 @@ final class MemoryReviewTests: XCTestCase {
 
     func testDrawTheChatCardForLooking() async throws {
         let rpc = ScriptedRPC()
-        rpc.replies["memory.review"] = Self.sample
+        rpc.replies["memory.review"] = Self.card
         let model = NotchModel(rpc: rpc, preferences: scratchDefaults("ferb-review-shots"))
         await model.memoryReview.load()
         let approval = try XCTUnwrap(DaemonApproval([
             "approval_id": "ap-review", "kind": "owner_question", "capability": "memory.review",
-            "reason": "Can you check a few things I brought in?\n6 things to keep in mind all the time, 1 older thing "
-                + "that may not be true any more and 1 thing I could help with. Answer each one here, or just tell me.",
-            "summary": "Can you check a few things I brought in?",
-            "detail": "6 things to keep in mind all the time, 1 older thing that may not be true any more and 1 thing "
-                + "I could help with. Answer each one here, or just tell me.",
+            "reason": "Can you check a few things I learned about you?\n2 things to keep in mind all the time and 1 "
+                + "thing I said I'd check with you. Untick anything that isn't right, or just tell me.",
+            "summary": "Can you check a few things I learned about you?",
+            "detail": "2 things to keep in mind all the time and 1 thing I said I'd check with you. Untick anything "
+                + "that isn't right, or just tell me.",
         ]))
         try draw(ApprovalView(model: model, approval: approval), width: 420, name: "mac-review-chat-card.png")
+        model.memoryReview.toggle("c3")
+        try draw(ApprovalView(model: model, approval: approval), width: 420, name: "mac-review-chat-card-unticked.png")
+    }
+
+    func testDrawTheDaysNoteForLooking() throws {
+        let model = NotchModel(rpc: ScriptedRPC(), preferences: scratchDefaults("ferb-review-note"))
+        let note = ConversationNotice(id: "memory-review-note-1", entryID: UUID(), createdAt: Date(), noticedAt: nil,
+                                      text: "I learned 8 things about you. Review them when you like.", quotes: [],
+                                      tag: nil, afterTurnID: nil,
+                                      cards: [ResultCard(["type": "page", "page": "review", "line": "Review"])!])
+        try draw(NoticeView(notice: note, model: model), width: 420, name: "mac-review-note.png")
     }
 
     func testDrawTheMemoryPageForLooking() async throws {

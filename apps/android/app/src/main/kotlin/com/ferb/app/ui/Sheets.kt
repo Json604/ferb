@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicSecureTextField
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -139,6 +140,7 @@ fun Sheets(vm: FerbViewModel, ui: UiState, sheet: Sheet?, insets: PhoneInsets, h
                 )
             }
         }
+        Sheet.Review -> ReviewSheet(vm, ui, insets, close)
         is Sheet.Sites -> {
             val sites = ui.rows.firstNotNullOfOrNull { (it as? com.ferb.app.model.ChatRow.Answer)?.takeIf { a -> a.key == sheet.row }?.ui?.sites }.orEmpty()
             val uri = androidx.compose.ui.platform.LocalUriHandler.current
@@ -292,4 +294,29 @@ private fun Profile(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, host: H
             }
         },
     )
+}
+
+/**
+ * The review of what FERB learned (MEM-485: the day's note's Review; the Mac's Memory page → To check): the list with
+ * Approve all and Decline all on top and a tick on every line, scrolling when long; "nothing to check" once all is
+ * answered. Read from the Mac when it opens (the note's tap).
+ */
+@Composable
+private fun ReviewSheet(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, close: () -> Unit) {
+    val review by vm.review.collectAsState()
+    val unticked by vm.unticked.collectAsState()
+    val title = stringResource(R.string.review_sheet_title)
+    SheetFrame(title = title, bottomInset = insets.bottom, onDismiss = close) {
+        SheetTitle(title, close)
+        val r = review
+        Column(Modifier.weight(1f, fill = false).padding(top = 12.dp)
+            .verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+            when {
+                r == null -> PhoneText(stringResource(R.string.review_sheet_reading), 15f, color = Ink.detail)
+                r.parts.isEmpty() -> PhoneText(stringResource(R.string.review_sheet_empty), 15f, color = Ink.detail)
+                else -> MemoryReviewList(r, unticked, ui.busy, com.ferb.design.components.CardInk.white, showHint = true,
+                    onToggle = vm::toggleReview, onAll = { vm.answerReviewAll(it) })
+            }
+        }
+    }
 }

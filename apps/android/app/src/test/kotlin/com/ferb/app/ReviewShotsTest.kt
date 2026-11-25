@@ -41,8 +41,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * FERB's review of what an import brought in (kb MEM-460..457) as the app draws it: in the chat, at the lab's Android
- * size, and its whole box on its own. `:app:recordRoborazziDebug` rewrites them (look at them first).
+ * FERB's review of what it learned (kb MEM-460..457, MEM-485, MEM-486) as the app draws it: the card in the chat, at the
+ * lab's Android size, its whole box on its own, the day's note and the sheet its Review opens. `:app:recordRoborazziDebug`
+ * rewrites them (look at them first).
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -108,17 +109,38 @@ class ReviewShotsTest {
         shoot("review-box.png")
     }
 
-    /** A group whose items are all already always on, with its own buttons for all of them (MEM-464). */
-    // decision: MEM-464
+    /** The day's note (MEM-485: more than five waiting) in the chat, its Review under its words. */
+    // decision: MEM-485
     @Test
-    @Config(qualifiers = "w412dp-h1800dp-port-mdpi")
-    fun the_whole_review_box_with_a_group_already_on() {
-        phone.memoryReview = ReviewData.setupGroup
+    fun the_days_note_in_the_chat() {
+        val noteUi = ui.copy(questions = emptyList(), rows = ui.rows + ChatRow.Notice("n", "I learned 8 things about you. Review them when you like.",
+            emptyList(), com.ferb.app.model.NoticeUi(false, emptyList(), emptyList(), listOf("Review"), review = "Review")))
         compose.setContent {
-            Box(Modifier.testTag(PHONE).width(Phone.frameWidth).background(Color(0xFF0B1230)).padding(16.dp)) {
-                CompositionLocalProvider(LocalQuestions provides ui.questions) { QuestionBox(vm, "ap-r", null, null) }
+            Box(Modifier.size(Phone.frameWidth, Phone.frameHeight).testTag(PHONE)) {
+                PhoneScreen(labMoment(21.0), insets = PhoneInsets.Lab, glide = false, sheet = {
+                    Sheets(vm, noteUi, null, PhoneInsets.Lab, host)
+                    LabAndroidChrome()
+                }) { Main(vm, noteUi, PhoneTab.CHAT, home = false, PhoneInsets.Lab, labMoment(21.0), host) }
             }
         }
-        shoot("review-box-group-kept.png")
+        shoot("review-note.png")
+    }
+
+    /** The sheet the note's Review opens, one line unticked (MEM-485, MEM-486). */
+    // decision: MEM-485, MEM-488
+    @Test
+    fun the_review_sheet() {
+        vm.openReview()
+        compose.setContent {
+            Box(Modifier.size(Phone.frameWidth, Phone.frameHeight).testTag(PHONE)) {
+                PhoneScreen(labMoment(21.0), insets = PhoneInsets.Lab, glide = false, sheet = {
+                    Sheets(vm, ui.copy(questions = emptyList()), Sheet.Review, PhoneInsets.Lab, host)
+                    LabAndroidChrome()
+                }) { Main(vm, ui.copy(questions = emptyList()), PhoneTab.CHAT, home = false, PhoneInsets.Lab, labMoment(21.0), host) }
+            }
+        }
+        compose.waitForIdle()
+        vm.toggleReview("s1")
+        shoot("review-sheet.png")
     }
 }

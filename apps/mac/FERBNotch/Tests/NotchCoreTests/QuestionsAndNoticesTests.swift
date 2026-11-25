@@ -389,42 +389,17 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(rpc.calls.filter { $0.0 == "results.ack" }.map { $0.1["task_ids"] as? [String] }, [["voice-1"]])
     }
 
-    func testTheLearningDigestIsShownWithConfirmAndNotRightWhileTheOwnerIsLooking() async throws {
+    // decision: MEM-487 — no list of guesses to confirm one by one: the learning digest is never read, even with the
+    // chat open (an answer the notice of an older build kept still works: decideLearning)
+    func testTheLearningDigestIsNeverReadOrShown() async throws {
         let rpc = StatusRPC()
-        rpc.responses["memory.learning"] = ["digest": ["day": "2026-10-13", "ids": ["p-1", "p-2"], "proposals": [
-            ["id": "p-1", "text": "You prefer posting in the morning"], ["id": "p-2", "text": "You use Brave for work"]
-        ]]]
+        rpc.responses["memory.learning"] = ["digest": ["day": "2026-10-13", "ids": ["p-1"], "proposals": [
+            ["id": "p-1", "text": "You prefer posting in the morning"]]]]
         let model = makeModel(rpc)
-        // Fetching the digest marks it seen for the day, so it is fetched only while the chat is open.
-        model.collapse()
-        await model.refreshDaemonStatus()
-        XCTAssertFalse(rpc.calls.contains { $0.0 == "memory.learning" })
         model.expand()
         await model.refreshDaemonStatus()
-        XCTAssertEqual(rpc.calls.first { $0.0 == "memory.learning" }?.1["op"] as? String, "digest")
-
-        let digest = try XCTUnwrap(model.conversation.notices.last)
-        XCTAssertEqual(digest.proposals?.map(\.id), ["p-1", "p-2"])
-        XCTAssertEqual(digest.proposals?.map(\.text), ["You prefer posting in the morning", "You use Brave for work"])
-        XCTAssertFalse(digest.text.contains("/memory"))
-        XCTAssertNil(digest.tag)
-
-        let decided = expectation(description: "Both decisions sent")
-        decided.expectedFulfillmentCount = 2
-        rpc.onCall = { method, _ in if method == "memory.learning" { decided.fulfill() } }
-        model.decideLearning(noticeID: digest.id, proposalID: "p-1", confirm: true)
-        model.decideLearning(noticeID: digest.id, proposalID: "p-2", confirm: false)
-        await fulfillment(of: [decided], timeout: 2)
-        rpc.onCall = nil
-        await settle()
-        let decisions = rpc.calls.filter { $0.0 == "memory.learning" && ["confirm", "retire"].contains($0.1["op"] as? String ?? "") }
-        // Each decision is sent from its own task, so the two calls may arrive in either order.
-        let sent = decisions.map { "\($0.1["id"] as? String ?? "?")=\($0.1["op"] as? String ?? "?")" }
-        XCTAssertEqual(sent.sorted(), ["p-1=confirm", "p-2=retire"])
-        XCTAssertEqual(model.conversation.notices.last?.proposals?.map(\.decision), ["confirmed", "not right"])
-        // The same day's digest is never shown twice.
-        await model.refreshDaemonStatus()
-        XCTAssertEqual(model.conversation.notices.filter { $0.proposals != nil }.count, 1)
+        XCTAssertFalse(rpc.calls.contains { $0.0 == "memory.learning" && $0.1["op"] as? String == "digest" })
+        XCTAssertTrue(model.conversation.notices.allSatisfy { !$0.id.hasPrefix("learned:") })
     }
 
     func testOlderGuessesAreShownOnceWithKeepEditAndDrop() async throws {

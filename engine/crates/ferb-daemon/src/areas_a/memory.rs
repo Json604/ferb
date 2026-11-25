@@ -133,7 +133,8 @@ pub(crate) fn wire(st: &Rc<State>) {
 /// The start's memory steps (`_build_memory`, memory.py:70-85): memory cleaned once, the core profile seeded and
 /// settled, the old fact-node copies closed, FERB's understanding without the owner's Yes taken out of always on
 /// (MEM-482), FERB's waiting questions asked again, an interrupted import resumed, the
-/// website watches' interval brought to FERB's current one (MEM-477).
+/// website watches' interval brought to FERB's current one (MEM-477). Nothing new is asked about memory at the start
+/// (MEM-485): what waits for the owner is shown at the day's first open.
 pub fn start(st: &Rc<State>) -> ferb_learning::Result<()> {
     let record = |kind: &str, data: Value| st.journal.append(kind, Some(data), None).map(|_| ());
     ferb_learning::upgrade::clean_before_tier1(&st.memory, &record)?;
@@ -142,9 +143,9 @@ pub fn start(st: &Rc<State>) -> ferb_learning::Result<()> {
     ferb_learning::upgrade::close_fact_nodes(&st.store, &ferb_clock::py::iso(&st.now()), &record)?;
     // decision: MEM-480, MEM-482, MEM-483 — FERB's understanding always on without the owner's Yes goes back to the
     // review; what he approved stays
-    let waiting = super::memory_import::job(st).wait_for_yes(&st.profile)?;
-    let converted = restore_memory_questions(st)?;
-    super::memory_import::review_start(st, converted || waiting > 0);
+    super::memory_import::job(st).wait_for_yes(&st.profile)?;
+    restore_memory_questions(st)?;
+    super::memory_import::review_start(st);
     super::memory_import::resume(st);
     super::memory_import::watch_intervals(st);
     Ok(())
@@ -363,7 +364,8 @@ pub fn restore_memory_questions(st: &Rc<State>) -> ferb_learning::Result<bool> {
         if kind == super::memory_import::OFFERS_KIND {
             converted |= super::memory_import::convert_offers_question(st, &target);
         }
-        // the review is asked again with the list as it stands now, or closed when nothing is left (MEM-460)
+        // the review's card is asked again with the list as it stands now, or closed when nothing is left (MEM-460);
+        // MEM-485: the day's first open decides card or note again, never the start
         if kind == super::memory_import::REVIEW_KIND {
             let _ = super::memory_import::job(st).suggest_always_on();
             match super::memory_import::job(st).review_question()? {
@@ -1009,7 +1011,10 @@ async fn memory_learning(st: Rc<State>, params: Params) -> HandlerResult {
             ok(json!({"descendants": doomed}))
         }
         "rollback" => ok(json!({"invalidated": le(l.rollback(&crate::shared::text_or(&params, "batch", "")))?})),
-        "digest" => ok(json!({"digest": le(l.digest())?})),
+        // decision: MEM-485 — no memory question is asked one by one: the day's list of guesses to confirm (Confirm /
+        // Not right each, `Learning::digest`) is never offered; nothing in this engine writes such a guess any more
+        // (MEM-12), and an older build's waiting ones stay on the memory pages, as "backlog" above
+        "digest" => ok(json!({"digest": null})),
         "eval_export" => {
             // ferb/eval/memory.py `history_queries`
             let rows = le(st.store.query(

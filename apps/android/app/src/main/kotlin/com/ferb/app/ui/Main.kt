@@ -777,6 +777,12 @@ private fun NoticeRow(vm: FerbViewModel, row: ChatRow.Notice) {
             val text = remember(row.text) { richText(com.ferb.design.components.plainBlocks(row.text), onBlack) }
             RichWords(text, onBlack, row.key)
             for (c in row.ui.notes) ResultCard(c)
+            // MEM-485: the day's note opens the review (the phone's page for it is a sheet); other page buttons are
+            // FERB.app's pages, which the phone doesn't have (kb PHN-656)
+            row.ui.review?.let { label ->
+                com.ferb.design.components.Pill(label, Modifier.padding(top = 4.dp).testTag("review:open"),
+                    height = 40.dp, fill = false, onClick = { vm.openReview() })
+            }
             for ((quote, origin) in row.quotes) {
                 Column(Modifier.drawBehind { drawRect(Ink.onDark, size = androidx.compose.ui.geometry.Size(2.dp.toPx(), size.height)) }.padding(start = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)) {

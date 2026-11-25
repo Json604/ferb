@@ -683,8 +683,16 @@ final class NotchModel: ObservableObject {
         if !expanded { openedByPress = false }
         session.expand()
         acknowledgement.dismiss()
-        if focus { onPresentationChange?(!keyboard) } else { onBackgroundChange?(true) }
+        if focus { onPresentationChange?(!keyboard); ownerOpened() } else { onBackgroundChange?(true) }
     }
+
+    /// The owner opened FERB himself (his click, shortcut or drag, or History): the daemon's first open of the day shows
+    /// what waits for him to check (MEM-485). FERB opening the notch by itself (a question, an answer, the intro) is not
+    /// his open.
+    func ownerOpened() { memoryReview.opened() }
+
+    /// The day's note's Review (MEM-485): the review list, the Memory page's To check.
+    func openReview() { onOpenMemory?(nil) }
 
     func collapse(keyboard: Bool = false) {
         acknowledgement.dismiss()
@@ -1243,6 +1251,7 @@ final class NotchModel: ObservableObject {
         session.attach(files)
         session.edit()
         session.expand()
+        ownerOpened()
         showingSources = false
         showingHistory = false
         showingActivity = false
@@ -1304,6 +1313,7 @@ final class NotchModel: ObservableObject {
         showingHistory = true
         showingSources = false
         session.expand()
+        ownerOpened()
         onInteraction?()
         onPresentationChange?(true)
     }

@@ -520,7 +520,7 @@ struct ChatRowView: View {
         case .answer(let key, let ui):
             AnswerRow(model: model, key: key, a: ui)
         case .notice(let key, let text, let quotes, let ui):
-            NoticeRow(key: key, text: text, quotes: quotes, ui: ui)
+            NoticeRow(key: key, text: text, quotes: quotes, ui: ui, onReview: { model.openReview() })
         case .results(_, let cards):
             VStack(spacing: 8) { ForEach(Array(cards.enumerated()), id: \.offset) { _, c in ResultCardView(c) } }.padding(.trailing, 28)
         case .cards(_, let cards):
@@ -964,6 +964,8 @@ struct NoticeRow: View {
     let text: String
     let quotes: [Quote]
     let ui: NoticeUi
+    /// MEM-485: the day's note's Review (the list in a sheet); FERB.app's other pages the phone doesn't have (PHN-656).
+    var onReview: (() -> Void)? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(ui.above.enumerated()), id: \.offset) { _, c in ResultCardView(c).padding(.trailing, 28) }
@@ -971,6 +973,10 @@ struct NoticeRow: View {
                 FerbRichBubble(copy: text) {
                     RichWords(richText(FerbDesign.RichBlock.plain(text), .onBlack), look: .onBlack, key: key)
                     ForEach(Array(ui.notes.enumerated()), id: \.offset) { _, c in ResultCardView(c) }
+                    if let label = ui.review {
+                        Pill(title: label, height: 40, fill: false, onClick: onReview).padding(.top, 4)
+                            .accessibilityIdentifier("review:open")
+                    }
                     ForEach(Array(quotes.enumerated()), id: \.offset) { _, q in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(q.text).type(14.5, .regular, .white).lineSpacing(2)

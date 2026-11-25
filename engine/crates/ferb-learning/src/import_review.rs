@@ -17,6 +17,11 @@
 //! FERB's own understanding (not an import's) is in the first part too (MEM-480, MEM-481): what would once have
 //! joined always on by itself (MEM-424's two days or a week) waits there for the owner's Approve, as a suggestion.
 //!
+//! **How he is asked (MEM-485, MEM-486).** Never one by one, and never at the moment something is learned: code
+//! collects what waits (no model), and at the day's first open of FERB (FERB.app or a phone; `Daily`) one to
+//! `CARD_MOST` are one small card showing them all, with Approve all on top (each line ticked until he unticks it);
+//! more are one note that opens the list. Nothing expires; what he hasn't answered waits.
+//!
 //! An answered item leaves the list; the list stays until every item is answered. A line's state is on the line
 //! (`always_on`: suggested, on, approved, declined; `asking_old`; `asking`), so every client and the owner's typed
 //! answer read the same list (`review`).
@@ -58,9 +63,62 @@ pub const GROUP_WORK: &str = "How you like me to work";
 pub const GROUP_YOU: &str = "About you";
 pub const GROUP_SETUP: &str = "Your setup";
 pub const ON_NOTE: &str = "Already always on";
-/// The question's first line and what it says under it (the card is its face; this is what the planner reads).
-pub const ASK_TITLE: &str = "Can you check a few things I brought in?";
-pub const ASK_ANSWER_HOW: &str = "Answer each one here, or just tell me.";
+/// The card's question, its first line and what it says under it (the card is its face; this is what the planner
+/// reads). MEM-485: asked only by the day's first open, with five or fewer to check.
+pub const ASK_TITLE: &str = "Can you check a few things I learned about you?";
+pub const ASK_ANSWER_HOW: &str = "Untick anything that isn't right, or just tell me.";
+/// MEM-485, MEM-486: the buttons for the whole list, at its top (the card's and the review list's): every ticked
+/// item gets its part's yes (Approve, Yes, Yes), every unticked one its part's no (Decline, No, not any more, No
+/// thanks). `APPROVE_SOME` stands in for Approve all while some are unticked: `{n}` is how many are ticked.
+pub const APPROVE_ALL: &str = "Approve all";
+pub const APPROVE_SOME: &str = "Approve {n}";
+pub const DECLINE_ALL: &str = "Decline all";
+/// What the list says above its items.
+pub const UNTICK_HINT: &str = "Untick anything that isn't right.";
+/// MEM-485: at the day's first open, more than this many waiting is a note, not a card (the owner's number).
+pub const CARD_MOST: usize = 5;
+/// MEM-485: the day's note when more than `CARD_MOST` wait: `{n}` is how many. Its button opens the review list.
+pub const NOTE_LINE: &str = "I learned {n} things about you. Review them when you like.";
+pub const NOTE_BUTTON: &str = "Review";
+
+/// What the day's first open shows (MEM-485): nothing waiting, nothing; one to `CARD_MOST`, the card; more, the note.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Daily {
+    Nothing,
+    Card,
+    Note,
+}
+
+impl Daily {
+    /// The rule, by the number waiting.
+    pub fn of(count: usize) -> Daily {
+        match count {
+            0 => Daily::Nothing,
+            n if n <= CARD_MOST => Daily::Card,
+            _ => Daily::Note,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Daily::Nothing => "nothing",
+            Daily::Card => "card",
+            Daily::Note => "note",
+        }
+    }
+}
+
+/// The day's note, for `n` waiting.
+pub fn note_line(n: usize) -> String {
+    NOTE_LINE.replace("{n}", &n.to_string())
+}
+
+/// Each part's yes and no, what the whole list's buttons give a ticked and an unticked item (MEM-486).
+pub const YES_NO: [(&str, &str, &str); 3] = [
+    (ALWAYS_ON, "approve", "decline"),
+    (STILL_TRUE, "yes", "no"),
+    (OFFERS, "open", "not interested"),
+];
 /// Under a fact whose check date came (MEM-472): `{day}` is that date, "5 Dec 2026".
 pub const DUE_NOTE: &str = "I said I'd check this on {day}";
 /// How many days a fact the owner answered "Not sure" about waits before it is asked again (MEM-472, FERB's
@@ -435,7 +493,10 @@ impl ImportJob<'_> {
             );
         }
         let count: usize = on.len() + dated.len() + old.len() + offers.len();
-        Ok(json!({"parts": parts, "count": count}))
+        // MEM-486: the whole list's buttons, at its top; each line is ticked until the owner unticks it
+        Ok(json!({"parts": parts, "count": count,
+            "all": [button("approve", APPROVE_ALL), button("decline", DECLINE_ALL)],
+            "some": APPROVE_SOME, "hint": UNTICK_HINT}))
     }
 
     /// The line in plain words to the owner ("You …"), else its words as kept.
@@ -540,6 +601,37 @@ impl ImportJob<'_> {
             n += 1;
         }
         Ok(n)
+    }
+
+    /// The whole list answered at once (`memory.review.all`, MEM-486): each of `approve` gets its part's yes, each of
+    /// `decline` (and not in `approve`) its part's no, as `answer_review` gives them. An id the list no longer holds
+    /// is passed over. The number answered.
+    pub fn answer_all(
+        &self,
+        profile: &CoreProfile,
+        approve: &[String],
+        decline: &[String],
+    ) -> Result<usize> {
+        let decline: Vec<String> = decline
+            .iter()
+            .filter(|d| !approve.contains(d))
+            .cloned()
+            .collect();
+        let mut n = 0;
+        for (part, yes, no) in YES_NO {
+            if !approve.is_empty() {
+                n += self.answer_review(profile, part, approve, yes)?;
+            }
+            if !decline.is_empty() {
+                n += self.answer_review(profile, part, &decline, no)?;
+            }
+        }
+        Ok(n)
+    }
+
+    /// Today on this Mac's calendar ("2026-11-25"), the owner's day the daily review counts by (MEM-486).
+    pub fn local_today(&self) -> String {
+        self.today()
     }
 
     /// The owner's answer about a fact whose check date came (MEM-472), by code: Yes keeps it and clears the date

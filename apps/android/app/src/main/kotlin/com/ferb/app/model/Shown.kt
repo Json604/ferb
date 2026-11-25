@@ -67,7 +67,9 @@ data class GapLines(val body: String, val reasons: List<String>) {
 }
 
 /** A notice's layout (FERB.app's NoticeView): its reminder boxes, whether one says it all, its facts and pages. */
-data class NoticeUi(val boxSays: Boolean, val above: List<ResultShown>, val notes: List<ResultShown>, val pages: List<String>)
+data class NoticeUi(val boxSays: Boolean, val above: List<ResultShown>, val notes: List<ResultShown>, val pages: List<String>,
+    /** MEM-485: the day's note's button (its page is the review, which the phone shows in a sheet), else null. */
+    val review: String? = null)
 
 object Present {
     private const val KEEP = 4_000
@@ -167,7 +169,8 @@ object Present {
         if (cards.isEmpty()) NoticeUi(false, emptyList(), emptyList(), emptyList()) else keep(listOf("n", text, quotes, cards, hidden)) {
             MainGuard.offMain("notice_shown")
             val s = com.ferb.mobile.noticeShown(text, quotes.toUInt(), cards, hidden)
-            NoticeUi(s.boxSays, s.above.mapNotNull { card(it, zone, s.boxWords) }, s.notes.mapNotNull { card(it, zone, null) }, s.pages.map(::page))
+            NoticeUi(s.boxSays, s.above.mapNotNull { card(it, zone, s.boxWords) }, s.notes.mapNotNull { card(it, zone, null) }, s.pages.map(::page),
+                s.pages.firstOrNull { it.page == Review.PAGE }?.let { it.line ?: "Review" })
         }
 
     /** Receipt cards under the first reply (no layout of their own on the Mac but the same card views). */

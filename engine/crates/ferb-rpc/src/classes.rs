@@ -271,6 +271,10 @@ pub const PHONE_METHODS: &[PhoneMethod] = &[
     // FERB's own question (chat.answer's class is plain), shown with his data, so private
     private("memory.review", "what FERB asks the owner to check after an import"),
     private("memory.review.answer", "the owner's answer to FERB's review of an import"),
+    // MEM-485, MEM-486: Approve all (with the lines he unticked) is the same answer, so private; the day's first open
+    // only tells the Mac he opened FERB (what it shows lands in the chat), so plain
+    private("memory.review.all", "the owner's answer to everything FERB asks him to check"),
+    plain("memory.review.daily", "the owner opened FERB: the day's first open shows what waits to check"),
     // ---- perception
     plain("sense.status", "whether FERB watches the Mac"),
     plain("sense.pause", "stops FERB watching: only ever less"),

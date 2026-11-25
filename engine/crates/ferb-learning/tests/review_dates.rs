@@ -119,8 +119,8 @@ fn a_fact_joins_the_review_on_its_check_date_by_code_and_each_answer_does_what_i
         .all(|i| i["note"] == "I said I'd check this on 5 Dec 2026"));
     assert_eq!(
         job.review_question().unwrap().unwrap(),
-        "Can you check a few things I brought in?\n3 things I said I'd check with you. Answer each one here, or just \
-         tell me."
+        "Can you check a few things I learned about you?\n3 things I said I'd check with you. Untick anything that isn't \
+         right, or just tell me."
     );
     assert_eq!(model_calls(&env), 0);
     // Yes: kept, the date cleared, gone from the list
@@ -197,6 +197,55 @@ fn every_fact_whose_date_came_is_asked_past_the_five_older_lines_limit_and_in_wo
             .unwrap(),
         7
     );
+    assert_eq!(job.review().unwrap()["count"], 0);
+    assert_eq!(model_calls(&env), 0);
+}
+
+// decision: MEM-485 — one to five waiting is the card, more is the note (the owner's number: 5)
+#[test]
+fn five_waiting_is_a_card_and_six_a_note() {
+    use ferb_learning::import_review::{note_line, Daily, CARD_MOST};
+    assert_eq!(CARD_MOST, 5);
+    assert_eq!(Daily::of(0), Daily::Nothing);
+    assert_eq!(Daily::of(1), Daily::Card);
+    assert_eq!(Daily::of(5), Daily::Card);
+    assert_eq!(Daily::of(6), Daily::Note);
+    assert_eq!(
+        note_line(6),
+        "I learned 6 things about you. Review them when you like."
+    );
+}
+
+// decision: MEM-488 — Approve all with exceptions: every ticked line gets its part's yes, every unticked one its no, by
+// code; an id the list no longer holds is passed over
+#[test]
+fn approve_all_answers_each_line_with_its_parts_yes_or_no() {
+    let env = Env::new("dates-all", None);
+    at(&env, "2026-11-05T10:00:00+00:00");
+    let job = env.importer();
+    let kept = dated_fact(&env, "course", "The owner is taking a pottery course", 1);
+    let ended = dated_fact(&env, "trip", "The owner is in Goa", 1);
+    later(&env, 1);
+    let review = job.review().unwrap();
+    assert_eq!(review["all"][0]["label"], "Approve all");
+    assert_eq!(review["all"][1]["label"], "Decline all");
+    assert_eq!(review["some"], "Approve {n}");
+    assert_eq!(review["hint"], "Untick anything that isn't right.");
+    let n = job
+        .answer_all(
+            &env.profile,
+            &[kept.clone(), "gone".to_owned()],
+            std::slice::from_ref(&ended),
+        )
+        .unwrap();
+    assert_eq!(n, 2);
+    let k = env.memory.get(&kept).unwrap().unwrap();
+    assert!(
+        k.review_at.is_none() && k.valid_to.is_none(),
+        "Yes keeps it"
+    );
+    let e = env.memory.get(&ended).unwrap().unwrap();
+    assert!(e.valid_to.is_some(), "No, not any more ends it");
     assert_eq!(job.review().unwrap()["count"], 0);
     assert_eq!(model_calls(&env), 0);
 }

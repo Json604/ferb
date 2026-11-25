@@ -46,6 +46,8 @@ public enum AppSheet: Equatable, Sendable {
     case signOut
     /// Delete account's confirmation.
     case deleteAccount
+    /// The review of what FERB learned (MEM-485: the day's note's Review; the Mac's Memory page → To check).
+    case review
 }
 
 /// A short line for the owner: a catalog key (Android's string name) and its arguments (the Mac's own words, when
@@ -683,6 +685,15 @@ public final class AppModel {
         // kb APP-1109: the toast leaves by itself after its seconds while it may (each change starts its wait again)
         follows.append(Follow({ [weak self] () -> String?? in guard let self else { return nil }; return .some(lapsing) }) { [weak self] (id: String?) in
             self?.lapse(id)
+        })
+        // MEM-485: the owner opened FERB here (in front, unlocked, the Mac reachable): the Mac's first open of the day
+        // shows what waits for him to check; every later open does nothing there. Once per coming to that state.
+        follows.append(Follow({ [weak self] () -> Bool? in
+            guard let self else { return nil }
+            return session.front && !session.locked && (api.link.map { $0.phase == .online && $0.paired } ?? false)
+        }) { [weak self] (open: Bool) in
+            guard let self, open else { return }
+            Task { _ = await self.api.reviewOpened() }
         })
         // PHN-648: while the app is unlocked and in front the device key's presence keeps the Mac's window open
         follows.append(Follow({ [weak self] () -> Bool? in guard let self else { return nil }; return !session.locked && session.front }) { [weak self] (open: Bool) in
