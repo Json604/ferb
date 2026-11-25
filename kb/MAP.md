@@ -16,7 +16,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | perception | Perception | `ferb/sense` | 28 | 3 | 1 |
 | phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 397 | 11 | 23 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 17 | 5 | 0 |
-| prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 68 | 3 | 11 |
+| prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 68 | 2 | 11 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 36 | 9 | 7 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 67 | 5 | 10 |
 | storage | Storage | `engine/runtime/store` | 37 | 4 | 4 |

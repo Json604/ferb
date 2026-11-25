@@ -643,13 +643,6 @@ kind = "chore"
 status = "open"
 why = "Owner 2026-11-21 after the test audit: \"park these for the end\". The audit (.local/test-audit/report.md): 5 of 6 push refusals on 2026-11-21 were interference: the gate tests the shared working tree beside the owner's FERB, with no lock, shared build folders and a killing guard."
 
-[T-1279]
-title = "At the end: review every prompt against all tasks to date and improve what they get wrong"
-area = "prompts"
-kind = "chore"
-status = "open"
-why = "Owner 2026-11-22: \"just to remember we do have to look at all teh promtps and see if they are good and what needs improoving based on allll the tasks done til date adn general too\". Also: what belongs in a read tool instead of the always-sent context."
-
 [T-1277]
 title = "At the end: missing tests (real-binary lifecycle, follow-up x state grid, real phone stack)"
 area = "tests"
