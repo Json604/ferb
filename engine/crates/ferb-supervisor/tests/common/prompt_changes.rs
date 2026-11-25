@@ -62,6 +62,19 @@ pub fn apply(text: &str) -> String {
     out
 }
 
+/// What a change's text becomes after a later change (`old` → `new`): that change applied to it when its old text is
+/// inside it (ORCH-663 on ORCH-640's line), or that change's new text when its old text holds it whole (PRM-373 took
+/// ORCH-663's lookup line out with the sentence around it); else unchanged.
+pub fn became_after(text: &str, old: &str, new: &str) -> String {
+    if text.contains(old) {
+        text.replace(old, new)
+    } else if old.contains(text) {
+        new.to_string()
+    } else {
+        text.to_string()
+    }
+}
+
 /// The forms a changed prompt's new text takes in a recorded text: raw and JSON-escaped once or twice.
 fn new_forms(new: &str) -> Vec<String> {
     let mut forms = vec![new.to_string()];
@@ -81,12 +94,11 @@ pub fn reserved_shift(system: &str) -> i64 {
     all.iter()
         .enumerate()
         .filter(|(n, (_, _, new))| {
-            // a later change may change this one's text again (ORCH-663 on ORCH-640's line): look for what it became
+            // a later change may change this one's text again (ORCH-663 on ORCH-640's line), or replace it whole
+            // (PRM-373 on ORCH-663's lookup line): look for what it became
             let mut became = new.clone();
             for (_, o, w) in &all[n + 1..] {
-                if became.contains(o.as_str()) {
-                    became = became.replace(o.as_str(), w);
-                }
+                became = became_after(&became, o, w);
             }
             new_forms(&became)
                 .iter()

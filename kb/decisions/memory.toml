@@ -1203,3 +1203,15 @@ words_source = "His message, relayed verbatim by the coordinator on 2026-11-24, 
 rule = "One flag (`memory_import::PAUSED`) pauses the coding-assistants import and session index (MEM-466) and the website imports (MEM-448, MEM-467), code kept: no setup question; nothing reads Claude Code's or Codex's history; no export requested or mail checked; no `memory.import` tool; its RPCs refuse plainly; Settings' switches and the Memory page's import controls hidden. A start turns a switch left on off through its own path (runs end, watches cancelled), journaled once (`memory.import_paused`). Imported facts and the review list stay. Resume: `PAUSED = false` and a new owner decision."
 paths = ["engine/crates/ferb-daemon/src/areas_a/memory_import.rs", "engine/crates/ferbd/src/compose/tools/mod.rs", "apps/mac/FERBNotch/Sources/FERBNotch/FERBWindowStore.swift", "apps/mac/FERBNotch/Sources/FERBNotch/SettingsPages.swift", "apps/mac/FERBNotch/Sources/FERBNotch/WindowPages.swift"]
 live = ["LIVE-1211"]
+
+[MEM-479]
+title = "Tier 1 holds no coding-process rules and no two facts that contradict each other"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "yes to allll"
+words_source = "Owner 2026-11-25 on the prompt review (T-1279): \"yes to allll\" to Rules A-D, to the inflate-claims flag and to all the changes. The text is the agent's proposal, as approved."
+rule = "memory/profile.md point 1, after \"Leave out one-off or situational facts…\": leave out rules for how software is planned, built, tested or designed and taste in interfaces (they stay in memory, found when such work is asked); never put in two facts that contradict each other: keep the owner's own words, else the newer. memory/import_scope.md's \"rule\" scope: rules about writing, testing or designing software are scope \"tool\" with name \"coding agents\". Prompt text only; whether inferred lines wait for his Yes is the profile pass's code."
+why = "22 of Tier 1's 59 lines were coding-assistant process rules sent to every role, three pairs contradicting (short against detailed explanations, Brave as main browser against \"don't touch Brave\", \"confirm when uncertain\" against PRM-312)."
+paths = ["engine/runtime/memory/profile.md", "engine/runtime/memory/import_scope.md", "engine/fixtures/catalog/prompt_replacements.json"]
+untestable = "Prompt text (TEST-500); the replacement is checked by ferb-context's parity test and ferb-learning's fixtures."

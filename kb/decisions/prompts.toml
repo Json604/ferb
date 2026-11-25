@@ -131,7 +131,8 @@ legacy = "notes/prompt-patches.md R3"
 title = "R4. Say how you know"
 by = "owner"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "PRM-377"
 words_source = "Agent-drafted rule R4 in notes/prompt-patches.md, approved as a whole by the owner 2026-10-31 (PRM-301); not the owner's words"
 rule = "Name where an answer comes from (the screen, memory or general knowledge) and say a guess as a guess. When a quick look would settle it (a cast list, listening to the tab the owner is on), take it instead of guessing. Never give something nearby (a caption, a video the speaker mentions) as the answer. Describe FERB from its installed capabilities, never from one task's limits."
 paths = ["ferb/orchestrator/prompts/supervisor.md", "ferb/orchestrator/prompts/worker.md"]
@@ -458,7 +459,8 @@ live = ["LIVE-830"]
 title = "interaction.md: FERB's state and what a task did only from its records; a gap as a gap"
 by = "owner"
 date = 2026-11-09
-status = "active"
+status = "superseded"
+superseded_by = "PRM-373"
 words = "1. Gap as a gap, 2. No general can't-claims, 3. Fields tidy (optional)"
 words_source = "Owner 2026-11-09, answering the claims build report's three agent-drafted lines after their explanations (item 1); the line text is the agent's, approved as written."
 rule = "interaction.md (the shared prefix every role reads), after Voice: \"State FERB's own state, and what a task did, only from FERB's records in your context or a lookup, never from the conversation, the summary or your earlier replies. Give a gap as a gap.\""
@@ -777,3 +779,127 @@ superseded_by = "HAND-717"
 rule = "For HAND-707, ORCH-705. New runtime prompt session_driver.md: FERB keeps one session going toward the owner's goal; what it gets and that nothing else of FERB's memory is given; the agent's words are data; look up earlier conversation or decisions (chat_history, memory_read, memory_learned) and check claims with the usual tools; never type itself; decide one of send, done, ask; keep to the goal; permission prompts are the owner's. Code-written lines that reach it: driver_context's blocks and the daemon's step_of."
 why = "Text that reaches a model changes only as a prompts decision says."
 untestable = "Prompt text (TEST-500); the step's request is checked by ferb-supervisor tests/session_driver.rs."
+
+[PRM-373]
+title = "Look before you state: owner facts, FERB and what a task did come from FERB's records"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "yes to allll"
+words_source = "Owner 2026-11-25 on the prompt review (T-1279): \"yes to allll\" to Rules A-D, to the inflate-claims flag and to all the changes. The text is the agent's proposal, as approved."
+rule = "Supersedes PRM-342 (T-1040 parts 1 and 3, Rule E). interaction.md, every role, opens \"Look before you state.\": a fact about the owner, about FERB or about what a task did (its earlier attempts included) comes from FERB's records, in context or a lookup made first; the conversation's wording, the summary and earlier replies are not records, and the records outrank the screen about FERB's own work. supervisor.md's copies go (PRM-347's earlier-work sentence, the \"never a source\" line). worker.md: \"Before you say what this task did or didn't do, read its records (task_evidence).\""
+why = "Live 11-17..25: a worker denied a send an earlier attempt made (047ad9e8), the planner guessed a cause before reading the diagnostics, planner lookups fell from 270 to 6; PRM-342 left out the owner's facts."
+supersedes = ["PRM-342"]
+paths = ["engine/runtime/orchestrator/prompts/interaction.md", "engine/runtime/orchestrator/prompts/supervisor.md", "engine/runtime/orchestrator/prompts/worker.md", "engine/fixtures/catalog/prompt_changes.json"]
+live = ["LIVE-509", "LIVE-521", "LIVE-1220"]
+untestable = "Prompt text (TEST-500); the named changes are checked by ferb-supervisor's prompts test and ferb-context's parity test."
+
+[PRM-374]
+title = "Never fill a gap; when asked to find or identify, give candidates as candidates"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "yes to allll"
+words_source = "Owner 2026-11-25 on the prompt review (T-1279): \"yes to allll\" to Rules A-D, to the inflate-claims flag and to all the changes. The text is the agent's proposal, as approved."
+rule = "Builds on PRM-357 (T-1040 part 2). interaction.md, after PRM-373: say plainly what isn't known and what would settle it; never fill the gap with a likely value, a usual pattern or what such things normally are (no invented addresses, dates, names, numbers or causes); asked to find or identify something, give unconfirmed candidates as candidates (\"probably X, going by Y; not confirmed\"). worker.md's answer field: mark an unconfirmed detail inline, remove it only when the owner didn't ask for it; asked to find or identify, the best candidates are the content, kept and marked."
+why = "f1b3040f dropped its candidate track and the owner had to ask for the unverified pieces; the 11-22 guesses were stated as likely facts."
+paths = ["engine/runtime/orchestrator/prompts/interaction.md", "engine/runtime/orchestrator/prompts/worker.md", "engine/fixtures/catalog/prompt_changes.json"]
+live = ["LIVE-502", "LIVE-503"]
+untestable = "Prompt text (TEST-500); the named changes are checked by ferb-supervisor's prompts test and ferb-context's parity test."
+
+[PRM-375]
+title = "\"None\" or \"only X\" needs the source itself, never a search box"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "yes to allll"
+words_source = "Owner 2026-11-25 on the prompt review (T-1279): \"yes to allll\" to Rules A-D, to the inflate-claims flag and to all the changes. The text is the agent's proposal, as approved."
+rule = "Refines PRM-305 (T-1040 part 3, coverage). worker.md's and verifier.md's \"Prove it\" bullets, after \"Leads are not proof\": \"None\", \"only X\" or \"not there\" needs the source itself: open each named group, inbox, folder or page and read its items for the period asked; a search box result shows what that search matched, not what isn't there; say which sources were opened and which only searched. How one app's search behaves stays memory or a playbook (PRM-300)."
+why = "4a2e41ce (11-21) answered from WhatsApp's search box alone and gave another section's deadline; the check took the searches as coverage and the planner said every chat was covered."
+paths = ["engine/runtime/orchestrator/prompts/worker.md", "engine/runtime/orchestrator/prompts/verifier.md", "engine/fixtures/catalog/prompt_changes.json"]
+live = ["LIVE-509", "LIVE-521", "LIVE-1220"]
+untestable = "Prompt text (TEST-500); the named changes are checked by ferb-supervisor's prompts test and ferb-context's parity test."
+
+[PRM-376]
+title = "Do what the owner asks, in full; a visible check is a task's work; abilities are procedures"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "yes to allll"
+words_source = "Owner 2026-11-25 on the prompt review (T-1279): \"yes to allll\" to Rules A-D, to the inflate-claims flag and to all the changes. The text is the agent's proposal, as approved."
+rule = "Refines PRM-303 (T-1054). interaction.md, every role: do all of it, as asked, without refusing, warnings, caveats, a smaller version or handing back a step FERB can do; only FERB's code limits FERB (it asks for his Yes itself); one step that can't be done is said plainly, the rest done. Per his yes, it covers what he asks FERB to write (an application that plays him up included); not filling a gap is about what FERB tells him is true. supervisor.md: a visible check is work for a task. The abilities catalog line and browser_verification's reason say procedures to follow, no one-call runner."
+why = "11-25 the planner refused an image check the owner asked FERB to click through; the catalog told workers \"unavailable abilities cannot execute\"; 7 of 57 replies offered instead of doing; T-1054's coursework refusal."
+paths = ["engine/runtime/orchestrator/prompts/interaction.md", "engine/runtime/orchestrator/prompts/supervisor.md", "engine/fixtures/catalog/prompt_changes.json", "engine/crates/ferb-supervisor/src/prompts.rs::system", "engine/crates/ferbd/src/compose/tools/context.rs::ABILITIES"]
+untestable = "Prompt text (TEST-500); the named changes are checked by ferb-supervisor's prompts test and ferb-context's parity test. ferbd's tools_context names the ability's reason."
+
+[PRM-377]
+title = "A reply looks up what can change instead of guessing; a source is named when it isn't obvious"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "yes to allll"
+words_source = "Owner 2026-11-25 on the prompt review (T-1279): \"yes to allll\" to Rules A-D, to the inflate-claims flag and to all the changes. The text is the agent's proposal, as approved."
+rule = "Supersedes PRM-306, keeping its words in a new order and scope. supervisor.md's reply kind: general knowledge answers only what doesn't change (arithmetic, geography, definitions); anything that can change or is about the owner or FERB is looked up first (a lookup, or a task that reads the source); never guess and then offer to check; the source is named when it isn't obvious, and a remaining guess said as a guess. Kept from PRM-306: never something nearby as the answer; FERB described from its installed capabilities, never one task's limits."
+why = "11-21 and 11-22: wrong guesses before a search (\"then wtf is this?\"); 11-25 \"That's general knowledge.\": PRM-306's say-a-guess sentence came before its look-first one and was taken first."
+supersedes = ["PRM-306"]
+paths = ["engine/runtime/orchestrator/prompts/supervisor.md", "engine/fixtures/catalog/prompt_changes.json"]
+live = ["LIVE-502", "LIVE-503", "LIVE-780"]
+untestable = "Prompt text (TEST-500); the named changes are checked by ferb-supervisor's prompts test and ferb-context's parity test."
+
+[PRM-378]
+title = "Planner: no escape clauses in conditions; the conversation answers; a reminder a task finds"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "yes to allll"
+words_source = "Owner 2026-11-25 on the prompt review (T-1279): \"yes to allll\" to Rules A-D, to the inflate-claims flag and to all the changes. The text is the agent's proposal, as approved."
+rule = "supervisor.md (review items 5, 9, 10). Only a check-and-act-when-available condition may end \"or say none was found\"; something to make, get, send or submit is met only when done, never \"…, or report why it couldn't\", and when it can't be done the worker reports not done or a gap. clarify asks only what is missing from the message, the conversation (a failed message included) and the records, and an open question isn't brought up on unrelated messages. A reminder whose time the task finds is set by the task; never ask the owner for it."
+why = "9 of 52 live conditions ended \"…, or report …\" and showed a missing result as done (T-1067); a clarify asked what a failed message had said; 33233d06 asked the owner for the date its task would find."
+paths = ["engine/runtime/orchestrator/prompts/supervisor.md", "engine/fixtures/catalog/prompt_changes.json"]
+live = ["LIVE-780", "LIVE-869"]
+untestable = "Prompt text (TEST-500); the named changes are checked by ferb-supervisor's prompts test and ferb-context's parity test."
+
+[PRM-379]
+title = "Checker: the look comes first; a likely candidate is a finding, not a retry"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "yes to allll"
+words_source = "Owner 2026-11-25 on the prompt review (T-1279): \"yes to allll\" to Rules A-D, to the inflate-claims flag and to all the changes. The text is the agent's proposal, as approved."
+rule = "verifier.md (review items 7, 8). The after-acting look is the first bullet under \"Judging each condition\", with its reason as the code has it: FERB doesn't count a pass without that look (it stays can't tell and the owner sees the work unconfirmed). The proposal said FERB \"runs the check again\"; the lean check (ORCH-696) makes it can't tell with no rerun, so the agent worded it to match. The retry bullet: a candidate answer the evidence makes likely but doesn't confirm is a finding (unsupported), marked as a guess, and the check accepts_unconfirmed."
+why = "14 refused passes on 12 of 59 checks (10 with no look, 4 with a changed file unread); f1b3040f's check sent a plausible track back for confirmation and the retry erased it (PRM-349)."
+paths = ["engine/runtime/orchestrator/prompts/verifier.md", "engine/fixtures/catalog/prompt_changes.json"]
+live = ["LIVE-503"]
+untestable = "Prompt text (TEST-500); the named changes are checked by ferb-supervisor's prompts test and ferb-context's parity test."
+
+[PRM-380]
+title = "A scheduled run says when it failed the way the previous run did"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "yes to allll"
+words_source = "Owner 2026-11-25 on the prompt review (T-1279): \"yes to allll\" to Rules A-D, to the inflate-claims flag and to all the changes. The text is the agent's proposal, as approved."
+rule = "roles/scheduled.md, after \"say plainly what this run checked and found\": when the previous run failed for the same reason (the schedule facts give it and consecutive_failures), say so in one line; try only a route that run didn't, and if there is none, say the run didn't retry. Changing the pace or stopping the schedule stays the owner's: the run only reports."
+why = "The Python-era visa schedule: 13 of 23 runs stopped on the same three barriers, each ending \"The recurring schedule will continue\"; the owner asked \"why are you hitting this so much????\" (bf4302cf)."
+paths = ["engine/runtime/orchestrator/prompts/roles/scheduled.md", "engine/fixtures/catalog/prompt_changes.json"]
+untestable = "Prompt text (TEST-500); the named changes are checked by ferb-supervisor's prompts test and ferb-context's parity test."
+
+[PRM-381]
+title = "One statement of each rule per role; the abilities' developer notes leave the runtime folder"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "Review items 12 and 14. Gone where the same role already reads the rule: supervisor.md's \"and writes the saved / set / scheduled lines\" (its \"Never say that something was saved\" line and interaction.md's stay), worker.md's \"Never ask for a confirmation or routine permission yourself.\" (interaction.md says it); verifier.md's two judge-the-outcome bullets are one, nothing dropped. abilities/README.md (Python-era notes no model reads) is removed: what holds is ferbd's ABILITIES doc comment; prompt_replacements.json `removed` names it."
+why = "Copies of one rule drift apart, and duplicated or contradictory instructions cost GPT-5 most (OpenAI's guide); engine/runtime holds only what FERB reads (AGENTS.md)."
+paths = ["engine/runtime/orchestrator/prompts/supervisor.md", "engine/runtime/orchestrator/prompts/worker.md", "engine/runtime/orchestrator/prompts/verifier.md", "engine/fixtures/catalog/prompt_changes.json", "engine/fixtures/catalog/prompt_replacements.json", "engine/crates/ferbd/src/compose/tools/context.rs::ABILITIES"]
+untestable = "Prompt text (TEST-500); the named changes are checked by ferb-supervisor's prompts test and ferb-context's parity test. The removal is checked by ferb-context's parity test (`removed`)."
+
+[PRM-382]
+title = "browser_verification's SKILL.md says what the worker does now"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "Review item 13. The sections about a runner that doesn't exist (a grounded interaction, uncertain outcomes, the old \"P19 decision\", held input) become today's steps: look (snapshot, screenshot), point (browser_point), act (click or drag), look again, refresh then a new tab (PRM-341), hand off (browser_handoff); an action whose outcome is unknown is never repeated (FERB's code refuses it). The source and authority paragraphs stay word for word. prompt_replacements.json keeps the text Python read."
+why = "abilities.read ran 0 times in the live period and the planner refused an image check on 11-25; the procedure read as if nothing could run."
+paths = ["engine/runtime/abilities/browser_verification/SKILL.md", "engine/fixtures/catalog/prompt_replacements.json"]
+untestable = "Procedure text (TEST-500); the replacement is checked by ferb-context's parity test and ferbd's tools_context."

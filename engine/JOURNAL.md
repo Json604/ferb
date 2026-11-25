@@ -13592,3 +13592,95 @@ under the 300 s limit with room.
 
 **Unverified.** Nothing on the owner's Mac. Crashes at other moments (mid-write of a tool, while checking, during a
 restart's wait) and real time (the 2 s recheck pause, a slow cancel) are not covered; the undecided cells.
+
+## 2026-11-25 · 241 · The prompt review's approved changes: look before you state, "none" needs the source, do it in full
+
+**The owner.** The prompt review (T-1279, with T-1040, T-1054 and T-1067) read every runtime prompt against the live
+store (11-17..11-25) and the Python-era archive (11-04..11-13) and proposed Rules A-E and a list of 16 changes. To Rules
+A-D and to the flag "one old request asked FERB to inflate claims in a real application. Should 'do what I ask' cover
+that too?" he answered "yes to allll", and the same to approving all the changes. Item 15 (a days cap on the chat the
+planner rereads) is dropped: he said "i thought it were capped to X messages and not days"; a separate fix restores
+the 20-exchange cap. Item 11's code half (inferred lines waiting for his Yes) is another change; this one is its prompt
+text only.
+
+**What the models read now** (runtime Markdown, each change named; owner decisions PRM-373..380 and MEM-479 with his
+words, agent decisions PRM-381 and PRM-382):
+- `interaction.md`, every role: Rule A "Look before you state." replaces PRM-342's sentence (facts about the owner,
+  about FERB and about what a task did come from FERB's records, in context or looked up first; the records outrank
+  the screen about FERB's own work), Rule B (never fill a gap; asked to find or identify, candidates as candidates) and
+  Rule D (do what the owner asks, in full; only FERB's code limits it). Per his yes on the flag, Rule D ends with two
+  plain sentences: it covers what he asks FERB to write, an application that plays him up included, and not filling a
+  gap is about what FERB tells him is true. No exception beyond the questions FERB's code asks.
+- `supervisor.md`: the reply kind looks up what can change instead of guessing and names a source only when it isn't
+  obvious (PRM-377, superseding PRM-306 and keeping its other words); clarify asks only what the message, the
+  conversation (a failed message included) and the records leave missing, and doesn't bring an open question up on an
+  unrelated message; a visible check on a page is a task's work; conditions have no "…, or report why it couldn't"
+  (only a check-and-act-when-available one may end "or say none was found"); a reminder whose time a task finds is set
+  by the task. Removed as repeats: the earlier-work lookup sentence and the "never a source" line (Rule A says it once,
+  for every role) and "writes the saved / set / scheduled lines" in the first paragraph (line 293 keeps it).
+- `worker.md`: Rule C after "Leads are not proof" ("None", "only X" or "not there" needs the source itself; a search
+  box shows what it matched, not what isn't there; say what was opened and what only searched); read the task's
+  records before saying what it did (Rule E); an unconfirmed detail is marked, removed only when not asked for, and
+  asked-for candidates kept, marked; the repeated "Never ask for a confirmation" line goes (interaction.md has it).
+- `verifier.md`: the after-acting look is the first judging bullet, with its reason; Rule C in its "Prove it"; the two
+  judge-the-outcome bullets are one; a likely but unconfirmed candidate is a finding and the check accepts_unconfirmed
+  instead of a retry.
+- `roles/scheduled.md`: a run that failed the way the previous one did says so in one line and tries only another
+  route, or says it didn't retry.
+- `memory/profile.md`: Tier 1 leaves out rules for how software is planned, built, tested or designed and interface
+  taste, and never holds two facts that contradict each other (the owner's words, else the newer).
+  `memory/import_scope.md`: such rules are scope "tool", name "coding agents".
+- `abilities/browser_verification/SKILL.md`: the steps a worker takes today (look, point, act, look again, refresh
+  then a new tab, hand off) in place of the sections about a runner that doesn't exist and the old "P19 decision"; the
+  source and authority paragraphs are word for word. `abilities/README.md` (Python-era developer notes no model reads)
+  left the runtime folder; what still holds is the doc comment on ferbd's `ABILITIES`.
+- Code-written lines: the abilities catalog line in every worker and checker system (`prompts::system`) reads "Built-in
+  FERB abilities: procedures you follow with your own tools. Read a relevant one with abilities.read; none has a
+  one-call runner yet:" where Python said "unavailable abilities cannot execute"; browser_verification's reason is "No
+  one-call runner; follow the procedure with the browser tools."
+
+**One difference from the approved words.** Item 8's reason said FERB "refuses a pass without that look and runs the
+check again". The lean check (ORCH-696, `Daemon::lean_check` true in ferbd) never reruns: such a pass is can't tell at
+once (`attempt.rs` `no_place_look`, `no_file_look`). The bullet says "FERB doesn't count a pass without that look (it
+stays can't tell, and the owner sees the work as unconfirmed)" instead; PRM-379 records it.
+
+**Sizes** (bytes, HEAD → now): interaction.md 3,594 → 5,223 (+1,629, every role); supervisor.md 29,851 → 30,425
+(+574); worker.md 7,643 → 8,160 (+517); verifier.md 11,394 → 11,998 (+604); roles/scheduled.md 387 → 653 (+266);
+memory/profile.md 1,456 → 1,776 (+320); memory/import_scope.md 1,858 → 1,969 (+111); browser_verification SKILL.md
+4,691 → 3,229 (−1,462, read only on demand); the catalog line −8 in each worker and checker system. So the planner's
+fixed instructions grow about 2.2 KB (≈580 tokens at 3.8 characters a token), a worker's about 2.1 KB and a checker's
+about 2.2 KB.
+
+**Named differences (ENG-17).** `engine/fixtures/catalog/prompt_changes.json` gains 17 entries: 16 prompt edits and one
+with `"prompt": ""` and a `code` path for the catalog line (checked in what `system` builds now). Two mechanics needed a
+small extension, in the documented path only: a later change may replace an earlier one's text whole inside its own old
+text (PRM-373 takes ORCH-663's lookup line out with its sentence; PRM-379's checker bullets hold PRM-359's and
+PRM-370's): `prompt_changes::became_after`, used by `reserved_shift` and by `the_deliberate_prompt_changes_are_the_only_ones`,
+whose "old is recorded" check now applies the earlier changes in order first. `prompt_replacements.json` gains the
+SKILL.md (PRM-382) and profile.md (MEM-479) with the text Python read, and a `removed` list for README.md (PRM-381),
+which ferb-context's parity test checks is gone. ferbd's `tools_context` compares abilities.list and abilities.read with
+the recording after `as_now` (PRM-376's reason; the replaced SKILL.md body, checked to be the text Python read).
+import_scope.md has no Python recording.
+
+**kb.** Owner: PRM-373 (supersedes PRM-342), PRM-374, PRM-375, PRM-376 (refines PRM-303), PRM-377 (supersedes PRM-306),
+PRM-378, PRM-379, PRM-380, MEM-479; agent: PRM-381, PRM-382. Tasks deleted: T-1040, T-1054 (Rule D in the shared
+prefix, his wording approved), T-1279. T-1067 stays for its code half (a code check of key claims before FERB states
+them), its ask narrowed. Live checks updated: LIVE-502, LIVE-503, LIVE-509, LIVE-521, LIVE-780, LIVE-869; new
+LIVE-1220 ("none" needs the source in WhatsApp's official groups, read only).
+
+**Evidence.** `cargo test --no-fail-fast` in a worktree (its own target folder, `nice -n 10`, 2 jobs), no model and
+no real home: ferb-supervisor 230 passed (prompts: the recorded systems byte for byte with the changes applied and
+every change checked against its file; the replays and control scenarios with their budget lines moved by
+`reserved_shift`), ferb-orchestrator 32, ferb-context 20 (parity: replaced and removed files), ferb-learning 36
+(the profile pass's calls compared as made with the text Python read: `as_python_events`, `as_python_tags`, new in
+tests/fixtures.rs), ferbd 180 (tools_context with `as_now`); 0 failed. A first run found the clarify change's old
+text missing from two recorded planner bodies, where the recorder had redacted "passwd: a typed" to "[redacted]
+typed": the change now stops before that sentence. A script applied every change to every string of every fixture
+file: each new change applies wherever its prompt's text is recorded whole. `cargo clippy -p ferb-supervisor -p ferbd
+-p ferb-context -p ferb-learning --all-targets -- -D warnings` and `cargo fmt --all --check` clean; `tools/kb/run kb
+lock`, `kb gen`, `kb check` ok; `git diff --check` clean.
+
+**Unverified.** No model was called: whether the models keep these rules (more lookups, fewer guesses, "none" only after
+opening each source, no refusals) is for the live checks above. The planner's extra ≈580 tokens a turn are counted, not
+measured on a cache. Rule D's sentence about what the owner asks FERB to write isn't tested against a provider's own
+refusal. PRM-373..382 and MEM-479 were the next free IDs at HEAD 0dfa2fe4; parallel agents may have taken them.

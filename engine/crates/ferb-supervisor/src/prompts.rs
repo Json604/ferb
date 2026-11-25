@@ -105,9 +105,11 @@ pub fn system(
             "\nOwner-written skills (read bodies with skills.read only when relevant):\n",
         );
         text.push_str(&inputs.skills_line);
+        // PRM-376: the abilities are procedures to follow, none with a one-call runner (Python said "unavailable
+        // abilities cannot execute", which read as a refusal; engine/fixtures/catalog/prompt_changes.json names it)
         text.push_str(
-            "\nBuilt-in FERB abilities (abilities.list reports availability; read a relevant procedure with \
-             abilities.read; unavailable abilities cannot execute):\n",
+            "\nBuilt-in FERB abilities: procedures you follow with your own tools. Read a relevant one with \
+             abilities.read; none has a one-call runner yet:\n",
         );
         text.push_str(&inputs.abilities_line);
     }

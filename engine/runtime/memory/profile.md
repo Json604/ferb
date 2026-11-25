@@ -8,8 +8,11 @@ in it (id, kind, subject, key, where it came from, the day it was stated, what i
    things done", "Accounts and profiles", "Current projects", "People") and the ids of its facts, best first. Choose
    what helps FERB act for the owner on most requests: who they are, standing preferences and rules, which account or
    browser profile goes with what, what they are working on now. Leave out one-off or situational facts (they stay in
-   memory and are found when relevant), and keep one fact when several say the same thing (prefer "your words").
-   Stay within the budget. Use only ids from the list.
+   memory and are found when relevant), and keep one fact when several say the same thing (prefer "your words"). Leave
+   out rules for how software is planned, built, tested or designed and taste in interfaces (they guide a coding agent
+   or a design, not FERB's work on the Mac; they stay in memory, found when such work is asked). Never put in two
+   facts that contradict each other: keep the owner's own words, else the newer. Stay within the budget. Use only ids
+   from the list.
 2. "ended": facts whose time has clearly passed by their own words and the day they were stated (a deadline or trip
    that is over, "tomorrow" said weeks ago), each with its id and a short why. FERB marks them as no longer holding
    (kept as history) and tells the owner. When unsure, leave it out. Otherwise an empty list.

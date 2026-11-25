@@ -159,7 +159,10 @@ JSON-escaped forms, through `rust/crates/ferb-supervisor/tests/common/prompt_cha
 compares a model call's budget line also moves its `reserved_tokens` by the bytes the change added to the system
 (`reserved_shift`, `shift_reserved`, `shift_with_system`). `prompts.rs`
 `the_deliberate_prompt_changes_are_the_only_ones` checks each change is in its file now and the old text is what
-the recording holds. Every other byte is compared as recorded.
+the recording holds once the earlier changes are made. A change to a line code writes into the instructions (PRM-376's
+abilities catalog line) has `"prompt": ""` and a `code` naming where it is written, and is checked in what `system`
+builds now. A later change may change an earlier one's text again or replace it whole inside its own old text
+(`became_after`). Every other byte is compared as recorded.
 
 ## prompt_replacements.json
 
@@ -167,9 +170,10 @@ Written by hand, never by make.py: runtime prompts outside `ferb/orchestrator/pr
 recordings, each with its decision (MEM-454 the first: `memory/import_recall.md` and `memory/import_verify.md`, the
 memory-import lab's measured text) and the text Python read (`load_prompt`: the file, stripped). ferb-context's
 `load_prompt_reads_as_python_does` checks that text hashes to the recorded one (`engine/fixtures/context/prompts.json`
-`real`) and that the file holds another now; ferb-learning's `memory_import_runs` compares a call made with the new
-text as made with the old one (its system's hash, and the `reserved_tokens` of its budget line moved by the tokens the
-new text adds). Every other byte is compared as recorded.
+`real`) and that the file holds another now (one listed in `removed`: that the file is gone, PRM-381);
+ferb-learning's `memory_import_runs` compares a call made with the new text as made with the old one (its system's
+hash, and the `reserved_tokens` of its budget line moved by the tokens the new text adds). Every other byte is compared
+as recorded.
 
 ## tool_changes.json
 

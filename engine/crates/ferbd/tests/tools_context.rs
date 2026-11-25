@@ -14,6 +14,44 @@ fn package() -> std::path::PathBuf {
     repo().join("engine/runtime")
 }
 
+/// PRM-376: the browser verification ability's reason, as Python wrote it and as FERB writes it now.
+const REASON_PYTHON: &str =
+    "The browser verification workflow and held-input lifecycle are not installed; the \
+                             procedure is available to read, but ability execution is unavailable.";
+const REASON_NOW: &str = "No one-call runner; follow the procedure with the browser tools.";
+
+/// A recorded abilities result as FERB gives it now: the named differences since the recording (PRM-376's reason, and
+/// a procedure replaced whole, engine/fixtures/catalog/prompt_replacements.json: PRM-382's browser_verification
+/// SKILL.md, whose recorded body must be the text Python read). Every other byte is compared as recorded.
+fn as_now(recorded: &Value) -> Value {
+    let text = serde_json::to_string(recorded)
+        .unwrap()
+        .replace(REASON_PYTHON, REASON_NOW);
+    let mut v: Value = serde_json::from_str(&text).unwrap();
+    let replacements = fixture("catalog/prompt_replacements.json");
+    if let Some(body) = v.get("body").and_then(Value::as_str).map(str::to_string) {
+        for r in replacements["replacements"].as_array().unwrap() {
+            let prompt = r["prompt"].as_str().unwrap();
+            let Some(id) = prompt
+                .strip_prefix("abilities/")
+                .and_then(|p| p.strip_suffix("/SKILL.md"))
+            else {
+                continue;
+            };
+            if v["id"] == id {
+                assert_eq!(
+                    body.trim_end(),
+                    r["old"].as_str().unwrap(),
+                    "{prompt}: the recorded body"
+                );
+                v["body"] = json!(std::fs::read_to_string(package().join(prompt)).unwrap());
+            }
+        }
+    }
+    v
+}
+
+// decision: PRM-376, PRM-382
 #[test]
 fn abilities_and_about_match_python() {
     let f = fixture("ferbd/tools.json");
@@ -40,14 +78,18 @@ fn abilities_and_about_match_python() {
         let got = c::abilities_list(&package(), &installed);
         assert_eq!(
             Value::Object(got.content),
-            set["list"]["content"],
+            as_now(&set["list"]["content"]),
             "list {}",
             set["installed"]
         );
         compared += 1;
         for (name, want) in set["read"].as_object().unwrap() {
             match c::abilities_read(&package(), &installed, name) {
-                Ok(r) => assert_eq!(Value::Object(r.content), want["content"], "read {name}"),
+                Ok(r) => assert_eq!(
+                    Value::Object(r.content),
+                    as_now(&want["content"]),
+                    "read {name}"
+                ),
                 Err(e) => {
                     assert_eq!(want["raised"], "Refused", "{name}");
                     assert_eq!(e.message, want["message"].as_str().unwrap(), "{name}");
@@ -80,7 +122,8 @@ fn context_readers_run_through_the_binary() {
     // abilities.list: the registry holds every browser tool the abilities need, as the "all" recording
     let listed = shim.call("abilities.list", json!({}));
     assert_eq!(
-        listed["content"], f["abilities"][0]["list"]["content"],
+        listed["content"],
+        as_now(&f["abilities"][0]["list"]["content"]),
         "{listed}"
     );
     let read = shim.call("abilities.read", json!({"name": "google_docs"}));

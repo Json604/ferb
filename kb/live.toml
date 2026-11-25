@@ -602,8 +602,9 @@ title = "\"Who's this actor?\" on a show's frame"
 area = "prompts"
 surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
 request = "On a paused frame of a show, ask \"who's this actor?\"."
-pass = "The reply says it is a likely match and from what, or checks the cast; a guess is said as a guess."
-sitting = "step 13, sitting 9"
+pass = "The reply looks it up first (a task that checks the cast) instead of guessing and offering to check; a likely match it can't confirm is given as a candidate, with what it goes by."
+decisions = ["PRM-377", "PRM-374"]
+sitting = "after this change is installed"
 waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-503]
@@ -611,8 +612,9 @@ title = "\"What is this song?\" and \"hear and tell\""
 area = "prompts"
 surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
 request = "Ask \"what is this song?\" on an Instagram reel, and \"hear and tell\" on a video."
-pass = "FERB listens to the audio (audio_listen) and answers from what it heard."
-sitting = "step 13, sitting 9"
+pass = "FERB listens to the audio (audio_listen) and answers from what it heard. When nothing confirms the track, its best candidates are in the answer, marked as not confirmed; the check doesn't send the work back to confirm a guess (`ferb trace`: accept_unconfirmed with a finding, no retry)."
+decisions = ["PRM-374", "PRM-377", "PRM-379"]
+sitting = "after this change is installed"
 waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-504]
@@ -663,8 +665,9 @@ title = "The latest assignment in a school mail account"
 area = "prompts"
 surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
 request = "\"open my <school> gmail, find the latest <course> assignment\" (the owner's own school account)."
-pass = "FERB opens the right account and finds the current assignment."
-sitting = "step 13, sitting 9"
+pass = "FERB opens the right account and finds the current assignment. A detail about you (your section, roll number) comes from memory, not a question; the answer says which folders or mails it opened and which it only searched."
+decisions = ["PRM-373", "PRM-375"]
+sitting = "after this change is installed"
 waiver = "waived for v0.27.0 (first public build for First1000): owner ran the fresh-install journey, chat and two tasks on 2026-11-04 and it works; the remaining live checks are deferred to the next release"
 
 [LIVE-510]
@@ -770,8 +773,9 @@ title = "\"check <school> mail for the new assignment\""
 area = "prompts"
 surface = "FERB.app on the owner's Mac (Codex runtime), owner-controlled surfaces (AGENTS.md rule 16)"
 request = "\"check <school> mail for the new assignment\"."
-pass = "The current item is picked by its dates."
-sitting = "step 13, sitting 9"
+pass = "The current item is picked by its dates. \"No new assignment\" or \"only X\" comes from the mailbox read for the period asked, not from search results, and the answer says what it opened and what it only searched."
+decisions = ["PRM-373", "PRM-375"]
+sitting = "after this change is installed"
 waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
 [LIVE-522]
@@ -3113,8 +3117,8 @@ title = "Answers are to the point and questions are only the question"
 area = "prompts"
 surface = "FERB.app with this build; FERB's Gmail; a disposable folder"
 request = "Ask one quick question (\"what's on my calendar tomorrow?\" or a file lookup), one request for content (\"list every file in <disposable folder>\") and one vague request that needs a which (\"send the notes to Sam\" with two Sams in memory)."
-pass = "The quick answer is the result in a few lines with its source in a few words, no narration of windows or background work. The content request lists every item. The vague one asks only the question, naming each Sam with its evidence, with no restatement of the request or explanation of what FERB can't do. `ferb trace` shows no checker edit that added a sentence."
-decisions = ["PRM-320", "PRM-321", "PRM-322", "PRM-323", "PRM-324"]
+pass = "The quick answer is the result in a few lines, its source in a few words (none on a trivial general-knowledge answer), no narration. A question whose answer can change is looked up first, never guessed then offered. The content request lists every item. The vague one asks only the question, naming each Sam with its evidence; a later unrelated message doesn't bring it up again. `ferb trace` shows no checker edit that added a sentence."
+decisions = ["PRM-320", "PRM-321", "PRM-322", "PRM-323", "PRM-324", "PRM-377", "PRM-378"]
 sitting = "after this change is installed"
 waiver = "waived for v0.27.1: owner used the build day to day on 2026-11-06 and reviewed the 0.27.1 play in the playground; the remaining live checks are deferred to the next release (owner chose: Pass 4, waive the rest)"
 
@@ -3902,8 +3906,8 @@ title = "A search that names no site is judged on the result, not on a site FERB
 area = "prompts"
 surface = "FERB.app with this build, Codex as the AI"
 request = "Ask FERB to find a couple of good specialists of some kind near you with slots next week, naming no site."
-pass = "The trace's task has no site in targets or success conditions that you didn't name; no check rejects an attempt for using another site than one FERB chose."
-decisions = ["PRM-346"]
+pass = "The trace's task has no site in targets or success conditions that you didn't name; no check rejects an attempt for using another site than one FERB chose. No condition ends \"…, or report …\": when no specialist with a slot is found, the task says it plainly as not done or a gap."
+decisions = ["PRM-346", "PRM-378"]
 sitting = "after this change is installed"
 
 [LIVE-870]
@@ -5258,3 +5262,12 @@ request = "Copy about 400 lines of any log or text and paste them into FERB's me
 pass = "The opened text takes typing, Return makes new lines without sending, undo and redo, select all, copy and paste work as in the message field; Done closes it and the chip shows the new line count; the sent message in the chat shows the edited text where the chip was. The emptied chip is gone after Escape. Nothing else about pasting looks or behaves differently."
 decisions = ["APP-1143", "APP-1144"]
 sitting = "about 5 minutes"
+
+[LIVE-1220]
+title = "\"None\" needs the source itself: an assignment search in WhatsApp's official groups"
+area = "prompts"
+surface = "FERB.app with this build; WhatsApp on the Mac, your own school's official groups (read only, nothing is sent)"
+request = "Ask FERB \"did any official <school> group post a new assignment this week?\" once for one you know was posted and once for a week with none; then ask \"did you check the official groups?\"."
+pass = "The trace shows each named group opened and the week's messages read, not only WhatsApp's search box; the answer names the groups it opened and any it only searched; \"none\" comes only after the groups were opened; the follow-up is answered from the task's records (what it opened), never \"my search covered every chat\"."
+decisions = ["PRM-375", "PRM-373"]
+sitting = "after this change is installed"

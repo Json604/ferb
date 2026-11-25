@@ -1,52 +1,30 @@
 # Browser verification
 
 Saved expertise, fresh perception. This procedure is shipped by FERB, separate from owner-written skills and
-learned site hints. Check the returned version, supported interactions and availability before using it.
+learned site hints.
 
-**Current availability:** FERB has no one-call runner for this ability yet (no `abilities.run` tool, and its held-input
-lifecycle isn't installed), so follow this procedure step by step with your own browser tools (owner 2026-10-27: "we
-are using it now"): `browser_snapshot` and `browser_screenshot` to observe; `browser_point` to turn a point on a fresh
-screenshot into an element; `browser_act` to click (a checkbox, each pictured object) or drag (a slider, within one
-frame); a fresh snapshot or `browser_wait` to verify. A press-and-hold isn't supported yet. When the check still
-blocks, call `browser_handoff` with the check's own words (see the handoff section below).
+**What you do now:** FERB has no one-call runner for this ability (no `abilities.run` tool), so follow these steps
+with your own browser tools (owner 2026-10-27: "we are using it now").
 
-## Observe the actual obstacle
-
-Use a fresh snapshot and redacted screenshot in the task's authorized tab and profile. Record the visible
-instruction, frame/element or image reference, and the expected next application state. A vendor badge, HTTP error,
-failed login or empty result alone does not establish a verification challenge. If the page is unreadable, report
-that fact. A block or error page with no check on it follows your rule for a page that doesn't work:
-refresh it once, then the same address in a new tab once, then report. The worker interprets the page; code validates references, ownership and input safety.
-
-## Choose a grounded interaction
-
-When execution becomes available, use its supported interactions through the gateway-backed workflow. A visible
-checkbox may need a click; a hold requires progress observations and an acknowledged release; a pictured-object
-or slider task requires the worker's interpretation of a fresh image. There is no universal hold duration or
-vendor selector map. An invisible check may need the site's ordinary script to run and a fresh observation rather
-than input. Never treat a transport acknowledgement as website acceptance.
-
-Every underlying action retains the ordinary gateway checks, declared effect/destination, task ownership,
-confirmations and stop signal. Preserve the original profile and account. Background browser input never moves
-the owner's OS cursor or activates the tab. Foreground help and browser-settings changes keep their existing rules.
-
-## Verify and preserve uncertain outcomes
-
-After an interaction, inspect the application state. Record delivery separately from the website's result and the
-worker's interpretation. A green checkbox or token presence is insufficient: establish the expected page state
-before continuing the original step. Repeating the same failed input with unchanged evidence is not progress.
-
-Keep each action's receipt and evidence references. An unknown consequential outcome requires the owner's P19
-decision; a new run ID or resumed recipe cannot erase it. Never replay a possibly completed payment, send or submit
-to see whether the challenge is gone. A checkpoint preserves recipe state, never a pressed pointer for replay.
-
-## Give a precise handoff when needed
-
-Release held input before handoff. Distinguish a missing input capability, failed delivery, unresolved puzzle,
-website rejection, unknown outcome and a model that declines required interpretation. Preserve the task tab and
-unsent form state. The existing human-check notification lets the owner open the exact tab; observe completion
-without requiring a “done” reply. Refresh references and verify the same profile and expected page state before
-resuming the unsatisfied original step. A notification click or disappearing message alone is not proof of passage.
+1. Look: a fresh `browser_snapshot` and `browser_screenshot` in the task's own tab and profile. Note the check's
+   visible instruction, its frame or pictures, and what the page should show once it passes. A vendor badge, an HTTP
+   error, a failed login or an empty result alone is not a check. If the page is unreadable, report that.
+2. Point: `browser_point` turns a point on a fresh screenshot into an element.
+3. Act: `browser_act` clicks it (a checkbox, each pictured object asked for) or drags it (a slider, within one frame).
+   A press-and-hold isn't supported yet. An invisible check may need only the page's own script to run and a fresh
+   look, no input. Each action keeps FERB's usual checks (its declared effect and destination, the task's own tab,
+   confirmations, stop), in the original profile and account; background input never moves the owner's cursor or
+   brings the tab to the front.
+4. Look again: a fresh snapshot or `browser_wait` shows what the page did. A ticked box or a token alone is not a
+   pass: the page must show the state you expected before the original step goes on. Repeating the same input on
+   unchanged evidence is not progress. An action whose outcome is unknown is never repeated (FERB's code refuses it):
+   never replay a payment, send or submit to see whether the check is gone.
+5. A block or error page with no check on it, or a page that stops working, follows your rule for a page that doesn't
+   work: refresh it once, then the same address in a new tab once, then report.
+6. Hand off: when the check still blocks, call `browser_handoff` with the check's own words, in the same tab with any
+   unsent form kept. FERB's notification lets the owner open that exact tab; watch for the check to pass rather than
+   waiting for a "done" reply. Then look again in the same profile before you go on with the original step; a
+   notification click or a message that went away is not proof the check passed.
 
 ## Keep source and authority separate
 

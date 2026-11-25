@@ -20,6 +20,7 @@ Return "lines": for every line: "id", "scope" and "name".
   budget; anything that would be wrong or mean nothing in another project. "name": the project (a folder's name
   where one fits).
 - "tool": holds only when one named tool or app is used. "name": the tool.
-- "rule": a rule for how work should be done for them, worded so it could hold in any project: how an assistant
-  should plan, ask, code, test, design, explain or report. "name" is "".
+- "rule": a rule for how work should be done for them, worded so it could hold in any project: how an assistant should
+  plan, ask, code, test, design, explain or report, except rules about writing, testing or designing software, which
+  are scope "tool" with name "coding agents". "name" is "".
 Read the words; where it was said is shown so you can tell a project's own matter from a general one.

@@ -11,22 +11,22 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | engine | Rust engine (the rewrite) | `engine/*`, `engine/crates`, `engine/fixtures`, `engine/packaging` | 23 | 4 | 0 |
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 134 | 5 | 62 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 209 | 5 | 44 |
-| memory | Memory and memory import | `engine/runtime/memory` | 98 | 7 | 10 |
+| memory | Memory and memory import | `engine/runtime/memory` | 99 | 7 | 10 |
 | orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 199 | 9 | 44 |
 | perception | Perception | `ferb/sense` | 28 | 3 | 1 |
 | phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 397 | 11 | 23 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 17 | 5 | 0 |
-| prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 60 | 5 | 10 |
+| prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 68 | 3 | 11 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 36 | 9 | 7 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 67 | 5 | 10 |
 | storage | Storage | `engine/runtime/store` | 37 | 4 | 4 |
-| tests | Tests | `tests` | 17 | 8 | 0 |
+| tests | Tests | `tests` | 17 | 9 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |
 
 ## Waiting on the owner
 
 - T-1020 (gateway): To show the Keychain's exact reason when a saved secret can't be read (for example "user interaction is not allowed"), the small secrets helper has to be rebuilt. After that update, macOS asks once more for your login password for each saved secret on each Mac. Rebuild it now, or keep today's shorter reasons?
-- T-1067 (prompts): Approve the review plan, then each proposed prompt wording and claim check.
+- T-1067 (prompts): Which of FERB's claims should code check against its records before you see them (for example sent, saved, submitted, or "none found")?
 - T-1068 (tests): Approve the plan: which tasks, what quality measures, which surfaces.
 - T-1268 (phone): When you open FERB on the phone, your fingerprint unlocks it at once and the Mac is told when the phone reaches it. If the phone takes longer than 2 minutes to reach your Mac, FERB asks for your fingerprint once more. Is 2 minutes right, or should it be shorter or longer?
 - T-1272 (phone): When you want to plan it: which sessions (Claude Code, Codex, any terminal), what the phone shows and may type, and how a new reply wakes FERB without a model call while nothing happens. Start from engine/ARCHIVE-sessions.md (what worked and what didn't).

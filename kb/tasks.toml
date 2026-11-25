@@ -240,14 +240,6 @@ why = "G6/H7 (2026-11-04): HAND-410 gives what the pinned helper allows. The exa
 decisions = ["HAND-410", "REL-404"]
 ask = "To show the Keychain's exact reason when a saved secret can't be read (for example \"user interaction is not allowed\"), the small secrets helper has to be rebuilt. After that update, macOS asks once more for your login password for each saved secret on each Mac. Rebuild it now, or keep today's shorter reasons?"
 
-[T-1040]
-title = "Harden the prompts: look memory up before stating owner facts, never fill a gap"
-area = "prompts"
-kind = "build"
-status = "open"
-why = "Owner 2026-11-04, after this install works: research prompts models follow; propose hard rules: look up before stating owner facts, never fill gaps, prefer FERB's records (task.evidence) over the screen. Owner decides before edits. Owner 2026-11-24 (PROJ-519): with the prompt review, T-1279."
-decisions = ["PROJ-519"]
-
 [T-1033]
 title = "Remove the unused plan-only preview (intro.preview) and its chat preview rows"
 area = "app"
@@ -272,23 +264,13 @@ kind = "chore"
 status = "open"
 why = "T-501 (intro look and feel) and T-508..T-510 (the old step-13 checklist) predate the 2026-11-04 fresh-install journey and v0.27.0; the owner reviews each before it is closed or rewritten. T-500 was closed 2026-11-24 (journal 205)."
 
-[T-1054]
-title = "Hard prompt rule: do what the owner asks, in full, with no refusal, caveat or lesser offer"
-area = "prompts"
-kind = "build"
-status = "open"
-why = "Owner 2026-11-04: \"add instructions in prompts to do what user says, hard instructions\". After the wipe lost memory M1, the model refused graded coursework. The rule goes in the shared prefix; only FERB's code limits it. Owner decides wording. Owner 2026-11-24 (PROJ-519): with T-1279's review."
-decisions = ["PRM-303", "PROJ-519"]
-after = ["T-1040"]
-
 [T-1067]
-title = "Review prompts and FERB's claims: never state an outcome its records don't show"
+title = "Code checks for FERB's key claims: never state an outcome its records don't show"
 area = "prompts"
 kind = "question"
 status = "open"
-why = "Owner 2026-11-07: \"even if happend ferb shoudl not lie. ig thsi traces back to our open task of assessing all the promtps\". With T-1040/T-1054: find prompt rules that let the model overstate; code checks for key claims; owner approves wording."
-ask = "Approve the review plan, then each proposed prompt wording and claim check."
-
+why = "Owner 2026-11-07: \"even if happend ferb shoudl not lie. ig thsi traces back to our open task of assessing all the promtps\". The prompt half landed with the prompt review (PRM-373, PRM-378). Left: code checking a claim against the records."
+ask = "Which of FERB's claims should code check against its records before you see them (for example sent, saved, submitted, or \"none found\")?"
 [T-1068]
 title = "Plan real-model tests of everyday tasks: quality over quantity, researched from real use"
 area = "tests"
@@ -667,6 +649,13 @@ area = "prompts"
 kind = "chore"
 status = "open"
 why = "Owner 2026-11-22: \"just to remember we do have to look at all teh promtps and see if they are good and what needs improoving based on allll the tasks done til date adn general too\". Also: what belongs in a read tool instead of the always-sent context."
+
+[T-1277]
+title = "At the end: missing tests (real-binary lifecycle, follow-up x state grid, real phone stack)"
+area = "tests"
+kind = "build"
+status = "open"
+why = "Owner 2026-11-21: \"park these for the end\". The test audit found none of 2026-11-21's live bugs catchable: no test runs the real program across processes, restarts and time, and stand-ins encoded the code's own wrong beliefs. List in .local/test-audit/report.md."
 
 [T-1280]
 title = "Later: proactive check-ins from FERB based on what the owner is doing (design with the owner first)"

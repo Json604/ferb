@@ -703,7 +703,7 @@ fn answer_readers_match_schemas_py() {
 
 // ---------------------------------------------------------------------------------------------------------------
 
-// decision: MEM-454 (named difference: the prompts replaced whole, `replaced`)
+// decision: MEM-454, MEM-479, PRM-382 (named difference: the prompts replaced whole, `replaced`), PRM-381 (`removed`)
 #[test]
 fn load_prompt_reads_as_python_does() {
     let fixture = context("prompts.json");
@@ -751,6 +751,16 @@ fn load_prompt_reads_as_python_does() {
     let real = PromptRoot::new(repo().join("engine/runtime")).unwrap();
     for case in list(&fixture, "real") {
         let path = s(&case["path"]);
+        if let Some(old) = removed(path) {
+            // taken out of the runtime folder since the recording (PRM-381: developer notes, not model input): the text
+            // kept as Python read it is the recorded one, and the file is gone
+            assert_eq!(sha(&old), s(&case["sha256"]), "{path}");
+            assert!(
+                matches!(real.load(path, &[]), Err(PromptError::Io(ref e)) if e.kind() == std::io::ErrorKind::NotFound),
+                "{path} is gone"
+            );
+            continue;
+        }
         if let Some(old) = replaced(path) {
             // replaced whole since the recording (MEM-454): the text kept as Python read it is the recorded one, and
             // the file holds another now
@@ -788,6 +798,22 @@ fn replaced(path: &str) -> Option<String> {
     .unwrap();
     list(&all, "replacements")
         .iter()
+        .find(|r| r["prompt"] == path)
+        .map(|r| s(&r["old"]).to_string())
+}
+
+/// A runtime Markdown file removed since the fixture was recorded (prompt_replacements.json `removed`, each naming
+/// its decision: PRM-381): the text Python read.
+fn removed(path: &str) -> Option<String> {
+    let all: Value = serde_json::from_str(
+        &std::fs::read_to_string(repo().join("engine/fixtures/catalog/prompt_replacements.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    all["removed"]
+        .as_array()
+        .into_iter()
+        .flatten()
         .find(|r| r["prompt"] == path)
         .map(|r| s(&r["old"]).to_string())
 }

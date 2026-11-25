@@ -105,8 +105,14 @@ fn replay_on(
         }
         *env.answers.borrow_mut() = answers.into();
         env.events.lock().unwrap().clear();
-        let got = hide_root(outcome(runtime.block_on(op(env, op_name, &args))), root);
-        let events = hide_root(Value::Array(env.events.lock().unwrap().clone()), root);
+        let got = as_python_tags(&hide_root(
+            outcome(runtime.block_on(op(env, op_name, &args))),
+            root,
+        ));
+        let events = as_python_events(&hide_root(
+            Value::Array(env.events.lock().unwrap().clone()),
+            root,
+        ));
         let after = hide_root(Value::Object(dump(env)), root)
             .as_object()
             .unwrap()
@@ -168,7 +174,7 @@ fn memory_items_and_forget() {
     run_scenarios(&["items", "forget", "journal", "upgrade"]);
 }
 
-// decision: MEM-5, MEM-7, MEM-17, MEM-20, MEM-35, MEM-423, MEM-424, MEM-425, MEM-469, MEM-427, MEM-429
+// decision: MEM-5, MEM-7, MEM-17, MEM-20, MEM-35, MEM-423, MEM-424, MEM-425, MEM-469, MEM-427, MEM-429, MEM-479
 #[test]
 fn core_profile_and_mac_scan() {
     run_scenarios(&["profile", "profile_seed", "mac"]);
@@ -578,6 +584,42 @@ fn as_python_call(call: &Value) -> Value {
         }
     }
     call
+}
+
+/// MEM-479: a step's events with each model call made with a prompt replaced whole as made with the text Python read
+/// ([`as_python_call`]), and their prompt tags as Python's ([`as_python_tags`]).
+fn as_python_events(events: &Value) -> Value {
+    let calls = events
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| match e.as_array() {
+            Some(e) if e.len() == 2 && e[0] == "model.start" => {
+                json!([e[0], as_python_call(&e[1])])
+            }
+            _ => e.clone(),
+        })
+        .collect();
+    as_python_tags(&Value::Array(calls))
+}
+
+/// MEM-479: the prompt tag a result names (`calls::prompt_tag`, `made_by`) as the text Python read gave it, for a prompt
+/// replaced whole since the recording (engine/fixtures/catalog/prompt_replacements.json).
+fn as_python_tags(v: &Value) -> Value {
+    let all: Value = serde_json::from_str(
+        &std::fs::read_to_string(repo().join("engine/fixtures/catalog/prompt_replacements.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    let prompts = ferb_context::PromptRoot::new(repo().join("engine/runtime")).unwrap();
+    let mut text = v.to_string();
+    for r in all["replacements"].as_array().unwrap() {
+        let prompt = r["prompt"].as_str().unwrap();
+        let new = prompts.load(prompt, &[]).unwrap();
+        let tag = |t: &str| format!("prompt:{prompt}@{}", &py::sha256_hex(t)[..8]);
+        text = text.replace(&tag(&new), &tag(r["old"].as_str().unwrap()));
+    }
+    serde_json::from_str(&text).unwrap()
 }
 
 fn run_scenarios(names: &[&str]) {

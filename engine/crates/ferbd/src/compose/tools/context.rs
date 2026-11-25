@@ -102,6 +102,21 @@ fn tab_schema(title: &str, description: &str) -> Value {
 }
 
 /// `builtin_definitions()`, in its order.
+///
+/// Adding a built-in ability (the notes that were `engine/runtime/abilities/README.md`, moved here by PRM-381: they are
+/// for developers, and `engine/runtime` holds only what FERB reads):
+/// - an entry here: a stable id, a version, a short description, its input schema, the interactions it supports and the
+///   capabilities it needs (only what is implemented), and an `unavailable_reason` while it has no runner;
+/// - its procedure, `abilities/<id>/SKILL.md` in the runtime folder (FERB.app carries it byte for byte): what to
+///   observe, decide and verify, when to hand off, and the authority boundaries that stay. It stays out of every prompt:
+///   the catalog line lists the metadata and `abilities.read` gives the body on demand;
+/// - tool arguments name a listed id, never a path, a module or an owner's skill file; there is no plugin installer;
+/// - a runner, when one comes, goes through the gateway and the existing drivers, never raw drivers or a model runtime
+///   of its own, and accounts for saved checkpoints when its version changes;
+/// - `source_kind: "builtin"` is metadata, not trust: the procedure has FERB's origin, the owner's skills keep theirs,
+///   and what is read from the web keeps its external or inferred labels;
+/// - availability names installed capabilities, not a task's permission or a browser's connection;
+/// - tests for discovery, dependencies, reading the packaged procedure and origin separation (tests/tools_context.rs).
 pub const ABILITIES: [Ability; 2] = [
     Ability {
         id: "browser_verification",
@@ -123,10 +138,9 @@ pub const ABILITIES: [Ability; 2] = [
             "browser.act",
             "browser.wait",
         ],
-        unavailable_reason: Some(
-            "The browser verification workflow and held-input lifecycle are not installed; the procedure is \
-             available to read, but ability execution is unavailable.",
-        ),
+        // PRM-376: where Python said the workflow wasn't installed and "ability execution is unavailable"
+        // (engine/fixtures/ferbd/tools.json; the named difference is in tests/tools_context.rs)
+        unavailable_reason: Some("No one-call runner; follow the procedure with the browser tools."),
     },
     Ability {
         id: "google_docs",
