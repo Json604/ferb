@@ -14,6 +14,15 @@
 //!   once, under the next id, when the supervisor starts or finishes a tree (and at shutdown for a tree still open).
 //! - `root`, `root_resolved`: the run's folder (written `/FX` in the recording, both spellings).
 //! - `note`: `[path, text]`, the file the owner writes once the first checker has answered.
+//! - `by_role` (a hand-written script, T-1277's lifecycle tests): in place of `calls`, one queue of calls per runtime
+//!   role (`orchestrator`, `worker:default`, `checker`), each call taken by the next model call FERB makes in that
+//!   role, whatever the order across roles. A call may carry `hold`: a name, so it answers only after the control
+//!   socket's `release` of that name (or never, when FERB cancels it first); `repeat: true` answers every later call
+//!   of its role too (a checker that accepts whatever is asked); `cancel_hold`: a name, so a cancel FERB sends ends
+//!   the call only after the `release` of that name (a slow cancel, as a real model's run can take seconds to end). In its events and tool lines `@TREE@` is
+//!   the newest task tree's id when the call starts. A role with no call left answers nothing until cancelled (a
+//!   problem in the report). Unlike a recorded call, a cancelled one ends there, as a real model's run that FERB
+//!   cancelled does: no tool call or answer after the cancel.
 //!
 //! The scripted model makes its recorded tool calls as the tool bridge does: a connection to this daemon's socket as
 //! `mcp_shim` with its run token, then each `tools.call` line; each reply is compared with the recorded one.
@@ -87,6 +96,9 @@ pub struct Script {
     /// The questions asked so far in the scenario (the counter's state; `questions_from` at start).
     pub asked: Arc<AtomicU64>,
     pub released_now: tokio::sync::Notify,
+    /// `by_role`'s queues and the holds released so far.
+    by_role: Mutex<std::collections::BTreeMap<String, VecDeque<Value>>>,
+    holds_released: Mutex<BTreeSet<String>>,
     note: Mutex<Option<(String, String)>>,
     /// Filled once the daemon is built.
     pub db: OnceLock<SharedDb>,
@@ -136,6 +148,19 @@ impl Script {
             released: AtomicBool::new(false),
             asked: Arc::new(AtomicU64::new(file["questions_from"].as_u64().unwrap_or(0))),
             released_now: tokio::sync::Notify::new(),
+            by_role: Mutex::new(
+                file["by_role"]
+                    .as_object()
+                    .map(|m| {
+                        m.iter()
+                            .map(|(k, v)| {
+                                (k.clone(), v.as_array().cloned().unwrap_or_default().into())
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            ),
+            holds_released: Mutex::new(BTreeSet::new()),
             note: Mutex::new(note),
             db: OnceLock::new(),
             ids: OnceLock::new(),
@@ -168,6 +193,62 @@ impl Script {
 
     fn first(&self) -> usize {
         self.file["first"].as_u64().unwrap_or(0) as usize
+    }
+
+    /// `by_role`: the next call of this role (None when the script has no queues).
+    fn role_call(&self, role: &str) -> Option<Value> {
+        let mut q = lock(&self.by_role);
+        if q.is_empty() {
+            return None;
+        }
+        let next = q.get_mut(role).and_then(|calls| match calls.front() {
+            Some(c) if c["repeat"] == json!(true) => Some(c.clone()),
+            _ => calls.pop_front(),
+        });
+        if next.is_none() {
+            drop(q);
+            self.problem(format!("a {role} call the script has none left for"));
+        }
+        Some(next.unwrap_or(Value::Null))
+    }
+
+    fn has_roles(&self) -> bool {
+        self.file["by_role"].is_object()
+    }
+
+    /// The newest task tree's id (`@TREE@`).
+    fn newest_tree(&self) -> String {
+        let Some(db) = self.db.get() else {
+            return String::new();
+        };
+        let db = lock(db);
+        db.conn()
+            .query_row(
+                "SELECT id FROM tasks WHERE parent_id IS NULL ORDER BY rowid DESC LIMIT 1",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .unwrap_or_default()
+    }
+
+    /// A value with `@TREE@` written as the newest tree's id.
+    fn with_tree(&self, v: &Value) -> Value {
+        let text = v.to_string();
+        if !text.contains("@TREE@") {
+            return v.clone();
+        }
+        let tree = self.newest_tree();
+        serde_json::from_str(&text.replace("@TREE@", &tree)).unwrap_or_else(|_| v.clone())
+    }
+
+    /// The control socket's `release`: a held call of this name answers now.
+    pub fn release(&self, name: &str) {
+        lock(&self.holds_released).insert(name.to_string());
+        self.released_now.notify_waiters();
+    }
+
+    fn hold_released(&self, name: &str) -> bool {
+        lock(&self.holds_released).contains(name)
     }
 
     fn gated(&self, n: usize) -> bool {
@@ -507,10 +588,16 @@ impl Reads for ScriptReads {
             );
             self.0.first() + st.made.len() - 1
         };
-        let call = self.0.calls().get(n).cloned().unwrap_or(Value::Null);
+        let call = match self.0.role_call(role) {
+            Some(c) => c,
+            None => self.0.calls().get(n).cloned().unwrap_or(Value::Null),
+        };
         Ok(Arc::new(ScriptRuntime {
             script: self.0.clone(),
             n,
+            hold: call["hold"].as_str().map(str::to_string),
+            by_role: self.0.has_roles(),
+            cancel_hold: call["cancel_hold"].as_str().map(str::to_string),
             events: call["events"]
                 .as_array()
                 .cloned()
@@ -526,6 +613,9 @@ impl Reads for ScriptReads {
 struct ScriptRuntime {
     script: Arc<Script>,
     n: usize,
+    hold: Option<String>,
+    by_role: bool,
+    cancel_hold: Option<String>,
     events: Vec<Value>,
     bridge: Vec<Value>,
 }
@@ -586,6 +676,9 @@ impl ScriptRuntime {
                 events: Box::new(ScriptEvents {
                     script: self.script.clone(),
                     events: self.events.clone(),
+                    hold: self.hold.clone(),
+                    ends_at_cancel: self.by_role,
+                    cancel_hold: self.cancel_hold.clone(),
                     at: 0,
                     cancelled: cancelled.clone(),
                     woken: woken.clone(),
@@ -619,6 +712,12 @@ impl RunControl for ScriptControl {
 struct ScriptEvents {
     script: Arc<Script>,
     events: Vec<Value>,
+    /// `by_role`'s `hold`: answers only after the control socket's `release` of this name.
+    hold: Option<String>,
+    /// `by_role`: a cancel ends the call (nothing more comes).
+    ends_at_cancel: bool,
+    /// `by_role`'s `cancel_hold`: a cancel ends the call only after the control socket's `release` of this name.
+    cancel_hold: Option<String>,
     at: usize,
     cancelled: Arc<AtomicBool>,
     woken: Arc<tokio::sync::Notify>,
@@ -710,22 +809,45 @@ impl ScriptEvents {
     }
 }
 
+impl ScriptEvents {
+    /// The end of a cancelled call: at once, or once its `cancel_hold` is released.
+    async fn cancel_end(&self) {
+        let Some(name) = &self.cancel_hold else {
+            return;
+        };
+        loop {
+            let released = self.script.released_now.notified();
+            tokio::pin!(released);
+            released.as_mut().enable();
+            if self.script.hold_released(name) {
+                return;
+            }
+            released.await;
+        }
+    }
+}
+
 impl EventSource for ScriptEvents {
     fn next(&mut self) -> BoxFuture<'_, Option<Result<RuntimeEvent, ferb_worker::Error>>> {
         Box::pin(async move {
             // as tests/conftest.py's FakeRuntime: a cancel ends only a call that never answers (STALL); a scripted
             // answer already under way still comes
-            if self.at == 0 && self.script.gated(self.n) {
+            if self.at == 0 && (self.script.gated(self.n) || self.hold.is_some()) {
                 loop {
                     let opened = self.script.released_now.notified();
                     let woken = self.woken.notified();
                     tokio::pin!(opened, woken);
                     opened.as_mut().enable();
                     woken.as_mut().enable();
-                    if self.script.released.load(Ordering::SeqCst) {
+                    let released = match &self.hold {
+                        Some(name) => self.script.hold_released(name),
+                        None => self.script.released.load(Ordering::SeqCst),
+                    };
+                    if released {
                         break;
                     }
                     if self.cancelled.load(Ordering::SeqCst) {
+                        self.cancel_end().await;
                         return None;
                     }
                     tokio::select! {
@@ -734,8 +856,17 @@ impl EventSource for ScriptEvents {
                     }
                 }
             }
+            if self.ends_at_cancel && self.cancelled.load(Ordering::SeqCst) {
+                self.cancel_end().await;
+                return None;
+            }
             if let Some(lines) = self.bridge.take() {
+                let lines: Vec<Value> = lines.iter().map(|l| self.script.with_tree(l)).collect();
                 self.call_tools(&lines).await;
+                if self.ends_at_cancel && self.cancelled.load(Ordering::SeqCst) {
+                    self.cancel_end().await;
+                    return None;
+                }
             }
             if self.at + 1 == self.events.len() {
                 lock(&self.script.state).answered.push(self.n);
@@ -748,7 +879,7 @@ impl EventSource for ScriptEvents {
                     self.script.apply_note();
                 }
             }
-            let ev = self.events.get(self.at)?.clone();
+            let ev = self.script.with_tree(self.events.get(self.at)?);
             self.at += 1;
             let kind = s(&ev["kind"]);
             let Some(kind) = RuntimeEventKind::ALL
@@ -762,6 +893,7 @@ impl EventSource for ScriptEvents {
                     tokio::pin!(woken);
                     woken.as_mut().enable();
                     if self.cancelled.load(Ordering::SeqCst) {
+                        self.cancel_end().await;
                         return None;
                     }
                     woken.await;
@@ -855,6 +987,13 @@ pub fn control(
     Some(match what {
         "script" => match script {
             Some(s) => Ok(s.report()),
+            None => Err("no script".into()),
+        },
+        "release" => match script {
+            Some(s) => {
+                s.release(req["name"].as_str().unwrap_or_default());
+                Ok(Value::Null)
+            }
             None => Err("no script".into()),
         },
         "release_model" => match script {

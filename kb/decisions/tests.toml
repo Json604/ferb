@@ -152,3 +152,23 @@ rule = "Refines TEST-511. offline.sb follows its ~/.ferb kill rule with a plain 
 why = "FERB.app's daemon asks sandbox_check about those two folders for every process holding a port (ferb-shell listeners.rs), and macOS ran the guard's kill action on that question: the relay tests were killed four pushes running on 2026-11-21 with no access of their own."
 evidence = "tests/guards.rs ferbs_containment_question_never_ends_a_guarded_binary calls ferb-shell's listeners::contained on a guarded process: no kill, a file read in run/ still killed; fails on the old profile. Journal 161."
 paths = ["engine/crates/ferb-test-guard/offline.sb", "engine/crates/ferb-test-guard/tests/guards.rs"]
+
+[TEST-515]
+title = "Restarts, crashes and follow-ups are tested through the real program, a stand-in model per role"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "For TEST-502, TEST-508. A test of what a restart, a kill -9 or a follow-up leaves runs the composed ferbd daemon (tests/life, TEST-512's stand-ins) and reads what clients read: the attached conversation's entries, chat.status, questions, journal, the home's files, and stage 2's order rules. Its model is by_role: a queue per role, held calls, a repeating checker; a call FERB cancels ends there, as a real run does; each process has its own ids. Each test is shown failing with its behaviour broken."
+why = "T-1277, the 2026-11-21 test audit: no test ran the real program across processes, restarts and time; the recorded stand-ins answered after a cancel, so none of that day's live bugs was catchable."
+evidence = "Journal 233: setup's old check beside the writing daemon set the database aside with the owner's 'fts5: checksum mismatch' 3 of 3; resume, start-up pass, alert filter, the retry as a stop (journal 155) and a set-aside question as declined each broken fail their test."
+paths = ["engine/crates/ferbd/tests/life/mod.rs", "engine/crates/ferbd/src/standins_chat.rs"]
+
+[TEST-516]
+title = "The follow-up × task-state grid names every pair; a cell no decision defines is listed undecided"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "For TEST-515. ferbd tests/follow_up_grid.rs holds each pair of state (planning, running, a safety question, paused, done, failed, stopped) and follow-up (stop, correction, re-plan, pause, new work) once: run asserting what its decisions define, the same as a run cell, or undecided with what is missing. Every run also checks: the order rules, no No nobody gave, the stop's words once where he stopped, the restart's words only for a re-plan of running work, nothing open once all ended."
+why = "T-1277: the audit asked for a follow-up × state matrix through the real program; encoding today's behaviour where no decision says what should happen would freeze it unasked."
+evidence = "19 cells run, 6 the same as a run cell, 10 undecided: a question when its task is paused; a paused task's stop, re-plan and pause; a stop or pause of a done, failed or stopped task. Journal 233."
+paths = ["engine/crates/ferbd/tests/follow_up_grid.rs"]

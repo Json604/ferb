@@ -13493,3 +13493,102 @@ reach what is sent. Whole FERB.app `swift test`: 985 tests, 0 failures, 8 skippe
 **Unverified.** Nothing seen on screen: the editor's look, scrolling a 400-line text, focus moving on open and close,
 an input method's marked text, the panel's Escape and Command-key routing into the editor and the Return monitor are
 read from the code, not driven by a test (LIVE-1219 is the owner's).
+
+## 2026-11-25 · 233 · The real program across crashes, restarts and time, and a follow-up in every task state
+
+**Why (T-1277).** The test audit of 2026-11-21 (.local/test-audit/report.md): no test ran the real program across
+processes, restarts and time; each layer was tested against a stand-in of the next, and some stand-ins held the code's
+own wrong beliefs, so none of that day's live bugs could have been caught. The owner parked it for the end.
+
+**The harness (TEST-515).** `engine/crates/ferbd/tests/life/mod.rs` drives the composed `ferbd daemon` (support's
+`Run`: a temporary home, the stand-ins with the Mac's own parts off as TEST-512 has them, the fake clock, sequential
+ids) the way the owner's clients do: `chat.attach`, then `chat.send` into the conversation it gave (a message sent to
+another session id lands in a conversation no client reads), `chat.approve` with the option chosen. It reads back what
+the owner sees: `chat.entries.page`, `chat.status`, the open questions, the journal, the home's files, and checks stage
+2's entry order rules (ferb-supervisor tests/support_entries, as chat_replay does) on the trace of every process. A
+process can be stopped by FERB's own stop, `kill -9`ed, and started again on the same home; each later process gets
+its own id prefix and question counter, as the real program's ids never repeat.
+
+Its model is a new form of the stand-ins' script (`src/standins_chat.rs` `by_role`): one queue of answers per runtime
+role (`orchestrator`, `worker:default`, `checker`), taken in that role's order whatever the order across roles; a call
+`hold`s until the control socket's `release` of its name, or never answers; `repeat` answers every later call of its
+role; `@TREE@` in its events and tool lines is the newest task's id. Unlike a recorded call, a cancelled one ends
+there: no tool call or answer after FERB cancels it, as a real model run. (The recorded replays keep conftest's
+FakeRuntime, which answered after a cancel: in a first draft a stopped task said "This is where things stood: Added."
+for a write that never happened.) `src/standins.rs`: the `notice` control takes the notice's `category`.
+
+**Tests: `tests/crash_and_restart.rs`** (each shown failing on a build with its behaviour broken, then restored):
+- `a_task_cut_by_kill_9_runs_again_in_place_and_is_told_once`: mid-task the turn is under way; after `kill -9` and
+  the next start the task runs again in place (restart.rs `resume_saved_plans`, Python's `resume_plans`), one worker
+  run, one answer answering the message, nothing set aside, `tasks.interrupted_after_restart` names it, nobody asked to
+  pick it up. Fails with the resume removed.
+- `a_turn_cut_by_kill_9_before_any_reply_is_closed_and_the_next_message_answered` (ENG-13's start-up pass): the
+  message is closed `interrupted` with FERB.app's unconfirmed-response words, no task, the next message answered.
+  Fails with the start-up pass removed.
+- `a_question_open_at_kill_9_is_closed_never_as_a_no_and_asked_again` (ENG-13, ORCH-684): the old question `expired`,
+  the step asks again, the Yes writes the file once. The check reads the changed file first: the code refuses a
+  check's pass that didn't (a first draft's accepting checker ended `done_unverified`).
+- `setup_beside_a_writing_daemon_never_sets_the_database_aside`: **2026-11-21's live bug (journal 158)**. The real
+  daemon writes its trail and merges the index through its own connection while FERB.app's `setup --service --update
+  --app-service` runs five times beside it (programs recorded, never launchctl). With setup's old check put back (both
+  checks on one connection, set aside on damage) it failed 3 of 3 with the owner's own words: "fts5: checksum
+  mismatch for table "trail_fts"" and "fts5: corruption found reading blob … from table "trail_fts"".
+- `an_alert_never_becomes_a_chat_entry_before_or_after_a_restart`: **2026-11-21's live bug (journal 159)**: "Your
+  Mac is getting hot…" as a chat bubble. An `alert` notice makes no entry, before or after a restart; `chat.status`
+  still lists it with `alert: true`; a plain notice makes one. Fails with the projector's alert filter removed.
+- `the_phone_link_helper_ends_with_a_killed_daemon_and_runs_again_at_the_start` (PHN-488's "a crash … closes the
+  pipe"): the stand-in helper ends with a killed daemon and runs again at the next start, the feature still on. Not
+  shown failing: the crash half holds by the kernel closing the pipe.
+- `a_timer_set_before_kill_9_fires_once_after_the_restart` (ORCH-511, ENG-13): set from chat, killed before it is
+  due, it fires once when the fake clock reaches it in the next process, is posted once, and never again after a
+  further tick and restart. Not shown failing.
+
+**Tests: `tests/follow_up_grid.rs` (TEST-516).** Every pair of task state (planning, running, waiting on a safety
+question, paused, done, failed, stopped) and follow-up as the planner reads it (stop, correction, re-plan, pause, new
+work): 35 cells, each named once (checked). 19 run, four at a time, each on its own daemon, asserting what its
+decisions define (ORCH-529, ORCH-579, ORCH-688, ORCH-308, ORCH-683, ORCH-682, ORCH-684, ORCH-538, ORCH-324, APP-974) and
+the audit's invariants: the order rules; no question ended as a No nobody gave; the stop's words once, only where the
+owner stopped; the restart's words only where a re-plan replaced running work; nothing open once every task ended. 6
+are the same rule as a run cell (planning × anything: ORCH-529 restarts the turn whatever the message says; failed or
+stopped × new work as done × new work). **10 undecided**, listed in the test with what is missing: a safety question
+when its task is paused; a paused task's stop, re-plan and pause; a stop or a pause of a done, failed or stopped task
+(stop of a paused or ended task has only the recorded Python scenarios stop_chat_while_paused and stop_after_end).
+Shown failing: with a retry stopping as the owner's stop (**2026-11-21's live bug, journal 155**) Running × Replan
+and Question × Replan fail; with a set-aside question shown as declined, the three question cells fail. A first break
+(the gateway's own supersede publishing "denied") was not on the stop's path and changed nothing: the chat's question
+closes by the projector, which is what the cells read.
+
+**Found by the grid (T-1329, not fixed).** Under the guard and under load, Paused × Correct twice left the task
+paused for good: FERB answered "Carrying on with the 3pm start." and the journal ends `task.steered`,
+`task.steering_delivered`: the correction went to the paused attempt's model run while it was still ending, and no step
+resumed. ORCH-308 says the owner's words resume a paused task. The grid's paused cells now wait until the step holds
+(its stored status `paused`), so they meet a settled pause; the race has its own by-hand probe,
+`a_correction_while_a_pause_settles_resumes_the_task` (`#[ignore]`, four runs with a slow cancel: the stand-ins' new
+`cancel_hold`). It showed the bug once in its first three runs, then passed 16 runs in a row: the window is real but
+narrow here; a real model's slower cancel widens it. Not traced to the line.
+
+**2026-11-21's other live bugs, not caught here:** the new Space and the minimized window (156, 157: the Mac's own
+parts, off in every test by TEST-512), the phones' stale "1 active task" (159: the phone apps' own code), the guard's
+kills and the containment question (161, 163: another program's sandbox), seams_wired (162: its own test caught it).
+
+**Found, not changed.** `chat.approve {granted: true}` without a `choice` answers `{"state": "granted"}` while the
+gateway's question treats it as unanswered ("the owner didn't answer FERB's question, so it didn't run"). FERB.app and
+the phones send a choice; not traced further.
+
+**Left.** T-1328: the real phone stack (a turn, a question answered and a daemon restart mid-session from the phone,
+through ferb-mobile, the real helper and ferbd) is not built: a test daemon accepts no link peer, the helper's `run`
+binds beyond loopback and needs a relay, ferb-link and ferb-mobile build outside the workspace and test before it, and
+pairing needs PHN-828's assertion. T-1283 (the website watch's one run) now has the harness but needs a scripted
+extension serving the export request, a mail page and the download; the memory transfer is paused (MEM-478).
+
+**Evidence.** Through ferb-test-guard as the gate runs them: crash_and_restart 7 passed (14-16 s), follow_up_grid 2
+passed and 1 ignored (56-114 s; 19 cells, four at a time), lifecycle and link_helper unchanged and passing. The whole
+ferbd suite through the guard: every binary passed but chat_replay's `the_recorded_chat_scenarios_through_the_program`
+once, on stop_by_chat's engine order (a bus `task.result` against a stream frame, under the load of the full run); it
+passed 5 of 5 alone. The recorded replays' only change here is a JSON check of each event for `@TREE@`; I read it as the
+load-dependent intermittent STATUS names (journal 42 to 57), not proven. `cargo fmt`, clippy `-D warnings` on ferbd, kb
+check clean. Gate time: about 80-130 s of tests and two more test binaries to link. No slow-list entry: the grid stays
+under the 300 s limit with room.
+
+**Unverified.** Nothing on the owner's Mac. Crashes at other moments (mid-write of a tool, while checking, during a
+restart's wait) and real time (the 2 s recheck pause, a slow cancel) are not covered; the undecided cells.

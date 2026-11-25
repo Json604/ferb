@@ -661,13 +661,6 @@ kind = "chore"
 status = "open"
 why = "Owner 2026-11-21 after the test audit: \"park these for the end\". The audit (.local/test-audit/report.md): 5 of 6 push refusals on 2026-11-21 were interference: the gate tests the shared working tree beside the owner's FERB, with no lock, shared build folders and a killing guard."
 
-[T-1277]
-title = "At the end: missing tests (real-binary lifecycle, follow-up x state grid, real phone stack)"
-area = "tests"
-kind = "build"
-status = "open"
-why = "Owner 2026-11-21: \"park these for the end\". The test audit found none of 2026-11-21's live bugs catchable: no test runs the real program across processes, restarts and time, and stand-ins encoded the code's own wrong beliefs. List in .local/test-audit/report.md."
-
 [T-1279]
 title = "At the end: review every prompt against all tasks to date and improve what they get wrong"
 area = "prompts"
@@ -684,13 +677,29 @@ why = "Owner 2026-11-21/22: \"later: Proactive checkins from FERB based on what 
 ask = "Which moments should FERB check in on (stuck on something, a deadline near, a repeated task, end of day), how often at most, and where (notch, phone, both)?"
 
 [T-1283]
-title = "The website watch's single chain through the real program waits for T-1277's lifecycle harness"
+title = "The website watch's single chain through the real program needs a scripted browser"
 area = "memory"
 kind = "build"
 status = "open"
-why = "MEM-448: tested in parts (supervisor run with stand-in models, memory.import through the binary, quiet posting). Request, mail, download, import and notice in one run needs a stand-in browser with a mail page: T-1277's harness."
-decisions = ["MEM-448", "MEM-451"]
+why = "MEM-448: tested in parts. The lifecycle harness exists (ferbd tests/life, TEST-515); the one run of request, mail, download, import and notice still needs a scripted extension serving the export request, a mail page and the download. Memory transfer is paused (MEM-478)."
+decisions = ["MEM-448", "MEM-451", "TEST-515"]
 after = []
+
+[T-1328]
+title = "The real phone stack in one test: phone library, link helper, ferbd, across a daemon restart"
+area = "tests"
+kind = "build"
+status = "open"
+why = "T-1277's last part (journal 233). In the way: a test daemon accepts no link peer; the helper's run binds beyond loopback and needs a relay; ferb-link and ferb-mobile build outside the workspace (PHN-486) and test first, so neither side gets the other's code or a fresh ferbd; pairing needs PHN-828."
+decisions = ["PHN-488", "TEST-515"]
+
+[T-1329]
+title = "A correction sent while a pause is still settling can leave the task paused for good"
+area = "orchestration"
+kind = "bug"
+status = "open"
+why = "T-1277's grid, journal 233: pause, then 'carry on' while the paused run is still ending: the correction goes to that run (task.steering_delivered), FERB says it carries on, the task never resumes. ferbd follow_up_grid.rs's ignored a_correction_while_a_pause_settles_resumes_the_task shows it."
+decisions = ["ORCH-308"]
 
 [T-1284]
 title = "The lab's work-log roll-up and its explicit profile rebuild aren't ported"

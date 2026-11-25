@@ -710,14 +710,26 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
                 },
             )
         }
-        // a FERB notice told to the owner (`_tell_owner`): the banner decision runs as for any notice
+        // a FERB notice told to the owner (`_tell_owner`): the banner decision runs as for any notice; `category`
+        // ("alert": APP-1106's alerts) as the notice's source gives it
         "notice" => {
             let n = d.b.notifier.clone();
             let ident = req["ident"].as_str().unwrap_or("test-notice").to_string();
             let text = req["text"].as_str().unwrap_or("a notice").to_string();
+            let category = req["category"].as_str().unwrap_or("").to_string();
             Ok(
                 match n
-                    .tell_owner(&ident, &[], &text, "ferb", "", "", &[], &Value::Null, None)
+                    .tell_owner(
+                        &ident,
+                        &[],
+                        &text,
+                        "ferb",
+                        &category,
+                        "",
+                        &[],
+                        &Value::Null,
+                        None,
+                    )
                     .await
                 {
                     Ok(()) => json!(true),
