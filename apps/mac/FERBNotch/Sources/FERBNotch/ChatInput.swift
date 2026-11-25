@@ -60,8 +60,9 @@ struct ChatInput: NSViewRepresentable {
         view.isEditable = model.canCompose
         if context.coordinator.focusRequest != model.focusRequest {
             context.coordinator.focusRequest = model.focusRequest
-            // The question field the owner chose to answer keeps focus over the composer.
-            if model.bodyVisible, model.canCompose, model.questionFocus == nil {
+            // The question field the owner chose to answer keeps focus over the composer, as an open pasted text's
+            // editor does (APP-1144).
+            if model.bodyVisible, model.canCompose, model.questionFocus == nil, model.shownPaste == nil {
                 // APP-784: a window opened just now (the sticky window's first open by shortcut) isn't key yet, or
                 // the field isn't in it yet: the request waits for that window to become key instead of being lost
                 view.focusWhenKey()
@@ -94,7 +95,12 @@ struct ChatInput: NSViewRepresentable {
     }
 }
 
-final class ChatTextView: NSTextView {
+/// A text view that handles Return itself, so the panels' Return-to-send monitor (PanelCoordinator) leaves it alone:
+/// the composer, where Return sends (APP-554), and a pasted text's editor, where Return is a new line (APP-1144).
+protocol HandlesOwnReturn: NSTextView {}
+
+/// A text view that takes keyboard focus when asked, waiting for its window to become key if it isn't yet (APP-784).
+class KeyFocusTextView: NSTextView {
     /// APP-784: a focus request that came before its window was key: taken when the window becomes key.
     var pendingFocus = false
     private var keyObserver: NSObjectProtocol?
@@ -130,7 +136,9 @@ final class ChatTextView: NSTextView {
         pendingFocus = false
         return super.resignFirstResponder()
     }
+}
 
+final class ChatTextView: KeyFocusTextView, HandlesOwnReturn {
     var pasteboard: NSPasteboard = .general
     var submit: (() -> Void)?
     var didPaste: ((String, NSRange) -> Void)?

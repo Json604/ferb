@@ -319,8 +319,8 @@ final class NotchModel: ObservableObject {
     var pasteProvenance = PasteProvenance()
     /// The long pastes held as chips in the composer (APP-935), in the order they were pasted.
     var heldPastes: [HeldPaste] { pasteProvenance.held }
-    /// The chip whose whole text the composer shows (clicked), if any.
-    @Published var shownPaste: UUID?
+    /// The chip whose whole text the composer shows (clicked) in its editor (APP-1143), if any.
+    @Published private(set) var shownPaste: UUID?
     /// Pictures pasted or dropped with no file behind them and promised files, received where the background service
     /// can read them (APP-933, APP-936).
     var receivedFiles = ReceivedFiles()
@@ -1127,7 +1127,7 @@ final class NotchModel: ObservableObject {
     /// them manully or attach a message in text and send").
     var canSend: Bool {
         !session.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !session.attachments.isEmpty
-            || !heldPastes.isEmpty
+            || heldPastes.contains { !$0.text.isEmpty }         // a chip emptied in its open editor carries nothing
     }
 
     /// A picture pasted with no file behind it (a screenshot copied to the clipboard, a browser's Copy Image): written
@@ -1162,13 +1162,41 @@ final class NotchModel: ObservableObject {
     func removeHeldPaste(_ id: UUID) {
         objectWillChange.send()
         pasteProvenance.removeHeld(id)
-        if shownPaste == id { shownPaste = nil }
-        onBackgroundChange?(true)
+        if shownPaste == id { show(nil) } else { onBackgroundChange?(true) }
     }
 
-    /// Clicking a chip shows its whole text in the composer; clicking it again (or Done) hides it.
+    /// Clicking a chip shows its whole text in the composer, in an editor (APP-1143); clicking it again hides it, as
+    /// Done and Escape do (`closeShownPaste`).
     func toggleShownPaste(_ id: UUID) {
-        shownPaste = shownPaste == id ? nil : id
+        show(shownPaste == id ? nil : id)
+    }
+
+    /// Done, or Escape while a chip's editor is open: the editor closes and the edits stay. False when none is open,
+    /// so Escape goes on to what it does otherwise.
+    @discardableResult
+    func closeShownPaste() -> Bool {
+        guard shownPaste != nil else { return false }
+        show(nil)
+        return true
+    }
+
+    /// The owner's edit in the open chip's editor: exactly what is sent from now on; its size line follows.
+    func editHeldPaste(_ id: UUID, text: String) {
+        guard heldPastes.contains(where: { $0.id == id && $0.text != text }) else { return }
+        objectWillChange.send()
+        pasteProvenance.editHeld(id, to: text)
+        onInteraction?()
+    }
+
+    /// One way the shown chip changes: a chip left emptied is taken out as its cross would (APP-1144), and the field
+    /// the owner types into gets the keyboard (the composer once no editor is open).
+    private func show(_ id: UUID?) {
+        if let leaving = shownPaste, leaving != id, heldPastes.contains(where: { $0.id == leaving && $0.text.isEmpty }) {
+            objectWillChange.send()
+            pasteProvenance.removeHeld(leaving)
+        }
+        shownPaste = id
+        focusRequest = UUID()
         onBackgroundChange?(true)
     }
 

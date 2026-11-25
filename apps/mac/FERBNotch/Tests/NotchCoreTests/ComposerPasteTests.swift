@@ -260,6 +260,134 @@ final class ComposerPasteTests: XCTestCase {
         XCTAssertEqual(PastedRequest(text: model.session.draft, provenance: model.pasteProvenance).markedText, wrapped(short))
     }
 
+    // MARK: - Editing a chip's text (owner, 2026-11-25: "this click to expand text is good BUT also let add and remove
+    // text in this too", APP-1143)
+
+    /// A composer holding `text` as a chip after "Look: ", its editor open, as clicking the chip opens it.
+    private func openEditor(_ text: String) throws -> (NotchModel, ChatTextView, PasteEditorTextView, ScriptedRPC) {
+        let (model, composer, rpc) = try composer()
+        composer.insertText("Look: ", replacementRange: composer.selectedRange())
+        composer.pasteboard = pasteboard { $0.setString(text, forType: .string) }
+        composer.paste(nil)
+        let paste = try XCTUnwrap(model.heldPastes.first)
+        model.toggleShownPaste(paste.id)
+        let editor = PasteEditorTextView()
+        PasteEditor.configure(editor, paste: try XCTUnwrap(model.shownHeldPaste), model: model)
+        return (model, composer, editor, rpc)
+    }
+
+    private func key(_ code: UInt16, _ characters: String, _ flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0,
+                                       context: nil, characters: characters, charactersIgnoringModifiers: characters,
+                                       isARepeat: false, keyCode: code))
+    }
+
+    // decision: APP-1143, APP-1144, ORCH-518
+    func testEditsInAChipsEditorAreExactlyWhatIsSentStillAsAPaste() async throws {
+        let log = (1...240).map { "line \($0)" }.joined(separator: "\n")
+        let (model, composer, editor, rpc) = try openEditor(log)
+        XCTAssertEqual(editor.string, log, "the editor shows the whole text")
+        // Remove the first line and add words at the end, as the owner would
+        editor.setSelectedRange(NSRange(location: 0, length: ("line 1\n" as NSString).length))
+        editor.insertText("", replacementRange: editor.selectedRange())
+        editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+        editor.insertText("\nend of log", replacementRange: editor.selectedRange())
+        let edited = (2...240).map { "line \($0)" }.joined(separator: "\n") + "\nend of log"
+        XCTAssertEqual(model.heldPastes.map(\.text), [edited])
+        XCTAssertEqual(model.shownHeldPaste?.size, "240 lines", "the size line follows the edits")
+
+        // Escape closes the editor and keeps the edits; the composer's own text is untouched
+        editor.keyDown(with: try key(53, "\u{1b}"))
+        XCTAssertNil(model.shownPaste)
+        XCTAssertEqual(model.heldPastes.map(\.text), [edited])
+        XCTAssertEqual(model.session.draft, "Look: ")
+
+        composer.insertText("thanks", replacementRange: composer.selectedRange())
+        model.startWork()
+        let params = try await sentText(rpc, model)
+        XCTAssertEqual(params["text"] as? String, "Look: " + wrapped(edited) + "thanks")
+        XCTAssertEqual(model.conversation.turns.last?.request, "Look: " + edited + "thanks")
+        model.disconnectDaemon()
+    }
+
+    // decision: APP-1143
+    func testTheChipsLineCountFollowsItsEditsAndDoneKeepsThem() throws {
+        let (model, _, editor, _) = try openEditor((1...419).map { "row \($0)" }.joined(separator: "\n"))
+        XCTAssertEqual(model.heldPastes.first?.size, "419 lines")
+        // Keep only the first 100 lines
+        let keep = ((1...100).map { "row \($0)" }.joined(separator: "\n") as NSString).length
+        editor.setSelectedRange(NSRange(location: keep, length: (editor.string as NSString).length - keep))
+        editor.insertText("", replacementRange: editor.selectedRange())
+        XCTAssertEqual(model.shownHeldPaste?.size, "100 lines")
+        model.closeShownPaste()                                  // Done
+        XCTAssertNil(model.shownPaste)
+        XCTAssertEqual(model.heldPastes.first?.size, "100 lines")
+        XCTAssertEqual(model.attachmentStripHeight, 100, "the strip is back to the chips alone")
+        // Opened again, the editor has the edited text
+        model.toggleShownPaste(try XCTUnwrap(model.heldPastes.first?.id))
+        let again = PasteEditorTextView()
+        PasteEditor.configure(again, paste: try XCTUnwrap(model.shownHeldPaste), model: model)
+        XCTAssertEqual(again.string, (1...100).map { "row \($0)" }.joined(separator: "\n"))
+    }
+
+    // decision: APP-1143, APP-1144
+    func testAChipEmptiedInItsEditorIsTakenOutWhenTheEditorCloses() throws {
+        let (model, composer, editor, _) = try openEditor(String(repeating: "q", count: 2_500))
+        editor.selectAll(nil)
+        editor.insertText("", replacementRange: editor.selectedRange())
+        XCTAssertEqual(model.heldPastes.count, 1, "emptied while open, it stays, so the owner can type a new text")
+        composer.selectAll(nil)
+        composer.insertText("", replacementRange: composer.selectedRange())
+        XCTAssertFalse(model.canSend, "an emptied chip carries nothing to send")
+        model.closeShownPaste()
+        XCTAssertTrue(model.heldPastes.isEmpty, "closed empty, it goes as its cross would")
+        XCTAssertNil(model.shownPaste)
+        XCTAssertEqual(model.attachmentStripHeight, 0)
+
+        // Emptied and left by clicking another chip: the same
+        let (other, _, first, _) = try openEditor(String(repeating: "a", count: 2_500))
+        let keptID = try XCTUnwrap(other.heldPastes.first?.id)
+        other.holdPaste(String(repeating: "b", count: 2_500), at: 0)
+        first.selectAll(nil)
+        first.insertText("", replacementRange: first.selectedRange())
+        other.toggleShownPaste(try XCTUnwrap(other.heldPastes.last?.id))
+        XCTAssertFalse(other.heldPastes.contains { $0.id == keptID })
+        XCTAssertEqual(other.heldPastes.count, 1)
+    }
+
+    // decision: APP-1144, APP-554
+    func testReturnInAChipsEditorIsANewLineAndSendsNothing() throws {
+        let (model, _, editor, rpc) = try openEditor((1...40).map { "x\($0)" }.joined(separator: "\n"))
+        editor.setSelectedRange(NSRange(location: 2, length: 0))           // after "x1"
+        editor.keyDown(with: try key(36, "\r"))
+        editor.keyDown(with: try key(76, "\u{3}"))                         // the keypad's Enter
+        XCTAssertTrue(editor.string.hasPrefix("x1\n\n\nx2"))
+        XCTAssertTrue(model.heldPastes.first?.text.hasPrefix("x1\n\n\nx2") == true)
+        XCTAssertTrue(model.conversation.turns.isEmpty)
+        XCTAssertFalse(rpc.calls.contains { $0.0 == "chat.send" })
+        XCTAssertNotNil(model.shownPaste, "the editor stays open")
+        // The panels' Return-to-send monitor passes it by, as it does the composer
+        XCTAssertTrue((editor as NSResponder) is HandlesOwnReturn)
+        XCTAssertTrue((ChatTextView() as NSResponder) is HandlesOwnReturn)
+        XCTAssertFalse((NSTextView() as NSResponder) is HandlesOwnReturn)
+    }
+
+    // decision: APP-1144
+    func testAChipsEditorHasItsOwnUndo() throws {
+        let (model, composer, editor, _) = try openEditor(String(repeating: "u", count: 2_100))
+        XCTAssertNotNil(editor.undoManager, "its own history, not the window's the composer uses")
+        XCTAssertNil(composer.undoManager)
+        editor.undoManager?.groupsByEvent = false
+        editor.undoManager?.beginUndoGrouping()
+        editor.insertText("!", replacementRange: NSRange(location: 0, length: 0))
+        editor.undoManager?.endUndoGrouping()
+        XCTAssertEqual(model.heldPastes.first?.text.first, "!")
+        editor.undoManager?.undo()
+        XCTAssertEqual(model.heldPastes.first?.text, String(repeating: "u", count: 2_100), "undo reaches what is sent")
+        editor.undoManager?.redo()
+        XCTAssertEqual(model.heldPastes.first?.text.first, "!", "and redo")
+    }
+
     // MARK: - Where a chip sits as the owner edits
 
     // decision: APP-935

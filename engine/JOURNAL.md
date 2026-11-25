@@ -13444,3 +13444,52 @@ journal.
 instrumented tests; a real prompt after the lock; a real Mac with an older bridge (its plain-lock fallback is read
 from the code: `link.lock` passed `{}` to the daemon whatever it was sent). A daemon restart forgets the Mac's hold
 (the phone's one-shot still asks), not tested across a restart.
+
+## 2026-11-25 · 231 · A pasted text's chip opens for editing; what is in it is what is sent
+
+**The owner (APP-1143).** "also in the mac app, this click to expand text is good BUT also let add and remove text in
+this too", with a screenshot of the composer's read-only "Pasted text · 419 lines" panel (APP-934's click-to-see).
+How it is built: APP-1144 (agent).
+
+**FERB.app** (`ComposerPaste.swift`, both chat surfaces through ChatBodyView):
+- The shown chip's text is now `PasteEditor`, an NSTextView (`PasteEditorTextView`) styled like the old text, with the
+  composer's own focus base (`KeyFocusTextView`, split out of `ChatTextView` unchanged, APP-784) and its own
+  `UndoManager`, so Undo/Redo, selection, cut/copy/paste, input methods and Command-A work as in the composer (the
+  panels already route those keys to the focused field, APP-717), and an undo in the composer never reaches a closed
+  editor. Every character change is read from its text storage (an `undo` changes the characters without
+  `didChangeText`, found by the test) and goes to `NotchModel.editHeldPaste` → `PasteProvenance.editHeld`, which
+  replaces `HeldPaste.text` (now `internal(set) var`). Send (`expanded`), `canSend` and the size line read it, so the
+  edited text goes out at the chip's place, bracketed as a paste exactly as before.
+- Return and Shift-Return insert a new line in the editor; nothing is sent from it. The panels' Return-to-send monitor
+  (`PanelCoordinator`) sent the draft on Return in any text view but the composer; it now passes any
+  `HandlesOwnReturn` view by (the composer and the editor). The composer's Return still sends (APP-554).
+- Done and Escape close the editor with the edits kept: Escape in the editor itself, and the notch's `onEscape` and
+  the chat window's `onEscapeFirst` close it after an enlarged picture (APP-889). While it is open the composer leaves
+  focus requests to it; closing sends the keyboard back to the composer.
+- An emptied chip stays while its editor is open (so select-all and type replaces it; `canSend` ignores an empty chip)
+  and is removed when the editor closes, by Done, Escape, its chip or another chip, as its cross does.
+- Command-V in the editor inserts the clipboard's text without leaked bracketed-paste markers (APP-713); a long one
+  goes in whole, never as a chip inside a chip.
+
+Unchanged: what counts as a long paste (APP-1131), the chip and its cross, how it is sent (ORCH-518, APP-596) and how
+the transcript shows it. The whole chip, words typed into it included, still goes out as one paste.
+
+**The phones** have no pasted-text chip (no long-paste handling in `apps/android` or `apps/ios`; a long paste fills
+their message field), so nothing changes there.
+
+**Words for the owner to review:** the chip's tooltip "Click to see and edit the text" (was "Click to see the whole
+text"), its VoiceOver label "Pasted text, N lines. Show and edit the text" (was "… Show the whole text") and the
+editor's VoiceOver label "Pasted text". No visible text is new.
+
+**kb.** APP-1143 (owner, his words; refines APP-934), APP-1144 (agent), LIVE-1219 new.
+
+**Evidence.** `ComposerPasteTests` (16, 5 new), real ChatTextView, PasteEditorTextView and NotchModel with private
+pasteboards: edits in the editor are exactly what `chat.send` carries and the bubble shows, Escape keeps them; the
+size line follows (419 → 100 lines) and Done keeps it; an emptied chip stays while open, can't be sent alone and goes
+on Done or on opening another chip; Return and keypad Enter in the editor are new lines, no turn and no `chat.send`,
+and the editor and composer are `HandlesOwnReturn` while a plain text view is not; the editor's own undo and redo
+reach what is sent. Whole FERB.app `swift test`: 985 tests, 0 failures, 8 skipped.
+
+**Unverified.** Nothing seen on screen: the editor's look, scrolling a 400-line text, focus moving on open and close,
+an input method's marked text, the panel's Escape and Command-key routing into the editor and the Return monitor are
+read from the code, not driven by a test (LIVE-1219 is the owner's).

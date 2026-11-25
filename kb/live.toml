@@ -5249,3 +5249,12 @@ request = "With Fingerprint to open (Face ID to open) on, open This phone from t
 pass = "Each tap closes the sheet into the lock page at once; nothing asks until you tap Unlock or come back to the app. With the switch off it still asks after Lock FERB now, also after the app was swiped away, and a cancel keeps it locked. Once opened, the chat reads as before, and 10 minutes away opens straight in again with no fingerprint. The switch stays off throughout."
 decisions = ["PHN-847", "PHN-848"]
 sitting = "about 10 minutes per phone"
+
+[LIVE-1219]
+title = "A pasted text's chip opens for editing, and what is sent is the edited text"
+area = "app"
+surface = "FERB.app of this change, in the notch and in the chat window"
+request = "Copy about 400 lines of any log or text and paste them into FERB's message field: a Pasted text chip appears. Click it. In the text, delete a few lines, type a sentence, press Return twice, then Command-Z and Shift-Command-Z, Command-A then Command-C, and paste a short text with Command-V. Press Done and look at the chip's line count. Type a message in the field and send it. Then paste a long text again, open its chip, select all, delete, press Escape. Repeat the first part in the chat window."
+pass = "The opened text takes typing, Return makes new lines without sending, undo and redo, select all, copy and paste work as in the message field; Done closes it and the chip shows the new line count; the sent message in the chat shows the edited text where the chip was. The emptied chip is gone after Escape. Nothing else about pasting looks or behaves differently."
+decisions = ["APP-1143", "APP-1144"]
+sitting = "about 5 minutes"

@@ -31,6 +31,13 @@ public struct PasteProvenance: Equatable {
         held.removeAll { $0.id == id }
     }
 
+    /// The owner's edit of a chip's text in its editor (owner, 2026-11-25, APP-1143): what is sent from now on, at the
+    /// same place and still as a paste. An emptied chip stays until its editor closes (APP-1144).
+    public mutating func editHeld(_ id: UUID, to text: String) {
+        guard let index = held.firstIndex(where: { $0.id == id }) else { return }
+        held[index].text = text
+    }
+
     /// The draft as sent: every held paste put back in at its place, marked as a paste exactly as if it had been pasted
     /// into the field there; the provenance returned describes that text and holds nothing.
     public func expanded(_ text: String) -> (text: String, provenance: PasteProvenance) {
@@ -142,7 +149,7 @@ public struct PasteProvenance: Equatable {
 /// A long paste held as a chip in the composer (APP-934): its whole text and its place in the draft (UTF-16).
 public struct HeldPaste: Equatable, Identifiable {
     public let id: UUID
-    public let text: String
+    public internal(set) var text: String
     public internal(set) var location: Int
 
     public init(id: UUID, text: String, location: Int) {

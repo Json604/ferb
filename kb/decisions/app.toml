@@ -4871,3 +4871,25 @@ words = "yes"
 words_source = "Owner 2026-11-25, asked whether \"Stop using my relay\" should ask \"Are you sure?\" first, after he turned his relay off by mistake and its link was gone from the Mac."
 rule = "In Settings → Phone, \"Stop using my relay…\" asks \"Stop using your relay?\" with what happens (the phones move to the public relay; FERB keeps no copy of the link) before it turns the relay off; Cancel changes nothing."
 untestable = "A SwiftUI alert in front of an existing call (stopUsingRelay, tested in PhoneSettingsTests); seen by the owner on his Mac."
+
+[APP-1143]
+title = "A held paste's text can be edited when its chip is opened"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "also in the mac app, this click to expand text is good BUT also let add and remove text in this too"
+words_source = "Owner 2026-11-25, relayed verbatim, with a screenshot of the composer's read-only \"Pasted text · 419 lines\" panel with Done above its chip and the message field."
+rule = "Refines APP-934. In both chat surfaces, clicking a \"Pasted text\" chip opens its whole text for editing: the owner can add and remove text there, and what is in it is exactly what is sent, at the chip's place and still as a paste. Done closes it with the edits kept, and the chip's size line follows them; a chip emptied entirely is taken out, as its cross does. What counts as a long paste, the chip, how it is sent and how the transcript shows it are unchanged."
+why = "Seeing the whole paste is good; he also wants to trim or add to it before sending without pasting it again."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/ComposerPaste.swift::ShownPasteView", "apps/mac/FERBNotch/Sources/FERBNotch/ComposerPaste.swift::PasteEditor", "apps/mac/FERBNotch/Sources/NotchCore/PastedRequest.swift::PasteProvenance.editHeld", "apps/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.editHeldPaste"]
+live = ["LIVE-1219"]
+
+[APP-1144]
+title = "How a held paste's editor works: the composer's native text view, its own undo, Return a new line"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "For APP-1143. PasteEditorTextView, an NSTextView with its own UndoManager; each change in its text storage sets HeldPaste.text (editHeldPaste), which send, canSend and the size line read. Return and Shift-Return are new lines; as a HandlesOwnReturn view the Return-to-send monitor passes it by (APP-554). Done or Escape (after APP-889) closes it, edits kept; open, it takes focus requests. An emptied chip stays while open (canSend ignores it) and goes when the editor closes. Command-V inserts text without leaked markers (APP-713), never a chip. The whole chip goes as one paste (ORCH-518)."
+why = "The native view keeps undo, selection, cut/copy/paste, input methods and Command-A, which the panels route to the focused field (APP-717). Its own undo never reaches a closed editor. Removing on close lets select-all-and-type replace the text. Multi-line text needs Return for lines."
+rejected = ["Return sends from the editor too (APP-554 everywhere): editing a log or a list needs new lines, and Shift-Return there would be easy to miss", "Remove the chip the moment its text is empty: select-all and type to replace it would lose the chip", "Mark the owner's words typed inside a chip as his own (not pasted): which words inside are typed isn't tracked for a held paste, and the conservative reading is the paste's"]
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/ComposerPaste.swift::PasteEditorTextView", "apps/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift::HandlesOwnReturn", "apps/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift::KeyFocusTextView", "apps/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.closeShownPaste", "apps/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "apps/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift"]

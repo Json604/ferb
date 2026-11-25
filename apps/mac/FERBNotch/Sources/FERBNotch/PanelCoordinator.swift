@@ -446,7 +446,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 if event.keyCode == 36 || event.keyCode == 76 { self.model.openDocument(); return nil }
                 if event.keyCode == 15 && event.modifierFlags.contains(.command) { self.model.revealDocument(); return nil }
             }
-            if window.firstResponder is ChatTextView { return event }
+            // The composer sends on Return itself (APP-554); a pasted text's editor takes Return as a new line (APP-1144)
+            if window.firstResponder is HandlesOwnReturn { return event }
             // Return in a field on FERB's intro line submits that field (its own onSubmit), never the composer.
             if self.model.introLine?.entry != nil, (window.firstResponder as? NSTextView)?.isFieldEditor == true {
                 return event
@@ -610,8 +611,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
         panel.collectionBehavior = Self.overlayBehavior
         panel.animationBehavior = .none
-        panel.onEscape = { [weak self] in   // APP-889: Esc first makes an enlarged picture small again
-            guard let self, !self.model.closeEnlargedPicture() else { return }
+        // APP-889: Esc first makes an enlarged picture small again; APP-1144: then closes a pasted text's editor
+        panel.onEscape = { [weak self] in
+            guard let self, !self.model.closeEnlargedPicture(), !self.model.closeShownPaste() else { return }
             self.model.collapse(keyboard: true)
         }
         let hosting = TrackingHostingView(rootView: NotchView(model: model, presentation: presentation))

@@ -189,7 +189,10 @@ final class ChatWindowController: NSObject, NSWindowDelegate, WindowDragOwner {
         panel.minSize = ChatWindowFrames.minimumSize
         panel.delegate = self
         panel.onClose = { [weak self] in self?.onClose?() }
-        panel.onEscapeFirst = { [weak model] in model?.closeEnlargedPicture() ?? false }
+        panel.onEscapeFirst = { [weak model] in
+            guard let model else { return false }
+            return model.closeEnlargedPicture() || model.closeShownPaste()     // APP-889, APP-1144
+        }
         controls.close = { [weak self] in self?.onClose?() }
         let hosting = NSHostingView(rootView: ChatWindowView(model: model, controls: controls))
         hosting.sizingOptions = []
