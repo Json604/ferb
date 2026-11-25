@@ -52,6 +52,8 @@ struct State {
     turn_id: Option<Value>,
     timer: Option<CallTimer>,
     timings: VecDeque<Map<String, Value>>,
+    /// RUN-477: each model call's usage report as the reader saw it, until the run's events carry it.
+    usage_seen: VecDeque<Map<String, Value>>,
     context_tokens: Value,
     context_window: Value,
     watcher_crash: Option<Raised>,
@@ -598,6 +600,7 @@ async fn start_stream(
             turn_id: None,
             timer: Some(CallTimer::new(timer_now(rt), "runtime")),
             timings: VecDeque::new(),
+            usage_seen: VecDeque::new(),
             context_tokens: Value::Null,
             context_window: Value::Null,
             watcher_crash: None,
@@ -1079,6 +1082,13 @@ fn observe(run: &CodexRun, obj: &Value) {
     if method == "thread/tokenUsage/updated" {
         let t = timer.done();
         st.timings.push_back(t);
+        let last = params
+            .get("tokenUsage")
+            .and_then(|u| u.get("last"))
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        st.usage_seen.push_back(last);
     } else if method == "item/completed" && kind == Some(&json!("mcpToolCall")) {
         timer.handed_back();
     } else if method.starts_with("item/") && kind != Some(&json!("userMessage")) {
@@ -1484,6 +1494,7 @@ async fn event_loop(run: &Arc<CodexRun>, y: &mut Yielder) -> Result<(), Exit> {
                 let mut st = run.lock();
                 st.context_tokens = get(&usage, "inputTokens")?.cloned().unwrap_or(Value::Null);
                 st.context_window = window.unwrap_or(Value::Null);
+                st.usage_seen.pop_front();
                 st.timings.pop_front()
             };
             let usage = crate::usage::from_codex(&rt.model, &mapped, &(rt.host.today)())?;
@@ -1528,6 +1539,29 @@ impl RunControl for CodexRun {
 
     fn cancel(&self) -> ferb_core::interfaces::BoxFuture<'_, ()> {
         Box::pin(CodexRun::cancel(self))
+    }
+
+    /// RUN-477: the calls Codex reported that the run's events never carried (the run stopped first): one record each.
+    fn unreported_usage(&self) -> Vec<Map<String, Value>> {
+        let left: Vec<Map<String, Value>> = self.lock().usage_seen.drain(..).collect();
+        let today = (self.rt.host.today)();
+        left.iter()
+            .filter_map(|last| {
+                let mut mapped = Map::new();
+                for (to, from) in [
+                    ("input_tokens", "inputTokens"),
+                    ("cached_input_tokens", "cachedInputTokens"),
+                    ("output_tokens", "outputTokens"),
+                    ("reasoning_output_tokens", "reasoningOutputTokens"),
+                ] {
+                    mapped.insert(to.into(), last.get(from).cloned().unwrap_or(json!(0)));
+                }
+                let usage = crate::usage::from_codex(&self.rt.model, &mapped, &today).ok()?;
+                let mut data = usage.as_dict();
+                data.insert("recorded_at_end".into(), json!(true));
+                Some(data)
+            })
+            .collect()
     }
 }
 

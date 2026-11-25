@@ -44,21 +44,38 @@ impl Now {
 
 type Res<T> = Result<T, String>;
 
-/// `ferb stats --days N` on the real clock.
-pub fn stats_now(home: &Path, out: &mut dyn Write, days: i64) -> i32 {
-    stats(home, out, days, Now::real())
+/// `ferb stats --days N [--from DAY --to DAY]` on the real clock.
+pub fn stats_now(
+    home: &Path,
+    out: &mut dyn Write,
+    days: i64,
+    range: Option<(String, String)>,
+) -> i32 {
+    stats_in(home, out, days, range, Now::real())
 }
 
 /// `admin.stats(home, out, days)`: 0, or 1 with "no database at …" when there is none (or when Python would have
 /// raised: the reason goes to stderr).
 pub fn stats(home: &Path, out: &mut dyn Write, days: i64, now: Now) -> i32 {
+    stats_in(home, out, days, None, now)
+}
+
+/// [`stats`], the model-use section over local days `range` (both included) instead of the last `days` days
+/// (ORCH-720). The sections Python printed keep `days`.
+pub fn stats_in(
+    home: &Path,
+    out: &mut dyn Write,
+    days: i64,
+    range: Option<(String, String)>,
+    now: Now,
+) -> i32 {
     // pathlib's Path(str(home)) / "ferb.db": repeated and trailing separators and inner "." dropped
     let db: PathBuf = home.components().collect::<PathBuf>().join("ferb.db");
     if !db.exists() {
         let _ = writeln!(out, "no database at {}", db.display());
         return 1;
     }
-    match run(&db, out, days, &now) {
+    match run(&db, out, days, range, &now) {
         Ok(()) => 0,
         Err(e) => {
             let _ = out.flush();
@@ -76,7 +93,13 @@ fn sq(e: rusqlite::Error) -> String {
     format!("sqlite3.OperationalError: {e}")
 }
 
-fn run(db: &Path, out: &mut dyn Write, days: i64, now: &Now) -> Res<()> {
+fn run(
+    db: &Path,
+    out: &mut dyn Write,
+    days: i64,
+    range: Option<(String, String)>,
+    now: &Now,
+) -> Res<()> {
     let since = days
         .checked_mul(-86_400)
         .and_then(|s| now.utc.plus(s, 0).ok())
@@ -374,7 +397,13 @@ fn run(db: &Path, out: &mut dyn Write, days: i64, now: &Now) -> Res<()> {
     if tables.contains("learning_nodes") && tables.contains("episodes") {
         repeats(&c, out)?;
     }
-    resources(&c, days, tables.contains("resource_samples"), now, out)
+    resources(&c, days, tables.contains("resource_samples"), now, out)?;
+    // ORCH-720: what each role's model calls cost (printed only when usage was recorded in the range)
+    let range = match range {
+        Some((from, to)) => crate::usage_stats::Range::Days { from, to },
+        None => crate::usage_stats::Range::Since { since, days },
+    };
+    crate::usage_stats::report(&c, &range, out)
 }
 
 /// `status_label`: a task status as the owner reads it: done_unverified is "not confirmed" (V5); the others as

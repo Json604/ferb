@@ -46,6 +46,11 @@ pub trait Host {
     fn extension(&mut self, action: &str, out_dir: Option<&str>) -> i32;
     /// `ferb stats [--days N]` (admin.py:358): read straight from FERB's database, the daemon running or not.
     fn stats(&mut self, days: i64) -> i32;
+    /// ORCH-720: `ferb stats --from DAY --to DAY`: the model-use section over those local days (YYYY-MM-DD, both
+    /// included; an open end reaches the first or the latest record).
+    fn stats_between(&mut self, days: i64, _from: &str, _to: &str) -> i32 {
+        self.stats(days)
+    }
 }
 
 fn s(ns: &std::collections::BTreeMap<String, Value>, k: &str) -> Option<String> {
@@ -102,7 +107,30 @@ pub fn run(argv: &[String], host: &mut dyn Host) -> i32 {
         "runtimes" => return not_ported(host, "runtimes"),
         "stats" => {
             let days = ns.get("days").and_then(Value::as_i64).unwrap_or(7);
-            return host.stats(days);
+            let (from, to) = (s(&ns, "from"), s(&ns, "to"));
+            if from.is_none() && to.is_none() {
+                return host.stats(days);
+            }
+            let day = |d: &str| {
+                d.len() == 10
+                    && d.char_indices().all(|(i, c)| {
+                        if i == 4 || i == 7 {
+                            c == '-'
+                        } else {
+                            c.is_ascii_digit()
+                        }
+                    })
+            };
+            let from = from.unwrap_or_else(|| "0000-01-01".into());
+            let to = to.unwrap_or_else(|| "9999-12-31".into());
+            if !day(&from) || !day(&to) {
+                let _ = writeln!(
+                    host.err(),
+                    "ferb stats: --from and --to take a day as YYYY-MM-DD"
+                );
+                return 2;
+            }
+            return host.stats_between(days, &from, &to);
         }
         "browsers" if s(&ns, "bcmd").as_deref() == Some("extension") => {
             let action = s(&ns, "action").unwrap_or_else(|| "path".into());

@@ -29,6 +29,12 @@ pub trait RunControl: Send + Sync {
     fn steer<'a>(&'a self, message: &'a str) -> BoxFuture<'a, Result<(), RuntimeError>>;
     /// Ends the run: its process killed and reaped, its readers stopped, its files removed.
     fn cancel(&self) -> BoxFuture<'_, ()>;
+    /// RUN-477: usage the provider reported for this run that no `usage` event carried (a run cancelled, stopped or
+    /// failed before its runtime reported it), one record per model call or per run as the runtime counts it, each
+    /// marked `recorded_at_end`; taken once.
+    fn unreported_usage(&self) -> Vec<Map<String, Value>> {
+        Vec::new()
+    }
 }
 
 pub struct Started {

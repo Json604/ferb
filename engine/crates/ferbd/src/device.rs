@@ -127,7 +127,11 @@ impl Host for ProgramHost {
         None
     }
     fn stats(&mut self, days: i64) -> i32 {
-        crate::stats::stats_now(&self.home, &mut self.out, days)
+        crate::stats::stats_now(&self.home, &mut self.out, days, None)
+    }
+    fn stats_between(&mut self, days: i64, from: &str, to: &str) -> i32 {
+        let range = Some((from.to_string(), to.to_string()));
+        crate::stats::stats_now(&self.home, &mut self.out, days, range)
     }
     fn extension(&mut self, action: &str, out_dir: Option<&str>) -> i32 {
         let home = self.home.clone();

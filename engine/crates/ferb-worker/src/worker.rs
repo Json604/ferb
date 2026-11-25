@@ -1337,6 +1337,15 @@ impl Worker {
                             .map(|(k, v)| (k.clone(), v.clone()))
                             .collect();
                         host.span_finish(&s, Some(kept), None, None);
+                        // RUN-478: the provider refused FERB's edited history and FERB stopped editing it: journaled
+                        // with its owner-facing line
+                        if data.get("stopped").and_then(Value::as_str) == Some("history_refused") {
+                            host.journal(
+                                "runtime.history_refused",
+                                json!({"runtime": name, "task_id": task.id,
+                                       "said": data.get("said").cloned().unwrap_or(Value::Null)}),
+                            );
+                        }
                     }
                     RuntimeEventKind::Violation => {
                         let said = pyvalue::repr(&Py::from_value(&Value::Object(data.clone())));
@@ -1485,6 +1494,19 @@ impl Worker {
             }
         }
         cleanup.armed = false;
+        // RUN-477: what the provider counted that no usage event carried (the run stopped, failed or was cancelled
+        // first) is recorded as the run's other usage is
+        for usage in control.unreported_usage() {
+            let s = host.span_start(
+                "model.usage",
+                span_task(task),
+                Some(call.parent_span),
+                None,
+                obj(json!({"runtime": name})),
+            );
+            let cost = usage.get("cost_usd").cloned();
+            host.span_finish(&s, Some(usage), None, cost);
+        }
         tell_timing(&mut steps, "close", calls, &start_state);
         body?;
         if self.runs.is_stalled(&watch_id) {

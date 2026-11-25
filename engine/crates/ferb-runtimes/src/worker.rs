@@ -94,6 +94,10 @@ impl ferb_worker::ports::RunControl for WorkerControl {
     fn cancel(&self) -> BoxFuture<'_, ()> {
         self.0.cancel()
     }
+
+    fn unreported_usage(&self) -> Vec<serde_json::Map<String, Value>> {
+        self.0.unreported_usage()
+    }
 }
 
 /// One built adapter as the worker's `ModelRuntime`, with the two facts the worker reads off it by attribute: its

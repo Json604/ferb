@@ -5280,3 +5280,12 @@ request = "After the update, open the Memory page and read Always on and To chec
 pass = "Always on still shows your words, what FERB saw on your Mac and the 65 lines you approved, and nothing asks about them again; the preference FERB worked out is not always on by itself and is listed under \"Keep these in mind all the time?\" with Approve / Decline; approved, it shows under Always on at once; declined, it stays off, is still on the Memory page and found when FERB looks it up, and isn't asked again; after the reopen nothing you answered is asked again."
 decisions = ["MEM-480", "MEM-481", "MEM-482", "MEM-483"]
 sitting = "after this build is installed, over two days"
+
+[LIVE-1222]
+title = "A Claude worker task's usage names its model requests, and a stopped one is still counted"
+area = "runtimes"
+surface = "FERB.app with this build, Claude as the worker's model"
+request = "Ask for a small browsing task with a few steps (for example \"open kartikey.xyz and tell me the page title\"), then a longer one you stop from the chat after a few steps. Then `ferb stats --from <today> --to <today>` and, for each task, `ferb trace TASK --json`."
+pass = "The first task's model.usage records carry `requests` (several, not 1); the stopped task has a model.usage record marked recorded_at_end with its tokens; `ferb stats` shows both under worker, claude without the ~ mark for today."
+decisions = ["RUN-477", "ORCH-720"]
+sitting = "one sitting, about 5 minutes"

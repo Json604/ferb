@@ -6,6 +6,7 @@
 //! tool-list proxy after every turn.
 
 pub mod proxy;
+pub mod tally;
 pub mod transport;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -154,6 +155,15 @@ pub trait ToolProxy: Send + Sync {
     /// RUN-470: the compactions made on the run's requests since the last call.
     fn compactions(&self, _run_id: &str) -> Vec<crate::compact::Compaction> {
         Vec::new()
+    }
+    /// RUN-477: the usage Anthropic reported for the run's model requests since the last call; None when none.
+    fn take_usage(&self, _run_id: &str) -> Option<tally::Tally> {
+        None
+    }
+    /// RUN-478: how many of the run's edited requests Anthropic refused for their edited history since the last
+    /// call (each went again unedited, and the run is not edited again).
+    fn history_refusals(&self, _run_id: &str) -> usize {
+        0
     }
 }
 
@@ -459,6 +469,8 @@ struct State {
     restart: bool,
     remembered: bool,
     repaired: bool,
+    /// RUN-477: usage the relay counted that no result frame reported, kept when the run is cancelled.
+    unreported: tally::Tally,
 }
 
 /// One live Claude run.
@@ -509,6 +521,10 @@ impl ClaudeRun {
 
     /// claude_sdk.py `cancel`.
     pub async fn cancel(&self) {
+        // RUN-477: what the relay counted since the last result frame stays with the run once the relay forgets it
+        if let Some(t) = self.rt.proxy.take_usage(&self.id) {
+            self.lock().unreported.add(&t);
+        }
         let client = {
             let mut st = self.lock();
             st.closed = true;
@@ -655,6 +671,7 @@ pub async fn start(
             restart: false,
             remembered: false,
             repaired: false,
+            unreported: tally::Tally::default(),
         }),
         input_lock: tokio::sync::Mutex::new(()),
     });
@@ -1013,8 +1030,15 @@ async fn result_message(
     if !follow.is_empty() {
         data.insert("follow_up".into(), json!(follow));
     }
+    // RUN-477: the relay's count of this turn's model requests (Claude Code reports one total per turn)
+    if let Some(t) = rt.proxy.take_usage(&run.id) {
+        data.insert("requests".into(), json!(t.requests));
+    }
     for made in rt.proxy.compactions(&run.id) {
         y.emit(event(K::Compacted, made.as_event())).await?;
+    }
+    for _ in 0..rt.proxy.history_refusals(&run.id) {
+        y.emit(event(K::Compacted, history_refused_event())).await?;
     }
     y.emit(event(K::Usage, Value::Object(data))).await?;
     if is_error {
@@ -1165,6 +1189,43 @@ fn repair_mark(run: &ClaudeRun, m: &Value, typed: &str, is_error: bool) -> Optio
     }
 }
 
+/// RUN-478: the run's edited history was refused and went again unedited; FERB stops editing it. Recorded as the
+/// relay's compaction events are (a `model.compacted` span, `by` FERB), and journaled with its owner-facing line.
+pub fn history_refused_event() -> Value {
+    json!({"by": "ferb", "stopped": "history_refused", "said": tally::HISTORY_REFUSED_LINE})
+}
+
+impl ClaudeRun {
+    /// RUN-477: the relay's count of model requests no result frame reported: one record for the rest of the run.
+    fn unreported(&self) -> Vec<Map<String, Value>> {
+        let mut t = std::mem::take(&mut self.lock().unreported);
+        if let Some(more) = self.rt.proxy.take_usage(&self.id) {
+            t.add(&more);
+        }
+        if t.is_empty() {
+            return Vec::new();
+        }
+        let model = match self.rt.model.as_deref() {
+            Some(m) if !m.is_empty() => m.to_string(),
+            _ if !t.model.is_empty() => t.model.clone(),
+            _ => "claude".to_string(),
+        };
+        let Ok(usage) = crate::usage::from_anthropic(
+            &model,
+            &t.as_anthropic(),
+            "subscription",
+            None,
+            &(self.rt.host.today)(),
+        ) else {
+            return Vec::new();
+        };
+        let mut data = usage.as_dict();
+        data.insert("requests".into(), json!(t.requests));
+        data.insert("recorded_at_end".into(), json!(true));
+        vec![data]
+    }
+}
+
 impl RunControl for ClaudeRun {
     fn steer<'a>(
         &'a self,
@@ -1175,6 +1236,10 @@ impl RunControl for ClaudeRun {
 
     fn cancel(&self) -> ferb_core::interfaces::BoxFuture<'_, ()> {
         Box::pin(ClaudeRun::cancel(self))
+    }
+
+    fn unreported_usage(&self) -> Vec<Map<String, Value>> {
+        self.unreported()
     }
 }
 

@@ -1121,6 +1121,14 @@ impl ModelRuntime for ScriptRuntime {
                     .unwrap_or("accept")
                     .to_string(),
                 cancelled: cancelled.clone(),
+                // RUN-477: usage the runtime hands over when the run closes (a test's own spec)
+                unreported: std::sync::Mutex::new(
+                    self.spec
+                        .get("unreported")
+                        .and_then(Value::as_array)
+                        .map(|a| a.iter().filter_map(|u| u.as_object().cloned()).collect())
+                        .unwrap_or_default(),
+                ),
             });
             let steps = plan
                 .get("steps")
@@ -1147,6 +1155,7 @@ struct ScriptControl {
     run_id: String,
     how: String,
     cancelled: Arc<AtomicBool>,
+    unreported: std::sync::Mutex<Vec<Map<String, Value>>>,
 }
 
 impl RunControl for ScriptControl {
@@ -1168,6 +1177,9 @@ impl RunControl for ScriptControl {
             self.host.rec("rt.cancel", json!(self.run_id));
             self.cancelled.store(true, Ordering::SeqCst);
         })
+    }
+    fn unreported_usage(&self) -> Vec<Map<String, Value>> {
+        std::mem::take(&mut *self.unreported.lock().unwrap())
     }
 }
 

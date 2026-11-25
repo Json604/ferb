@@ -1,11 +1,17 @@
 //! The tool-list proxy for FERB's Claude runs (ferb/runtimes/proxy.py): bound to 127.0.0.1 and used only as the
 //! ANTHROPIC_BASE_URL of runs FERB starts. It forwards only for a live run (the `/run/<id>/<secret>` prefix FERB
 //! issued, compared in constant time; anything else gets 403, so a command in FERB's shell can't use it to reach
-//! the API host), records ONLY the tool names of each request (never headers, prompts or replies; nothing logged
-//! or written), and forwards everything else unchanged, except one thing (RUN-470): for a run that asked for it
+//! the API host), records ONLY the tool names of each request and the token counts of each answer (RUN-477; never
+//! headers, prompts or reply text; nothing logged or written), and forwards everything else unchanged, except one
+//! thing (RUN-470): for a run that asked for it
 //! ([`ToolProxy::compact`], a worker's tool loop), the request's earlier screens and large reads are replaced by the
 //! run's compaction plan before it goes on (crate::compact), the same bytes on every request until the next
 //! compaction.
+//!
+//! ORCH-719 step 1: each model step's answer is read as it streams back for its usage only ([`super::tally`]), so a
+//! run's tokens are counted per request and even when Claude Code never reports them (RUN-477). When Anthropic
+//! refuses an edited request for its edited history (the history-editing check), the run's own unedited request goes
+//! instead and the run is never edited again (RUN-478).
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
@@ -15,6 +21,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
+use super::tally::{history_refused, Tally, UsageReader};
 use super::ToolProxy;
 use crate::compact::{Clock, Compaction, Compactor, Policy};
 
@@ -67,6 +74,10 @@ struct Book {
     /// RUN-470: the runs whose requests are compacted, and the compactions not yet reported.
     compactors: HashMap<String, Compactor>,
     made: HashMap<String, Vec<Compaction>>,
+    /// ORCH-719: each run's model requests' usage since it was last taken.
+    usage: HashMap<String, Tally>,
+    /// RUN-478: the runs whose edited request Anthropic refused, refusals not yet reported.
+    refused: HashMap<String, usize>,
 }
 
 pub struct ToolListProxy {
@@ -161,6 +172,8 @@ impl ToolProxy for ToolListProxy {
         book.live.remove(run_id);
         book.compactors.remove(run_id);
         book.made.remove(run_id);
+        book.usage.remove(run_id);
+        book.refused.remove(run_id);
     }
 
     fn compact(&self, run_id: &str, policy: Policy) {
@@ -173,6 +186,16 @@ impl ToolProxy for ToolListProxy {
     fn compactions(&self, run_id: &str) -> Vec<Compaction> {
         let mut book = self.book.lock().unwrap_or_else(|e| e.into_inner());
         book.made.remove(run_id).unwrap_or_default()
+    }
+
+    fn take_usage(&self, run_id: &str) -> Option<Tally> {
+        let mut book = self.book.lock().unwrap_or_else(|e| e.into_inner());
+        book.usage.remove(run_id).filter(|t| !t.is_empty())
+    }
+
+    fn history_refusals(&self, run_id: &str) -> usize {
+        let mut book = self.book.lock().unwrap_or_else(|e| e.into_inner());
+        book.refused.remove(run_id).unwrap_or(0)
     }
 }
 
@@ -302,37 +325,55 @@ async fn serve(
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case("content-encoding"))
             .map(|(_, v)| v.clone());
-        if !body.is_empty() && encoding.is_none() && model_step(upstream_path) {
+        let step = !body.is_empty() && encoding.is_none() && model_step(upstream_path);
+        // RUN-478: the run's own request, kept while an edited one is out
+        let mut unedited: Option<Vec<u8>> = None;
+        if step {
             if let Some(new) = compacted(&book, run_id, &body) {
-                body = new;
+                unedited = Some(std::mem::replace(&mut body, new));
             }
         }
-        let mut req = client.request(
-            if method == "GET" {
-                reqwest::Method::GET
-            } else {
-                reqwest::Method::POST
-            },
-            format!("{upstream}/{upstream_path}"),
-        );
-        for (k, v) in &headers {
-            if !HOP.contains(&k.to_lowercase().as_str()) {
-                req = req.header(k, v);
-            }
-        }
-        if let Some(e) = &encoding {
-            // a body the client compressed goes on as it came, so its encoding goes with it
-            req = req.header("content-encoding", e);
-        }
-        let resp = match req.body(body).send().await {
-            Ok(r) => r,
-            Err(_) => {
+        let out = Outgoing {
+            client: &client,
+            method: &method,
+            url: format!("{upstream}/{upstream_path}"),
+            headers: &headers,
+            encoding: encoding.as_deref(),
+        };
+        let Ok(mut resp) = out.send(body).await else {
+            write
+                .write_all(
+                    b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+                )
+                .await?;
+            return Ok(());
+        };
+        if step && unedited.is_some() && resp.status().as_u16() == 400 {
+            // RUN-478: read the refusal whole (it is small) to see whether it is Anthropic's history-editing check
+            let head = resp.headers().clone();
+            let Ok(answer) = resp.bytes().await else {
                 write
                     .write_all(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
                     .await?;
                 return Ok(());
+            };
+            if !history_refused(400, &answer) {
+                relay_whole(&mut write, 400, &head, &answer).await?;
+                continue;
             }
-        };
+            {
+                let mut b = book.lock().unwrap_or_else(|e| e.into_inner());
+                b.compactors.remove(run_id); // never edited again
+                *b.refused.entry(run_id.to_string()).or_default() += 1;
+            }
+            let Ok(again) = out.send(unedited.take().unwrap_or_default()).await else {
+                write
+                    .write_all(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
+                    .await?;
+                return Ok(());
+            };
+            resp = again;
+        }
         let status = resp.status();
         let mut head = format!(
             "HTTP/1.1 {} {}\r\n",
@@ -346,8 +387,20 @@ async fn serve(
         }
         head.push_str("transfer-encoding: chunked\r\n\r\n");
         write.write_all(head.as_bytes()).await?;
+        // ORCH-719: a model step's answer is read for its usage as it passes (an answer the upstream compressed is not)
+        let compressed = resp.headers().contains_key("content-encoding");
+        let sse = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.trim_start().starts_with("text/event-stream"));
+        let mut reader =
+            (step && status.is_success() && !compressed).then(|| UsageReader::new(sse));
         let mut resp = resp;
         while let Ok(Some(chunk)) = resp.chunk().await {
+            if let Some(r) = reader.as_mut() {
+                r.feed(&chunk);
+            }
             write
                 .write_all(format!("{:x}\r\n", chunk.len()).as_bytes())
                 .await?;
@@ -355,7 +408,73 @@ async fn serve(
             write.write_all(b"\r\n").await?;
             write.flush().await?;
         }
+        if let Some(t) = reader.and_then(UsageReader::finish) {
+            let mut b = book.lock().unwrap_or_else(|e| e.into_inner());
+            b.usage.entry(run_id.to_string()).or_default().add(&t);
+        }
         write.write_all(b"0\r\n\r\n").await?;
         write.flush().await?;
     }
+}
+
+/// One request as the relay sends it on: hop-by-hop headers dropped, a compressed body with its encoding.
+struct Outgoing<'a> {
+    client: &'a reqwest::Client,
+    method: &'a str,
+    url: String,
+    headers: &'a [(String, String)],
+    encoding: Option<&'a str>,
+}
+
+impl Outgoing<'_> {
+    async fn send(&self, body: Vec<u8>) -> reqwest::Result<reqwest::Response> {
+        let mut req = self.client.request(
+            if self.method == "GET" {
+                reqwest::Method::GET
+            } else {
+                reqwest::Method::POST
+            },
+            &self.url,
+        );
+        for (k, v) in self.headers {
+            if !HOP.contains(&k.to_lowercase().as_str()) {
+                req = req.header(k, v);
+            }
+        }
+        if let Some(e) = self.encoding {
+            // a body the client compressed goes on as it came, so its encoding goes with it
+            req = req.header("content-encoding", e);
+        }
+        req.body(body).send().await
+    }
+}
+
+/// An answer the relay read whole, written back as it came (chunked, like every answer it streams).
+async fn relay_whole(
+    write: &mut tokio::net::tcp::OwnedWriteHalf,
+    status: u16,
+    headers: &reqwest::header::HeaderMap,
+    body: &[u8],
+) -> std::io::Result<()> {
+    let reason = reqwest::StatusCode::from_u16(status)
+        .ok()
+        .and_then(|s| s.canonical_reason())
+        .unwrap_or("");
+    let mut head = format!("HTTP/1.1 {status} {reason}\r\n");
+    for (k, v) in headers {
+        if !HOP.contains(&k.as_str().to_lowercase().as_str()) {
+            head.push_str(&format!("{}: {}\r\n", k, v.to_str().unwrap_or_default()));
+        }
+    }
+    head.push_str("transfer-encoding: chunked\r\n\r\n");
+    write.write_all(head.as_bytes()).await?;
+    if !body.is_empty() {
+        write
+            .write_all(format!("{:x}\r\n", body.len()).as_bytes())
+            .await?;
+        write.write_all(body).await?;
+        write.write_all(b"\r\n").await?;
+    }
+    write.write_all(b"0\r\n\r\n").await?;
+    write.flush().await
 }

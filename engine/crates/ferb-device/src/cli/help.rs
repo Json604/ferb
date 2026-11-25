@@ -5,7 +5,7 @@
 //!
 //! Named differences ([`DIFFERENCES`]): `setup`'s words named the Python build's interpreter and venv, which the Rust
 //! build has none of (ENG-2); they say what a checkout's setup does now. `uninstall` has the Rust build's
-//! `--skip-browser-files` (DMN-598), laid out as argparse lays it out.
+//! `--skip-browser-files` (DMN-598), and `stats` its `--from`/`--to` (ORCH-720), laid out as argparse lays them out.
 
 use std::collections::BTreeMap;
 
@@ -15,7 +15,7 @@ use serde_json::Value;
 const RECORDED: &str = include_str!("../../../../fixtures/device/help.json");
 
 /// (command path, Python's text, this build's text): the only changes to the recorded help.
-pub const DIFFERENCES: [(&str, &str, &str); 3] = [
+pub const DIFFERENCES: [(&str, &str, &str); 4] = [
     (
         "",
         "    setup               a checkout: install FERB's interpreter, venv and\n                        development LaunchAgent; FERB.app: its setup steps\n",
@@ -30,6 +30,11 @@ pub const DIFFERENCES: [(&str, &str, &str); 3] = [
         "uninstall",
         "usage: ferb uninstall [-h] [--purge] [--yes]\n\noptions:\n  -h, --help  show this help message and exit\n  --purge\n  --yes       with --purge: the owner already confirmed in FERB.app (Settings\n              \u{2192} Advanced), so no question\n",
         "usage: ferb uninstall [-h] [--purge] [--yes] [--skip-browser-files]\n\noptions:\n  -h, --help            show this help message and exit\n  --purge\n  --yes                 with --purge: the owner already confirmed in FERB.app\n                        (Settings \u{2192} Advanced), so no question\n  --skip-browser-files  FERB.app's: FERB's background service already removed\n                        FERB's files in the browsers' folders\n",
+    ),
+    (
+        "stats",
+        "usage: ferb stats [-h] [--days DAYS]\n\noptions:\n  -h, --help   show this help message and exit\n  --days DAYS\n",
+        "usage: ferb stats [-h] [--days DAYS] [--from FROM] [--to TO]\n\noptions:\n  -h, --help   show this help message and exit\n  --days DAYS\n  --from FROM  the model-use section's first local day (YYYY-MM-DD)\n  --to TO      its last local day (YYYY-MM-DD)\n",
     ),
 ];
 

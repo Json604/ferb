@@ -792,3 +792,66 @@ async fn a_paused_run_ends_as_paused_never_as_a_failure() {
         "no failure words"
     );
 }
+
+/// RUN-477: usage the runtime hands over when a call's run closes (it ended before reporting it) is recorded as a
+/// model.usage span under the call's parent, like the run's other usage (the recorded call_no_answer, its runtime
+/// given a record to hand over).
+// decision: RUN-477
+#[tokio::test(start_paused = true)]
+async fn usage_a_run_hands_over_at_its_close_is_recorded() {
+    let fx = fixture("worker", "worker.json");
+    let rec = fx["calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "call_no_answer")
+        .unwrap()
+        .clone();
+    let mut sc = rec["scenario"].clone();
+    let at_end = json!({"model": "m", "input_tokens": 1234, "output_tokens": 5, "requests": 2,
+        "recorded_at_end": true, "cost_usd": null});
+    sc["runtimes"][0]["unreported"] = json!([at_end]);
+    let inputs = &rec["inputs"];
+    let (host, worker) = setup(&fx, &sc);
+    let task: Task = task_from(&inputs["task"]);
+    let rt: Arc<dyn ferb_worker::ports::ModelRuntime> =
+        Arc::new(ScriptRuntime::new(host.clone(), sc["runtimes"][0].clone()));
+    let call = Call {
+        task: &task,
+        system: inputs["system"].as_str().unwrap().to_string(),
+        context: inputs["ctx"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(block_from)
+            .collect(),
+        token: "",
+        parent_span: "span-parent",
+        tree: None,
+        worker_id: "",
+        images: Vec::new(),
+        hooks: CallHooks::default(),
+        retry_silent: inputs["retry_silent"].as_bool().unwrap(),
+    };
+    assert!(
+        worker.run_call(&rt, call).await.is_err(),
+        "the run ended without an answer"
+    );
+    let log = host.take_log();
+    let started: Vec<&Value> = log
+        .iter()
+        .filter(|e| e.to_string().contains("\"kind\":\"model.usage\""))
+        .collect();
+    assert_eq!(started.len(), 1, "{log:#?}");
+    let text = started[0].to_string();
+    assert!(text.contains("\"parent_id\":\"span-parent\""), "{text}");
+    let finished: Vec<String> = log
+        .iter()
+        .map(Value::to_string)
+        .filter(|t| t.contains("spans.finish") && t.contains("recorded_at_end"))
+        .collect();
+    assert_eq!(finished.len(), 1, "{log:#?}");
+    assert!(
+        finished[0].contains("\"input_tokens\":1234") && finished[0].contains("\"requests\":2")
+    );
+}

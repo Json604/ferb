@@ -13790,3 +13790,110 @@ ferb-supervisor and FERB.app.
 his shape. The prompts' text after the step is read from the tests, not a trace. FERB.app and the phones are
 unchanged and their `swift test` / Gradle suites not run. The weekly pass's model choosing among fewer eligible items
 is not run with a model. LIVE-1221 is new for the owner.
+
+## 2026-11-25 · 250 · Context step 1: model use per role in `ferb stats`, usage kept for runs that never reported it, guards, and the refusal of an edited history
+
+**Why.** ORCH-719 (the owner's one context design, kb/plans/context.md), step 1 (T-1330): measure first, so every
+later step is provable, and close two holes the context audit found. Usage came only from Claude Code's final
+`result` frame, so six Claude runs that were cancelled, stuck or failed were never counted (an estimated 26M tokens),
+and one total per run made a worker's ~96 requests look like one prompt. And Anthropic refuses a history edited after
+its thinking blocks were made for accounts created from 2026-08-31 on Opus/Sonnet 5.5 and every account on Fable 5.2;
+FERB's relay edits worker histories (RUN-470) and read no such signal.
+
+**What.**
+- `ferb stats` (ORCH-720, `ferbd/src/usage_stats.rs`): after the Python sections, model use from the `model.usage`
+  spans only, per role (planner, worker, checker, scheduled, temporary, memory/learning, other) and runtime, then per
+  local day: runs, calls, steps (tool calls), input with tokens per call and per step, cached share, cache writes at 5m
+  and 1h, output, and the fixed part (median instructions size, tools the provider saw). `--from DAY --to DAY` choose
+  the days, else `--days`. Calls: Codex's records; Claude's `requests` from the relay; an older Claude record is
+  estimated as its run's tool calls plus one per turn and marked `~`. Printed only when usage was recorded in the range,
+  so the 20 Python-recorded cases keep their bytes. Named differences: the argument parser's `from`/`to` (None when not
+  given) and `ferb stats -h` (ferb-device `help::DIFFERENCES`).
+- FERB's Claude relay (RUN-477, `claude/tally.rs`, `proxy.rs`): each model step's answer is read as it streams back for
+  its `usage` only (message_start/message_delta, or a whole JSON answer), summed per run. A result frame's usage gains
+  `requests` (the turn's count). `ClaudeRun::cancel` keeps what the relay counted since the last result frame before
+  the relay forgets the run.
+- Usage no event carried (RUN-477): `RunControl::unreported_usage` (ferb-runtimes and the worker's port, default empty),
+  read once by the worker right after it closes a run, each record written as a `model.usage` span under the call's
+  parent, marked `recorded_at_end`. Claude: the relay's count since the last result frame (one record). Codex: the
+  reader keeps each `thread/tokenUsage/updated` report until the event stream pops it, so a call reported but never
+  reached by a stopped run's events is handed over, one record each, never twice. The API loop reports as it goes.
+- The refusal detector (RUN-478): `tally::history_refused` matches a 400 `invalid_request_error` whose message has
+  "Invalid `signature` in `thinking` block" and "bound to a different conversation" (the shape in the migration guide
+  bundled with the pinned Claude Code 2.1.330, `shared/model-migration.md`, "Where the check is enforced"; a tampered
+  signature has the first clause only and is not this). When a request the relay edited is refused so, the relay sends
+  Claude Code's own unedited request in its place, once, and removes the run's compactor (never edited again). The run
+  reports it as a `Compacted` event `{"by": "ferb", "stopped": "history_refused", "said": <line>}` (a `model.compacted`
+  span), and the worker journals `runtime.history_refused` with the line. Other 400s pass through as before.
+- Guards: ferb-context `prefix` (a 12-digit SHA-256 per block, `broken_at`, `block_name`); ferb-supervisor
+  `tests/context_guards.rs`: consecutive planner turns repeat the instructions and every cached block byte for byte,
+  the failure naming the block; a kept chat of 60 seeded exchanges with no summary gives the planner at most
+  `RAW_CEILING` raw exchanges. ferbd `tests/fixed_part.rs` (ORCH-721): each role's instructions plus the tool listing
+  the real program gives its grant, under a ceiling.
+
+**The raw-chat guard, and why it is green now.** Today the planner gets all 60 seeded exchanges (no summary, the fold's
+token triggers not reached). The test holds `RAW_CEILING = SEEDED` (today's bound: a regression past it still fails)
+next to `HARD_STOP = 40` (ORCH-719); T-1331, building the stop in parallel, sets `RAW_CEILING = HARD_STOP` in its patch,
+one line, and the test becomes the strict one. No ignored test and no TODO.
+
+**Ceilings (ORCH-721), guards not the owner's numbers.** Measured 2026-11-25 (characters): planner 35,620 instructions
++ 6 tools 10,096 = 45,716 (ceiling 48,000); worker 14,773 + 81 tools 115,979 = 130,752 (137,500); checker 17,436 +
+39 tools 41,151 = 58,587 (61,500). The live planner's instructions are larger (46.5k chars on 11-25: capabilities,
+facts and the Tier 1 profile, which the test leaves out and `ferb stats` shows).
+
+**`ferb stats` on a read-only copy of the owner's store** (`sqlite3 .backup` from `~/.ferb/ferb.db?mode=ro` into the
+scratch folder, deleted after; 2026-11-17..25):
+```
+Model use by role and runtime from 2026-11-17 to 2026-11-25 (the providers' own token counts):
+  planner, claude: 61 runs, ~65 calls, 4 steps; input 3,908,765 (60,134 per call, 977,191 per step); cached 70%; cache written 5m 34,456, 1h 1,118,544; output 42,268; fixed part: instructions 37,402 chars, 10 tools seen
+  planner, codex: 35 runs, 39 calls, 4 steps; input 1,296,071 (33,232 per call, 324,017 per step); cached 58%; cache written 5m 0, 1h 0; output 13,086; fixed part: instructions 36,713 chars, 13 tools seen
+  worker, claude: 27 runs, ~577 calls, 550 steps; input 42,187,657 (73,115 per call, 76,704 per step); cached 95%; cache written 5m 0, 1h 1,975,330; output 110,679; fixed part: instructions 18,673 chars, 81 tools seen
+  worker, codex: 18 runs, 696 calls, 690 steps; input 65,099,168 (93,533 per call, 94,346 per step); cached 96%; cache written 5m 0, 1h 0; output 61,660; fixed part: instructions 19,416 chars, 84 tools seen
+  checker, claude: 30 runs, ~85 calls, 55 steps; input 5,847,007 (68,788 per call, 106,309 per step); cached 65%; cache written 5m 0, 1h 2,007,521; output 43,290; fixed part: instructions 20,725 chars, 40 tools seen
+  checker, codex: 18 runs, 40 calls, 21 steps; input 4,253,319 (106,332 per call, 202,539 per step); cached 53%; cache written 5m 0, 1h 0; output 12,354; fixed part: instructions 18,715 chars, 43 tools seen
+  scheduled, claude: 3 runs, ~11 calls, 8 steps; input 579,344 (52,667 per call, 72,418 per step); cached 72%; cache written 5m 0, 1h 157,318; output 3,060; fixed part: instructions 19,881 chars, 40 tools seen
+  scheduled, codex: 19 runs, 126 calls, 107 steps; input 6,532,280 (51,843 per call, 61,049 per step); cached 86%; cache written 5m 0, 1h 0; output 17,196; fixed part: instructions 22,913 chars, 45 tools seen
+  temporary, claude: 16 runs, ~95 calls, 79 steps; input 6,992,713 (73,607 per call, 88,515 per step); cached 80%; cache written 5m 4,319, 1h 1,376,300; output 35,090; fixed part: instructions 36,454 chars, 4 tools seen
+  temporary, codex: 12 runs, 42 calls, 30 steps; input 2,557,362 (60,889 per call, 85,245 per step); cached 87%; cache written 5m 0, 1h 0; output 3,570; fixed part: instructions 36,445 chars, 7 tools seen
+  memory/learning, claude: 54 runs, 54 calls, 0 steps; input 402,035 (7,445 per call, - per step); cached 7%; cache written 5m 27,867, 1h 345,338; output 51,427
+  memory/learning, codex: 20 runs, 20 calls, 0 steps; input 116,296 (5,814 per call, - per step); cached 5%; cache written 5m 0, 1h 0; output 14,395
+  other, claude: 4 runs, ~4 calls, 0 steps; input 23,069 (5,767 per call, - per step); cached 28%; cache written 5m 0, 1h 16,417; output 2,121; fixed part: instructions 8,067 chars, 1 tools seen
+  other, codex: 1 runs, 1 calls, 0 steps; input 5,273 (5,273 per call, - per step); cached 0%; cache written 5m 0, 1h 0; output 192; fixed part: instructions 9,012 chars, 1 tools seen
+  all: input 139,800,359
+  ~ estimated: an older Claude record holds one total per turn, counted as its run's tool calls plus one
+Model use by day: (one line per day, role and runtime, 2026-11-17 .. 2026-11-25)
+```
+Worker/codex (65,099,168), checker/claude (5,847,007) and checker/codex (4,253,319) are the audit's table 4.1 totals
+to the token; the whole is 139.80M against the audit's 139.78M (a learning pass ran since). No record carries
+`requests` or `recorded_at_end` yet (the relay counting is new), so every Claude row is still `~`; the estimate gives
+the planner ~65 calls where the audit found 72 from cache numbers (it can't see output retries).
+
+**Owner-facing words (new).** `runtime.history_refused`'s line: "Claude didn't accept FERB's shortened copy of this
+task's earlier steps, so FERB sent them in full and won't shorten them again in this task. Nothing was lost." The
+`ferb stats` lines and `ferb stats -h` are the developer toolbox's, not the app's.
+
+**kb.** Agent decisions ORCH-720, ORCH-721, RUN-477, RUN-478; live check LIVE-1222 (a Claude worker's `requests`, a
+stopped task still counted). T-1330 deleted; T-1331's `after` on it dropped.
+
+**Evidence.** In the worktree (its own target folder, `nice -n 10`, 2 jobs, no model, no real home, the
+gate's test guard as the runner): `cargo test --no-fail-fast -p ferb-runtimes -p ferb-worker -p ferb-context -p
+ferb-device -p ferb-supervisor -p ferbd`: 532 passed, 1 failed (ferb-device's argparse parity, before the stats
+arguments were named there); after the fix ferb-device 5+4+1+8+5+11+5 passed. New: ferb-runtimes relay_usage 5,
+claude_usage 3, codex_usage 2; ferb-worker replay `usage_a_run_hands_over_at_its_close_is_recorded`; ferb-supervisor
+context_guards 3 ("raw exchanges sent with no summary: 60 of 60"); ferbd usage_stats 2, fixed_part 1, stats 2 (the
+Python cases unchanged), chat_replay unchanged. `cargo clippy --keep-going` on the six crates with `--all-targets -D
+warnings` and `cargo fmt --all --check` clean; `cargo check -p ferb-context --target aarch64-apple-ios` ok;
+`tools/kb/run kb lock`, `kb gen`, `kb check` ok; `git diff --check` clean. The full workspace gate was not run.
+
+**Unverified.** No model was called. That the subscription endpoint's streamed answers carry `usage` in
+message_start/message_delta as the API's do is inferred from the API's documented stream (the relay reads nothing
+else; a format it can't read counts nothing, never a guess): LIVE-1222. The refusal's text is the guide's, not seen
+from a provider (the owner's account predates 2026-08-31); the fallback assumes the refusal comes at a run's first
+edit, as an enforced account's would; a run edited before enforcement began and refused later would get its unedited
+history refused too (it then fails as before, now recorded). FERB's own Anthropic API loop has no fallback (it keeps no
+unedited copy; T-1333 turns the rewriting off by default). Codex's hand-over can lose a call whose usage event was
+emitted but not yet consumed when the worker stopped reading (at most one, never counted twice). The `steps` and
+per-step rates of planner rows are tool calls under the turn (lookups), small by design. The prefix hashes are a test
+tool; the live trace does not record them yet (adding them to span inputs would change the recorded replays). The
+worker's span for unreported usage is tested with the scripted runtime, not a real program. ORCH-720/721 and
+RUN-477/478 were the next free IDs at 8c5a0fb4; T-1331 may take some in parallel.

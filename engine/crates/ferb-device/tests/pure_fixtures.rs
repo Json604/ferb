@@ -307,6 +307,12 @@ fn the_argument_parser_reads_every_command_line_as_argparse() {
                 if argv.first().map(String::as_str) == Some("uninstall") {
                     want.insert("skip_browser_files".into(), Value::Bool(false));
                 }
+                // ORCH-720, a named difference: `stats --from DAY --to DAY` choose the model-use section's days;
+                // not given, they read None
+                if argv.first().map(String::as_str) == Some("stats") {
+                    want.insert("from".into(), Value::Null);
+                    want.insert("to".into(), Value::Null);
+                }
                 assert_eq!(ns, want, "{argv:?}");
             }
             Parsed::Error(e) => assert_eq!(c["exit"], 2, "{argv:?}: Rust refused ({e})"),

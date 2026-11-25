@@ -2554,3 +2554,23 @@ words_source = "Owner 2026-11-25 on kb/plans/context.md: FERB's own hand-off; fr
 rule = "Context is handled at FERB's level on every runtime (kb/plans/context.md): whole snapshot records, the worker shown what changed; a fixed tool core (worker 25, checker 10) with every tool listed and find/use; a fresh run at 200k tokens or 70% of a smaller window with a code-built hand-off, runtime compaction as a net at 245k; the checker's middle path; the planner's last 20 exchanges, hard stop at 40 or 20k tokens, a 14-day index of 6 lines a day, month and year lines, the newest 15 open items; a confirmed profile of at most 1,500 tokens."
 why = "Workers are 86% of input; old page snapshots and full tool descriptions resent every step are most of it, and the fix must not depend on one AI. The owner judged costs for all users, not his test usage."
 untestable = "A design decision whose parts are built and tested under T-1330..T-1337; each part's tests carry this id."
+
+[ORCH-720]
+title = "Measured and guarded: ferb stats per role and runtime, a hash per cached block, a bounded raw chat"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "For ORCH-719 step 1. `ferb stats` ends with model use from the model.usage spans: per role and runtime, then per local day (`--from`/`--to`, else `--days`): runs, calls (Codex's records; Claude's relay `requests`, else its run's tool calls plus one, marked ~), steps, input per call and per step, cached share, 5m and 1h cache writes, output, fixed part. A test names the cached block (12-digit SHA-256 each) where a planner turn stopped repeating the last; another bounds a 60-exchange chat's raw history with no summary at today's ceiling until T-1331 sets ORCH-719's 40."
+why = "The audit rebuilt per-role rates by hand: one Claude total per run hid ~96 requests, failed runs were missing, and nothing named what broke the planner's prefix or saw the chat grow for eight days unfolded. One test constant switches the raw-chat bound when T-1331 lands."
+evidence = "ferbd tests/usage_stats.rs (invented spans: every role, estimated and relay-counted calls, a run-end record, a range, an empty one) and tests/stats.rs (Python cases unchanged); ferb-supervisor tests/context_guards.rs (recorded planner turns, 60 seeded exchanges)."
+paths = ["engine/crates/ferbd/src/usage_stats.rs", "engine/crates/ferbd/src/stats.rs", "engine/crates/ferbd/src/device.rs", "engine/crates/ferb-device/src/cli/args.rs", "engine/crates/ferb-device/src/cli/run.rs", "engine/crates/ferb-context/src/prefix.rs"]
+
+[ORCH-721]
+title = "Each role's fixed part has a ceiling: a guard at today's size, not the owner's number"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "For ORCH-719 step 1. A test sums each role's fixed part as every call carries it: its instructions (prompt file and effect help; no live facts, profile or catalogs) plus the tool listing the real program gives its grant (the frozen catalog's planner, worker and checker grants), in json.dumps characters, and fails past a ceiling. The ceilings are the 2026-11-25 sizes plus about 5%: guards against silent growth, never the owner's numbers (ORCH-719's 25 and 10 tools, 1,500 profile tokens). Raising one is a deliberate change in the commit that grows the part; T-1334 lowers them."
+why = "Full tool descriptions on every call were a quarter to a third of a heavy Claude run, and the planner's instructions grew 2.2 KB in one prompt change without any check noticing."
+evidence = "ferbd tests/fixed_part.rs (the real program's listings, the runtime's prompt files); the measured sizes in journal 250."
+paths = ["engine/crates/ferbd/tests/fixed_part.rs"]

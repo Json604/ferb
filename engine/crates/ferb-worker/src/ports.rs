@@ -78,6 +78,11 @@ pub trait RunControl: Send + Sync {
     fn steer<'a>(&'a self, message: &'a str) -> BoxFuture<'a, Result<(), ContinueError>>;
     /// Ends the run; called once by the watchdog or a stop and again when the run closes, as Python does.
     fn cancel(&self) -> BoxFuture<'_, ()>;
+    /// RUN-477: usage the provider reported that no `usage` event carried (the run ended first), read once after
+    /// the run closes.
+    fn unreported_usage(&self) -> Vec<Map<String, Value>> {
+        Vec::new()
+    }
 }
 
 /// A started run's events, pulled one at a time (Python's async generator). An `Err` is what the generator raised;

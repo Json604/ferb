@@ -710,3 +710,24 @@ why = "T-1324, journal 208: each Claude planner turn wrote its changing tail at 
 evidence = "ferb-runtimes tests/claude.rs: the setting for a run with a tail (a named difference in every recorded case), not for one whose marker ends the request nor for the -v probe; tail_after_marker's cases. Read from Claude Code 2.1.310's bundled code (journal 226)."
 paths = ["engine/crates/ferb-runtimes/src/claude/mod.rs"]
 live = ["LIVE-1216"]
+
+[RUN-477]
+title = "Usage is counted per model request and kept when a run ends before its runtime reports it"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "For ORCH-719 step 1. FERB's Claude relay reads each model step's answer for its usage only (message_start, message_delta or a whole JSON answer) and sums it per run; a result frame's usage record gains `requests`, the turn's count. Usage no event carried (a run cancelled, stopped or failed before Claude Code's result frame; a Codex call reported but never reached by the stopped run's events) is handed over once as the worker closes the run (RunControl::unreported_usage) and recorded as a model.usage span marked recorded_at_end."
+why = "Usage came only from Claude Code's final result frame, so six cancelled, stuck or failed runs (about 26M tokens, context audit 2026-11-25) were never counted, and one total per run made ~96 requests look like one prompt (RUN-421)."
+evidence = "ferb-runtimes tests/relay_usage.rs (stand-in upstream: per-run sums, cut anywhere, token counts and errors count nothing), claude_usage.rs and codex_usage.rs (recorded fake programs: requests, a mid-run end handed over once, nothing twice); ferb-worker replay.rs (the span)."
+paths = ["engine/crates/ferb-runtimes/src/claude/tally.rs", "engine/crates/ferb-runtimes/src/claude/proxy.rs", "engine/crates/ferb-runtimes/src/claude/mod.rs", "engine/crates/ferb-runtimes/src/codex/stream.rs", "engine/crates/ferb-runtimes/src/run.rs", "engine/crates/ferb-runtimes/src/worker.rs", "engine/crates/ferb-worker/src/ports.rs", "engine/crates/ferb-worker/src/worker.rs"]
+live = ["LIVE-1222"]
+
+[RUN-478]
+title = "A refused edit of Claude's history goes again unedited, and that run is never edited again"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "For RUN-470 and ORCH-719 step 1. When a request the relay edited gets a 400 invalid_request_error naming the history-editing check (\\\"Invalid `signature` in `thinking` block\\\", \\\"bound to a different conversation\\\": the pinned Claude Code 2.1.330's bundled shared/model-migration.md), the relay sends Claude Code's own request instead, once, and stops compacting that run; a model.compacted span (stopped history_refused) and a runtime.history_refused journal row carry the owner line. Other 400s pass as they came. FERB's API loop is not covered (T-1333)."
+why = "Anthropic enforces the check for accounts made from 2026-08-31 on Opus and Sonnet 5.5 and for all on Fable 5.2: a new user's long Claude task would fail at its first compaction. An enforced account refuses the first edit, and the run's earlier requests went unedited, so the unedited one is accepted."
+evidence = "ferb-runtimes tests/relay_usage.rs (the shape only; an enforced stand-in: the edit goes again byte for byte, nothing after is edited, reported once; a tampered-signature 400 passes and compaction stays), claude_usage.rs (the report and its line). Not live: the owner's account predates 2026-08-31."
+paths = ["engine/crates/ferb-runtimes/src/claude/tally.rs", "engine/crates/ferb-runtimes/src/claude/proxy.rs", "engine/crates/ferb-runtimes/src/claude/mod.rs", "engine/crates/ferb-worker/src/worker.rs"]

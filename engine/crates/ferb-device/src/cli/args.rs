@@ -261,13 +261,18 @@ fn parser() -> Parser {
         ],
         vec![],
     );
+    // ORCH-720: `--from`/`--to` (local days, YYYY-MM-DD) choose the model-use section's range
     let stats = p(
-        vec![Opt {
-            flag: "--days",
-            kind: Kind::Value { int: true },
-            default: Some("7"),
-            choices: &[],
-        }],
+        vec![
+            Opt {
+                flag: "--days",
+                kind: Kind::Value { int: true },
+                default: Some("7"),
+                choices: &[],
+            },
+            value("--from", None),
+            value("--to", None),
+        ],
         vec![],
     );
     // DMN-598: `--skip-browser-files`, FERB.app's after its background service removed FERB's browser files

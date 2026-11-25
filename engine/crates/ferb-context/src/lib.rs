@@ -16,6 +16,7 @@
 
 pub mod assemble;
 mod generated;
+pub mod prefix;
 pub mod prompts;
 pub mod pyvalue;
 pub mod schemas;
