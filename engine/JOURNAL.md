@@ -13363,3 +13363,12 @@ rules, its "Always on" row is gone.
 instrumented tests (OnPhoneTest, only retagged); a real prompt for turning the lock off; a real process frozen past
 five minutes with the lock off (the lock count is tested, the frozen ordering read). Migration 0069 is numbered after
 HEAD's 0068; another change adding a migration at the same time would need renumbering.
+
+## 2026-11-25 · 229 · SendWithFilesTest's two timing races are closed
+
+The push check failed again on SendWithFilesTest (third time: journals 200, 219 and now): a `walk()` over the app's
+outgoing folder asserted when the app removed the emptied folder mid-walk ("rootDir must be verified to be directory
+beforehand"), and, seen earlier, `Dispatchers.resetMain` refused while the app's file thread still posted to Main ("used
+concurrently with setting it"). Both are the test's timing, not the app's: `noFilesUnder` reads a vanished folder as
+"look again", and `settled` retries the Main swap for up to a second. The class passed 8 of 8 runs after the change.
+The same push check's ferb-shell `live` failure passed alone (15/15): load, not code.

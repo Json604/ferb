@@ -46,9 +46,27 @@ class SendWithFilesTest {
     private val picked = HashMap<String, ByteArray>()
     private val local = LocalFiles(root) { uri -> picked[uri]?.let { b -> Picked(uri.substringAfterLast('/'), b.size.toLong()) { b.inputStream() } } }
 
+    /** True when no file is left under [dir]. The app removes emptied folders while this looks, so a folder that
+     *  vanishes mid-walk (Kotlin's walk then asserts) reads as "look again", never as a failure. */
+    private fun noFilesUnder(dir: File): Boolean =
+        !dir.exists() || runCatching { dir.walk().none { it.isFile } }.getOrDefault(false)
+
+    /** Swaps Dispatchers.Main once no other thread is using it. The app's file work may still post to Main from its own
+     *  thread as a test ends; kotlinx.coroutines then refuses the swap ("used concurrently with setting it"), which is
+     *  the test's timing, not the app's behaviour: try again for up to a second. */
+    private fun settled(swap: () -> Unit) {
+        val end = System.currentTimeMillis() + 1_000
+        while (true) {
+            val tried = runCatching(swap)
+            if (tried.isSuccess) return
+            if (System.currentTimeMillis() > end) tried.getOrThrow()
+            Thread.sleep(10)
+        }
+    }
+
     @Before
     fun setUp() {
-        Dispatchers.setMain(UnconfinedTestDispatcher())
+        settled { Dispatchers.setMain(UnconfinedTestDispatcher()) }
         session = Session { 0L }
         session.unlocked()
         phone.view = com.ferb.mobile.TranscriptView("c1", emptyList(), emptyList(), emptyList(), emptyList(), com.ferb.mobile.OlderState.Complete)
@@ -59,7 +77,7 @@ class SendWithFilesTest {
     @After
     fun tearDown() {
         phone.uploadGate?.complete(Unit)
-        Dispatchers.resetMain()
+        settled { Dispatchers.resetMain() }
         // the app may still be removing a copy on its own thread: a folder that went meanwhile is no matter
         runCatching { root.deleteRecursively() }
     }
@@ -130,7 +148,7 @@ class SendWithFilesTest {
         assertEquals(listOf("IMG_1.jpg", "IMG_2.jpg"), files.map { it.name })
         until("the message left the phone's list") { vm.outgoing.messages.value.isEmpty() }
         assertTrue("the transfers are not on the Files tab", vm.transfers.list.value.isEmpty())
-        until("the copies are gone") { local.outgoing.walk().none { it.isFile } }
+        until("the copies are gone") { noFilesUnder(local.outgoing) }
     }
 
     // decision: PHN-691
@@ -208,7 +226,7 @@ class SendWithFilesTest {
         vm.stopSending(id)
         vm.removeSending(id)
         until("gone") { vm.outgoing.messages.value.isEmpty() }
-        until("its copies too") { local.outgoing.walk().none { it.isFile } }
+        until("its copies too") { noFilesUnder(local.outgoing) }
         assertTrue(phone.sentWith.isEmpty())
     }
 
@@ -269,7 +287,7 @@ class SendWithFilesTest {
         assertEquals(listOf(listOf("up-IMG_1.jpg", "up-IMG_2.jpg")), phone.temporaryFiles)
         assertTrue("never the chat's send", phone.sentWith.isEmpty() && phone.outbox.isEmpty())
         until("the message left the phone's list") { vm.outgoing.messages.value.isEmpty() }
-        until("the copies are gone") { local.outgoing.walk().none { it.isFile } }
+        until("the copies are gone") { noFilesUnder(local.outgoing) }
         val kept = File(local.root, "messages.json")
         assertFalse("never written on the phone", kept.isFile && kept.readText().contains("What are these"))
     }
