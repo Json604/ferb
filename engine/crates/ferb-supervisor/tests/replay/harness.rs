@@ -680,6 +680,10 @@ impl Daemon for TestDaemon {
     fn reads_card_replies(&self) -> bool {
         self.reads_card_replies
     }
+    // decision: ORCH-725 (the Python recordings' planner read the whole chat, its ages line and the latest result)
+    fn bounded_planner(&self) -> bool {
+        false
+    }
     fn tool_names(&self) -> Vec<String> {
         self.tools.iter().map(|t| t.name.clone()).collect()
     }

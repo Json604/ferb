@@ -26,7 +26,7 @@ use super::store::Entry;
 use super::{Emit, Failure, Flow, Inner, Request, Start, Turn};
 use crate::chat_line::{ChatLine, Decision, Role};
 use crate::history::{
-    conversation_blocks, latest_result, timeline, Sourced, Timeline, TimelineReads,
+    conversation_blocks, hard_stop, latest_result, timeline, Sourced, Timeline, TimelineReads,
 };
 use crate::planner::{self, LatestReads, PlannerTurn};
 use crate::seams::JournalRow;
@@ -1718,11 +1718,21 @@ impl Inner {
         });
         let latest = latest_result(&entries);
         let summary_row = summary.as_ref().map(Entry::row);
+        // decision: ORCH-719 — the hard stop: whatever the summary did, at most 40 exchanges and 20k tokens word for
+        // word; the rest stays stored and chat.history reads it
+        let mut entries = entries;
+        let not_shown = if self.deps.daemon.bounded_planner() {
+            hard_stop(&entries, self.deps.tokenizer)
+        } else {
+            0
+        };
+        entries.drain(..not_shown);
         let conversation = conversation_blocks(
             entries,
             summary_row.as_ref(),
             since_last_notice,
             self.deps.tokenizer,
+            not_shown,
         );
         Ok((conversation, ages, latest))
     }
@@ -1781,6 +1791,12 @@ impl Inner {
         prep.mark(self, "runtime");
         // the conversation (`_conversation_blocks`)
         let (conversation, ages, latest) = self.conversation_view(&current, &session, false)?;
+        // decision: ORCH-725 — no line of the entries' ages (a Python recording's replay keeps it)
+        let ages = if self.deps.daemon.bounded_planner() {
+            Vec::new()
+        } else {
+            ages
+        };
         let zone = self.deps.clock.zone();
         prep.mark(self, "conversation");
         let env = turn.lock().unwrap().environment.clone();
@@ -1807,7 +1823,12 @@ impl Inner {
         let latest_blocks = if preview || session.contains(':') {
             Vec::new()
         } else {
-            self.latest(&latest)
+            let blocks = self.latest(&latest);
+            if self.deps.daemon.bounded_planner() {
+                crate::planner::latest_unless_shown(blocks, &conversation)
+            } else {
+                blocks
+            }
         };
         // L12: the window each message read together was sent from, or what the owner saw as they sent this one
         let windows = {

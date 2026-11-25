@@ -1257,3 +1257,13 @@ words_source = "Relayed by the coordinator, 2026-11-25: his answer on being told
 rule = "Refines MEM-480. An Approve he gave before MEM-480 stands: approved imported lines stay always on and are never asked again. Only lines without his answer, and FERB's own understanding from now on, wait for his Yes."
 paths = ["engine/crates/ferb-learning/src/import_review.rs", "engine/crates/ferb-daemon/src/areas_a/memory.rs"]
 live = ["LIVE-1221"]
+
+[MEM-484]
+title = "The profile pass reruns over its size only when what it reads changed"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "The hourly check (`due`) keeps its weekly pass, the early pass for a waiting item and the hour between tries; a profile over its size (entries left out) is due again only when what the pass reads, without its Today line, differs from what it read once the last pass was applied. The pass's journal row keeps a short hash of that (`input`); a row without one (an older build's) is due once."
+why = "Python's `due` (and the port) held whenever anything was left out, so once the profile was over its size every hourly check ran the pass: live it resent one byte-identical 20.7k-character input 38 times, 274k tokens written to Claude's cache and never read."
+evidence = "ferb-learning tests/profile_due.rs: 47 hourly checks with nothing changed make no call, a new fact makes one, the weekly pass still runs; an older row is due once. Both fail with the old rule. tests/fixtures.rs compares the recorded pass rows without `input` (the named difference)."
+paths = ["engine/crates/ferb-learning/src/profile.rs"]

@@ -2544,6 +2544,16 @@ evidence = "ferb-supervisor temporary_chat.rs the_files_a_temporary_chat_was_sen
 paths = ["engine/crates/ferb-daemon/src/phone/files.rs", "engine/crates/ferb-daemon/src/phone/gate.rs", "engine/crates/ferb-supervisor/src/flow/temporary.rs", "engine/crates/ferb-core/src/temporary.rs", "engine/crates/ferbd/src/compose/mod.rs", "apps/mac/FERBNotch/Sources/NotchCore/ComposerIntake.swift"]
 live = ["LIVE-1212"]
 
+[ORCH-718]
+title = "The conversation also folds once 20 exchanges sit beyond the last 20"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "Refines ORCH-326 for ORCH-303 and ORCH-304. Beyond the last 20 exchanges (RECENT_EXCHANGES) the conversation also folds into the summary once that tail holds RECENT_EXCHANGES exchanges, besides ORCH-326's token figures. Exchanges are counted as recent_entries groups them. So the planner reads the running summary and 20 to 39 exchanges after it, the last 20 right after a fold; still the background fold, at most FOLD_CHUNK_TOKENS per summary call, one fold per chat at a time. No figure changed."
+why = "ORCH-303 and ORCH-304 ('folds about every 20-40 exchanges') were kept only through token figures sized for long exchanges, so a chat of short ones never folded and the planner reread it all. Folding every turn would cost a call per message and move the cached prefix."
+evidence = "Owner's store 2026-11-25 (read only): 0 chat.summary rows since 11-17; chat owner held 94 exchanges, 165 entries (19,508 tokens) beyond the last 20, 28,795 in all: under both figures. ferb-supervisor tests/summary_fold_by_exchanges.rs."
+paths = ["engine/crates/ferb-supervisor/src/flow/fold.rs", "engine/crates/ferb-supervisor/src/history.rs"]
+
 [ORCH-719]
 title = "One context design for every AI: FERB-level waste fixes, the owner's numbers, kb/plans/context.md"
 by = "owner"
@@ -2574,3 +2584,23 @@ rule = "For ORCH-719 step 1. A test sums each role's fixed part as every call ca
 why = "Full tool descriptions on every call were a quarter to a third of a heavy Claude run, and the planner's instructions grew 2.2 KB in one prompt change without any check noticing."
 evidence = "ferbd tests/fixed_part.rs (the real program's listings, the runtime's prompt files); the measured sizes in journal 250."
 paths = ["engine/crates/ferbd/tests/fixed_part.rs"]
+
+[ORCH-724]
+title = "The planner's raw-chat hard stop: whole blocks anchored after the summary; what it hides folds"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "How ORCH-719's hard stop (40 exchanges, 20k tokens, no model call) is kept, in `conversation_view`, the path every reader of the chat takes. The entries after the summary form blocks anchored at the first (a block closes at 20 exchanges or 10k tokens); the newest whole blocks that fit are read (20-39 short exchanges), entry by entry only when one exchange is over 10k. The header counts what is left out and points to chat.history. The fold also folds what the hard stop hides, so no gap is left."
+why = "The live chat went eight days without a summary because the bound depended on a summary call (fold.rs); a per-turn sliding cut would move the cached conversation prefix on every message, the block cut moves it only at a block's end."
+evidence = "ferb-supervisor tests/raw_chat_hard_stop.rs: 100 exchanges with every summary call failing (the newest 40, then 21, read; the header counts the rest), 30 exchanges of 1.5k tokens (under 20k read), and a fold that covers exactly what was left out. Each fails with the bound off."
+paths = ["engine/crates/ferb-supervisor/src/history.rs::hard_stop", "engine/crates/ferb-supervisor/src/flow/turn.rs::conversation_view", "engine/crates/ferb-supervisor/src/flow/fold.rs", "engine/crates/ferb-supervisor/src/words.rs"]
+
+[ORCH-725]
+title = "The planner drops what it repeated: the ages line, extra profile lists, a latest result shown"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "ORCH-719 part 8. No \"Ages of the items above\" line (each entry shows its date and time). One browser-profile list: the inventory stays, Python's \"Paired owner profiles\" goes, and the connections line names only profiles not paired to the owner when the live facts give each paired one a line. The latest result's block goes when each row is in the conversation word for word in an entry naming its id. Python recordings' replays say false to `bounded_planner` (with the hard stop): the named difference."
+why = "Live 2026-11-17..25 the ages line reached 9.8k characters and the latest result was repeated in 49 of the 80 turns that carried it, both after the cached part, so resent uncached every turn; the profiles appeared 3-4 times (about 5k characters)."
+evidence = "ferb-supervisor tests/planner_trims.rs; ferb-daemon tests/b_environment.rs (the_planner_reads_one_browser_profile_list, every recorded _environment case as a named difference). Owner's 8 planner turns since 11-24 (read only): context 109k -> 50k characters median."
+paths = ["engine/crates/ferb-supervisor/src/planner.rs::latest_unless_shown", "engine/crates/ferb-supervisor/src/flow/turn.rs", "engine/crates/ferb-supervisor/src/flow/mod.rs::bounded_planner", "engine/crates/ferb-daemon/src/areas_b/environment.rs"]

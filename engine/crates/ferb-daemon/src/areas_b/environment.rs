@@ -279,20 +279,19 @@ pub fn environment(
     let alignment = s.alignment();
     let paired_keys: BTreeSet<(String, String)> = bindings.iter().map(key_of).collect();
     let files = environment_files(host, s, &paired_keys)?;
-    let paired: Vec<Vec<String>> = bindings
+    // decision: ORCH-725 — one browser-profile list: Python's "Paired owner profiles" repeated the inventory below (every
+    // profile with its name and account) and the live facts' line for each paired owner profile; it is left out
+    let owner_paired: BTreeSet<(String, String)> = bindings
         .iter()
         .filter(|b| b.identity == Identity::Owner && Some(key_of(b)) != ferb)
-        .map(|b| {
-            let p = profiles::named(&files.found, &b.browser, &b.folder);
-            vec![b.browser.clone(), b.folder.clone(), p.display_name, p.email]
-        })
+        .map(key_of)
         .collect();
     let env = ferb_policy::small::Environment {
         apps: files.apps.clone(),
-        paired,
+        paired: Vec::new(),
     };
-    let (mut stable, mut live) =
-        ferb_policy::small::services_summary(&env, &files.macos, &files.running);
+    let (_, mut live) = ferb_policy::small::services_summary(&env, &files.macos, &files.running);
+    let mut stable = format!("This Mac: macOS {}.", files.macos);
     let is_ferb =
         |p: &BrowserProfile| ferb.as_ref() == Some(&(p.browser.clone(), p.folder.clone()));
     let inventory: Vec<Value> = files
@@ -303,10 +302,14 @@ pub fn environment(
                    "identity": if is_ferb(p) { "ferb" } else { "owner" }})
         })
         .collect();
-    // each profile's connection changes between turns: with the live facts, after the conversation (ORCH-325)
+    // each profile's connection changes between turns: with the live facts, after the conversation (ORCH-325).
+    // decision: ORCH-725 — a paired owner profile's connection is its own line in the live facts (`live_facts`, when
+    // there is a hub to tell it): only the others are listed here
+    let told = s.hub().is_some();
     let connections: Vec<Value> = files
         .found
         .iter()
+        .filter(|p| !(told && owner_paired.contains(&(p.browser.clone(), p.folder.clone()))))
         .map(|p| {
             let ext = files
                 .extension

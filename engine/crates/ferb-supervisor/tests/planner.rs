@@ -179,7 +179,7 @@ fn every_planner_call() {
                 .map(|_| JournalRow::from_json(&cb["summary"]).unwrap());
             let latest = latest_result(&entries);
             assert_eq!(latest, s(&cb["latest"]), "{what}: the latest result");
-            let conversation = conversation_blocks(entries, summary.as_ref(), false, tokens);
+            let conversation = conversation_blocks(entries, summary.as_ref(), false, tokens, 0);
             let want: Vec<Sourced> = cb["blocks"]
                 .as_array()
                 .unwrap()

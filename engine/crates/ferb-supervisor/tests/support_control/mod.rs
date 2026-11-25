@@ -377,6 +377,9 @@ pub struct TestDaemon {
     /// ORCH-694's named difference: a Python recording's checker was rerun and judged every report (false); a test
     /// turns it on to run the owner's check.
     pub lean: AtomicBool,
+    /// ORCH-725's named difference: a Python recording's planner read the whole chat, its ages line and the latest
+    /// result's block (false); a test turns it on to run the bounded planner (ORCH-719, ORCH-724).
+    pub bounded: AtomicBool,
     /// ORCH-696: code's look as the probe path answers it (None: "no probe reads here"), each look asked (tool, args),
     /// and each token's call cap (worker id, max_calls) for the tokens that name no tools (a worker's or a check's).
     pub code_look: Mutex<Option<Result<Value, String>>>,
@@ -695,6 +698,10 @@ impl Daemon for TestDaemon {
     // decision: ORCH-694 (the Python recordings' checker was rerun and judged every report)
     fn lean_check(&self) -> bool {
         self.lean.load(Ordering::SeqCst)
+    }
+    // decision: ORCH-725 (the Python recordings' planner read the whole chat, its ages line and the latest result)
+    fn bounded_planner(&self) -> bool {
+        self.bounded.load(Ordering::SeqCst)
     }
     fn probe_read<'a>(
         &'a self,
@@ -1987,6 +1994,7 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         types: Mutex::default(),
         switched: Mutex::default(),
         lean: AtomicBool::new(false),
+        bounded: AtomicBool::new(false),
         code_look: Mutex::default(),
         probes: Mutex::default(),
         capped: Mutex::default(),

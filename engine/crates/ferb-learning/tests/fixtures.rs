@@ -121,7 +121,7 @@ fn replay_on(
             .as_object()
             .unwrap()
             .clone();
-        let tables = changed(&before, &after);
+        let tables = without_pass_input(changed(&before, &after));
         before = after;
         let at = format!("{name} step {n} ({op_name} {})", short(&args));
         if !same(&got, &step["out"]) {
@@ -163,6 +163,31 @@ fn replay_on(
         }
     }
     (steps.len(), diffs)
+}
+
+/// MEM-484 (fixed against Python): a profile pass's journal row also keeps a hash of what the next pass would read
+/// (`input`), which Python's never had; compared without it, the rest of the row as recorded.
+// decision: MEM-484
+fn without_pass_input(mut tables: Map<String, Value>) -> Map<String, Value> {
+    let Some(Value::Array(rows)) = tables.get_mut("journal") else {
+        return tables;
+    };
+    for row in rows.iter_mut() {
+        let Some(cells) = row.as_array_mut() else {
+            continue;
+        };
+        if cells.get(3).and_then(Value::as_str) != Some(ferb_learning::profile::PASS_KIND) {
+            continue;
+        }
+        if let Some(Value::String(data)) = cells.get_mut(4) {
+            if let Ok(Value::Object(mut m)) = serde_json::from_str::<Value>(data) {
+                if m.remove(ferb_learning::profile::INPUT_KEY).is_some() {
+                    *data = ferb_py::json::dumps(&Value::Object(m));
+                }
+            }
+        }
+    }
+    tables
 }
 
 fn report(what: &str, n: usize, diffs: &[String]) {

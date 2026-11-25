@@ -466,8 +466,58 @@ const NOT_PICKED: (&str, &str) = (
     ferb_orchestrator::browsing::NOT_PICKED_TAIL,
 );
 
+/// ORCH-725 (not Python's): one browser-profile list. The planner's stable facts leave out Python's "Paired owner
+/// profiles" line (the inventory beside it names every profile with its account), and the connections line leaves out
+/// each paired owner profile, whose state has a line of its own in the live facts when a hub tells it. Applied to the
+/// recorded `out` of every `_environment` case; nothing else in it changes.
+// decision: ORCH-725
+fn one_profile_list(c: &Value) -> Value {
+    const PAIRED: &str = "\nPaired owner profiles: ";
+    const CONNECTIONS: &str = "\nBrowser profile connections now: ";
+    let mut out = c["out"].clone();
+    let (Some(stable), Some(live)) = (out["stable"].as_str(), out["live"].as_str()) else {
+        return out;
+    };
+    let at = stable.find(PAIRED).expect("Python's paired line");
+    let end = stable[at + 1..]
+        .find('\n')
+        .map_or(stable.len(), |e| at + 1 + e);
+    let paired: Vec<Value> = serde_json::from_str(&stable[at + PAIRED.len()..end]).unwrap();
+    let owner: BTreeSet<(String, String)> = paired
+        .iter()
+        .map(|p| (s(&p["browser"]), s(&p["profile"])))
+        .collect();
+    let stable = format!("{}{}", &stable[..at], &stable[end..]);
+    let told = c["state"].get("hub").is_some_and(|h| !h.is_null());
+    let live = match live.find(CONNECTIONS) {
+        Some(at) if told => {
+            let from = at + CONNECTIONS.len();
+            let end = live[from..].find('\n').map_or(live.len(), |e| from + e);
+            let all: Vec<Value> = serde_json::from_str(&live[from..end]).unwrap();
+            let kept: Vec<Value> = all
+                .into_iter()
+                .filter(|p| !owner.contains(&(s(&p["browser"]), s(&p["profile"]))))
+                .collect();
+            let line = if kept.is_empty() {
+                String::new()
+            } else {
+                format!("{CONNECTIONS}{}", dumps(&json!(kept)))
+            };
+            format!("{}{line}{}", &live[..at], &live[end..])
+        }
+        _ => live.to_string(),
+    };
+    out["stable"] = json!(stable);
+    out["live"] = json!(live);
+    out
+}
+
 fn expected(c: &Value) -> Vec<String> {
-    let recorded = dumps(&c["out"]);
+    let recorded = if c["method"] == "_environment" {
+        dumps(&one_profile_list(c))
+    } else {
+        dumps(&c["out"])
+    };
     let out_line = match c["out"].as_str() {
         Some(text) if text.contains(NOT_PICKED.0) => {
             dumps(&json!(text.replace(NOT_PICKED.0, NOT_PICKED.1)))
@@ -490,6 +540,7 @@ fn expected(c: &Value) -> Vec<String> {
 }
 
 // decision: ORCH-648
+// decision: ORCH-725
 #[test]
 fn environment_matches_python() {
     let fx = fixture("daemon-b/environment.json");
@@ -502,6 +553,7 @@ fn environment_matches_python() {
         named, 3,
         "the one named difference covers exactly three cases"
     );
+
     let (mut same, mut diffs) = (0usize, Vec::new());
     for c in cases {
         let (want, got) = (expected(c), run_case(c));
@@ -618,4 +670,38 @@ fn a_temporary_chat_reads_the_facts_without_memory() {
         .filter(|l| !l.starts_with("- When the owner says"))
         .collect();
     assert_eq!(fresh, without.join("\n"), "every other fact stays");
+}
+
+/// ORCH-725: with a hub (the live facts then give each paired owner profile its own line), the recorded `env_full`
+/// case's planner facts list each profile once: the inventory in the stable facts, and in the connections line only
+/// the profiles not paired to the owner.
+// decision: ORCH-725
+#[test]
+fn the_planner_reads_one_browser_profile_list() {
+    let fx = fixture("daemon-b/environment.json");
+    let mut c = fx["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "env_full")
+        .unwrap()
+        .clone();
+    c["state"]["hub"] = json!({"bridges": {"chrome/Default": {"conn": true, "version": "0.19.4"}}});
+    let got = run_case(&c);
+    let out: Value = serde_json::from_str(got[0].strip_prefix("out ").unwrap()).unwrap();
+    let (stable, live) = (s(&out["stable"]), s(&out["live"]));
+    assert!(!stable.contains("Paired owner profiles"), "{stable}");
+    assert!(stable.contains("Browser/profile inventory"), "{stable}");
+    let recorded = s(&c["out"]["live"]);
+    assert!(recorded
+        .contains(r#"{"browser": "chrome", "profile": "Default", "connection": "connected"}"#));
+    assert!(
+        !live.contains(r#"{"browser": "chrome", "profile": "Default""#),
+        "the paired profile's own line tells it: {live}"
+    );
+    assert!(
+        live.contains(r#"{"browser": "chrome", "profile": "Profile 1""#),
+        "the others stay: {live}"
+    );
+    assert_eq!(dumps(&out), dumps(&one_profile_list(&c)));
 }

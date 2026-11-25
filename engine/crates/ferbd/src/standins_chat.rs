@@ -387,6 +387,10 @@ impl Reads for ScriptReads {
     fn reads_card_replies(&self) -> bool {
         false
     }
+    // decision: ORCH-725 (the Python recordings' planner read the whole chat, its ages line and the latest result)
+    fn bounded_planner(&self) -> bool {
+        false
+    }
     fn memory_blocks<'a>(
         &'a self,
         message: &'a str,

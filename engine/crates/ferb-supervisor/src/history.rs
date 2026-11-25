@@ -416,8 +416,9 @@ pub fn timeline(t: &Timeline<'_>) -> (Vec<Entry>, Vec<(String, Time)>) {
     (shown_entries, ages)
 }
 
-/// supervisor.py:4174 `_recent_entries`: the last RECENT_EXCHANGES exchanges, oldest first.
-pub fn recent_entries(entries: &[Entry]) -> Vec<Entry> {
+/// The entries in exchanges: an owner message that opens one and what follows it until the next (messages read
+/// together are one; what comes before the first message is one too), oldest first.
+fn exchanges_of(entries: &[Entry]) -> Vec<Vec<&Entry>> {
     let mut groups: Vec<Vec<&Entry>> = Vec::new();
     for e in entries {
         if e.opens || groups.is_empty() {
@@ -426,11 +427,67 @@ pub fn recent_entries(entries: &[Entry]) -> Vec<Entry> {
             last.push(e);
         }
     }
+    groups
+}
+
+/// supervisor.py:4174 `_recent_entries`: the last RECENT_EXCHANGES exchanges, oldest first.
+pub fn recent_entries(entries: &[Entry]) -> Vec<Entry> {
+    let groups = exchanges_of(entries);
     let from = groups.len().saturating_sub(RECENT_EXCHANGES);
     groups[from..]
         .iter()
         .flat_map(|g| g.iter().map(|e| (*e).clone()))
         .collect()
+}
+
+/// How many exchanges `entries` hold, counted as [`recent_entries`] counts them.
+pub fn exchanges(entries: &[Entry]) -> usize {
+    exchanges_of(entries).len()
+}
+
+/// ORCH-719's hard stop (owner numbers) and ORCH-724 (how): of the conversation's entries after its summary, the index
+/// of the first one the planner reads word for word, so that what it reads holds at most HARD_STOP_EXCHANGES
+/// exchanges and HARD_STOP_TOKENS tokens, with no model call, whatever the summary did. The cut moves only between
+/// blocks anchored at the first entry after the summary (a block closes after RECENT_EXCHANGES exchanges or once it
+/// holds half of HARD_STOP_TOKENS), so the conversation's cached prefix stays the same for many turns, and what is
+/// shown is the newest whole blocks that fit: 20 to 39 exchanges of short ones, as a fold leaves them. Only when the
+/// newest block alone is over the limits (an exchange over 10k tokens) is the cut made entry by entry, newest kept.
+pub fn hard_stop(entries: &[Entry], tokens: Tokenizer) -> usize {
+    let groups = exchanges_of(entries);
+    let sizes: Vec<usize> = groups
+        .iter()
+        .map(|g| g.iter().map(|e| tokens.count(&e.text)).sum())
+        .collect();
+    let fits = |from: usize| {
+        groups.len() - from <= HARD_STOP_EXCHANGES
+            && sizes[from..].iter().sum::<usize>() <= HARD_STOP_TOKENS
+    };
+    // each block's first exchange
+    let mut starts = vec![0];
+    let (mut held, mut size) = (0, 0);
+    for (i, s) in sizes.iter().enumerate() {
+        held += 1;
+        size += s;
+        if (held >= RECENT_EXCHANGES || size >= HARD_STOP_TOKENS / 2) && i + 1 < groups.len() {
+            starts.push(i + 1);
+            (held, size) = (0, 0);
+        }
+    }
+    let first_entry = |group: usize| groups[..group].iter().map(Vec::len).sum::<usize>();
+    if let Some(&from) = starts.iter().find(|&&s| fits(s)) {
+        return first_entry(from);
+    }
+    // the newest entries that fit, one by one
+    let mut used = 0;
+    let mut from = entries.len();
+    for (i, e) in entries.iter().enumerate().rev() {
+        used += tokens.count(&e.text);
+        if used > HARD_STOP_TOKENS {
+            break;
+        }
+        from = i;
+    }
+    from
 }
 
 /// A context block with the origins of what it shows (S3), as `_supervise` carries each.
@@ -443,11 +500,13 @@ pub struct Sourced {
 /// supervisor.py:3778 `_conversation_blocks`: the header (with FERB's running summary) and one cacheable history
 /// block per entry; the tag ages; the newest shown result's id ("" when none). `summary`: the chat's latest
 /// running summary row. `since_last_notice` (the attention check): only the entries after the last notice.
+/// `not_shown`: how many earlier entries the hard stop left out ([`hard_stop`]); the header says so.
 pub fn conversation_blocks(
     entries: Vec<Entry>,
     summary: Option<&JournalRow>,
     since_last_notice: bool,
     tokens: Tokenizer,
+    not_shown: usize,
 ) -> Vec<Sourced> {
     let entries = if since_last_notice {
         match entries.iter().rposition(|e| e.kind == "chat.notice") {
@@ -470,6 +529,17 @@ pub fn conversation_blocks(
         made = origin::split(Some(&summary.origin));
         payload = said;
         values = stored_values(SUMMARY_KIND, &summary.data);
+    }
+    // decision: ORCH-724 — the entries the hard stop left out are named by count, never shown
+    if not_shown > 0 {
+        let one = not_shown == 1;
+        header.push_str(
+            &NOT_SHOWN
+                .replace("{n}", &not_shown.to_string())
+                .replace("{entries}", if one { "entry" } else { "entries" })
+                .replace("{are}", if one { "is" } else { "are" })
+                .replace("{them}", if one { "it" } else { "them" }),
+        );
     }
     let mut out = vec![Sourced {
         block: ContextBlock {

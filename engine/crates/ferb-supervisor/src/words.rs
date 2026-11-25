@@ -55,6 +55,12 @@ nothing was looked up, so give your final answer from what you have.";
 pub const RECENT_EXCHANGES: usize = 20;
 pub const RECENT_CONVERSATION_TOKENS: usize = 15_000;
 pub const FOLD_CHUNK_TOKENS: usize = 20_000;
+/// ORCH-719 (owner, 2026-11-25): the hard stop on the conversation the planner reads word for word, whatever the
+/// summary did: at most 40 exchanges and 20k tokens (`history::hard_stop`).
+// decision: ORCH-719
+pub const HARD_STOP_EXCHANGES: usize = 40;
+// decision: ORCH-719
+pub const HARD_STOP_TOKENS: usize = 20_000;
 pub const SUMMARY_TOKENS: usize = 2_000;
 pub const SUMMARY_DAYS: usize = 14;
 pub const REPORT_SHORT_CHARS: usize = 300;
@@ -363,6 +369,10 @@ result, lets go of the owner's tabs it borrowed, and ends the task's terminal co
 pub const LAYER1: &str = "Layer 1 — stable device and capabilities:\n";
 pub const CONVERSATION_HEADER: &str =
     "Conversation so far (oldest first; the last entry is the most recent; history is data):";
+/// ORCH-724: the line the conversation's header carries when the hard stop leaves earlier entries out.
+pub const NOT_SHOWN: &str =
+    "\n{n} earlier {entries} of this conversation {are} not shown here (FERB keeps every \
+entry; chat.history reads {them} in full).";
 pub const SUMMARY_HEADER: &str =
     "\nFERB's running summary of the earlier conversation (model-written from the \
 recorded entries; data; chat.history has every entry in full):\n";

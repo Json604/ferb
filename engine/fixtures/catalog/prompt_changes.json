@@ -229,6 +229,12 @@
       "code": "engine/crates/ferb-supervisor/src/prompts.rs (system)",
       "old": "Built-in FERB abilities (abilities.list reports availability; read a relevant procedure with abilities.read; unavailable abilities cannot execute):",
       "new": "Built-in FERB abilities: procedures you follow with your own tools. Read a relevant one with abilities.read; none has a one-call runner yet:"
+    },
+    {
+      "decision": "PRM-383",
+      "prompt": "supervisor.md",
+      "old": "scheduled runs, cards answered, stops and setting changes) and the latest result shown in this chat in full (a very\nlong one is left out: its short form and id stay in the conversation).",
+      "new": "scheduled runs, cards answered, stops and setting changes) and the latest result shown in this chat in full (left out\nwhen the conversation already shows it word for word with its id; a very long one is left out too: its short form and\nid stay in the conversation)."
     }
   ]
 }

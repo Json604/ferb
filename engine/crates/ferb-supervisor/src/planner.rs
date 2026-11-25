@@ -335,6 +335,33 @@ pub fn latest_blocks(reads: &LatestReads<'_>, tokens: Tokenizer, zone: &Zone) ->
         .collect()
 }
 
+/// ORCH-725: the latest result's blocks, or none when the conversation already shows each of its rows word for word
+/// with its id (a result told in a reply, or a short one shown whole): the block would repeat it after the cached part
+/// on every turn (live 2026-11-17..25: 49 of the 80 turns that carried it, up to 8.4k characters each).
+pub fn latest_unless_shown(latest: Vec<Sourced>, conversation: &[Sourced]) -> Vec<Sourced> {
+    let in_conversation = |b: &Sourced| {
+        let said = b.block.payload.as_deref().unwrap_or_default();
+        let id = b
+            .block
+            .source_refs
+            .first()
+            .and_then(|r| r.strip_prefix(ENTRY))
+            .unwrap_or_default();
+        !said.trim().is_empty()
+            && !id.is_empty()
+            && conversation.iter().any(|c| {
+                let t = &c.block.text;
+                t.contains(id) && (t.contains(said) || t.contains(&as_data(said)))
+            })
+    };
+    // decision: ORCH-725
+    if !latest.is_empty() && latest.iter().all(in_conversation) {
+        Vec::new()
+    } else {
+        latest
+    }
+}
+
 /// supervisor.py:1746 `_previous_run_block`: a scheduled run's previous run (`entry`, `ran_at`, `status`), or that
 /// none is recorded.
 pub fn previous_run_block(previous: Option<(&JournalRow, &Time, &str)>, zone: &Zone) -> Sourced {
@@ -483,7 +510,8 @@ pub struct PlannerTurn<'a> {
     pub now: &'a Time,
     pub owner_active: Option<&'a Time>,
     pub last_event: Option<&'a Time>,
-    /// The conversation's blocks ([`crate::history::conversation_blocks`]) and its tag ages.
+    /// The conversation's blocks ([`crate::history::conversation_blocks`]) and its tag ages: none (ORCH-725: each entry
+    /// carries its own date and time) but in a replay of a Python recording, whose planner read them.
     pub conversation: Vec<Sourced>,
     pub ages: &'a [(String, Time)],
     pub tasks: Option<Sourced>,
@@ -552,6 +580,9 @@ pub fn planner_sourced(t: PlannerTurn<'_>) -> (Vec<Sourced>, usize, usize) {
         deadline: None,
         owner_last_active: t.owner_active,
         last_trail_event: t.last_event,
+        // decision: ORCH-725 — no "Ages of the items above" line (the caller gives none): one entry per conversation
+        // item (up to 9.8k characters live), after the cached part, so resent uncached on every turn; each entry shows
+        // its own date and time and this block the time now, which is what the planner reasons about time from
         ages: t.ages,
         since_last_talk: None,
     };

@@ -1,10 +1,13 @@
-//! The running summary's fold (supervisor.py:4161-4294, L28, ORCH-303, ORCH-304, ORCH-326): the planner reads FERB's
-//! running summary of the older conversation and every entry after what it covers; once the tail beyond the last 20
-//! exchanges holds a chunk (FOLD_CHUNK_TOKENS), or the whole tail passes RECENT_CONVERSATION_TOKENS +
-//! FOLD_CHUNK_TOKENS, the entries beyond those exchanges fold into a new summary in the background after the
-//! decision, a bounded chunk per summary call, each written (a `chat.summary` row citing what it folded) before the
-//! next is made. One fold per chat at a time; a failed call ends the refresh (`chat.summary_failed`; the next turn
-//! tries again).
+//! The running summary's fold (supervisor.py:4161-4294, L28, ORCH-303, ORCH-304, ORCH-326, ORCH-718): the planner
+//! reads FERB's running summary of the older conversation and every entry after what it covers; once the tail beyond
+//! the last 20 exchanges holds 20 exchanges (RECENT_EXCHANGES; ORCH-304: it folds about every 20-40 exchanges) or a
+//! chunk (FOLD_CHUNK_TOKENS), or the whole tail passes RECENT_CONVERSATION_TOKENS + FOLD_CHUNK_TOKENS, the entries
+//! beyond those exchanges fold into a new summary in the background after the decision, a bounded chunk per summary
+//! call, each written (a `chat.summary` row citing what it folded) before the next is made. So the planner reads the
+//! summary and 20 to 39 exchanges after it, the last 20 right after a fold (ORCH-303). One fold per chat at a time; a
+//! failed call ends the refresh (`chat.summary_failed`; the next turn tries again). Whatever the fold did, the
+//! planner reads at most 40 exchanges and 20k tokens word for word (ORCH-719's hard stop, `history::hard_stop`), and
+//! what that leaves out folds too (ORCH-724).
 
 use std::collections::BTreeSet;
 
@@ -16,12 +19,14 @@ use serde_json::{json, Map, Value};
 
 use super::store::Entry;
 use super::Inner;
-use crate::history::{recent_entries, timeline, Entry as HistEntry, Timeline};
+use crate::history::{
+    exchanges, hard_stop, recent_entries, timeline, Entry as HistEntry, Timeline,
+};
 use crate::lines::{stored_values, summary_blocks, within_tokens};
 use crate::seams::JournalRow;
 use crate::words::{
-    CONVERSATION_KINDS, ENTRY, FOLD_CHUNK_TOKENS, RECENT_CONVERSATION_TOKENS, SELF_POSTS,
-    SUMMARY_KIND,
+    CONVERSATION_KINDS, ENTRY, FOLD_CHUNK_TOKENS, RECENT_CONVERSATION_TOKENS, RECENT_EXCHANGES,
+    SELF_POSTS, SUMMARY_KIND,
 };
 
 impl Inner {
@@ -85,25 +90,38 @@ impl Inner {
         .0
     }
 
-    /// supervisor.py:4186 `_keep_recent`: when the tail beyond the last 20 exchanges holds one chunk, or the whole tail
-    /// passes RECENT_CONVERSATION_TOKENS + FOLD_CHUNK_TOKENS, the entries beyond those exchanges fold in the
-    /// background (`summarize`). One fold per chat at a time.
+    /// supervisor.py:4186 `_keep_recent`: when the tail beyond the last 20 exchanges holds 20 exchanges or one chunk,
+    /// or the whole tail passes RECENT_CONVERSATION_TOKENS + FOLD_CHUNK_TOKENS, the entries beyond those exchanges fold
+    /// in the background (`summarize`); so do the entries the hard stop leaves out of the planner's view, when it
+    /// leaves out more (ORCH-724). One fold per chat at a time.
     pub(crate) fn start_keep_recent(&self, conversation: &str) {
         if self.live().summarizing.contains(conversation) {
             return;
         }
         let summary = self.summary_of(conversation);
         let entries = self.fold_timeline(conversation, summary.as_ref());
-        let count = entries.len() - recent_entries(&entries).len();
         let tokens = self.deps.tokenizer;
+        // decision: ORCH-724 — what the hard stop leaves out of the planner's view folds too, so the summary and the
+        // entries shown word for word leave no gap between them
+        let hidden = if self.deps.daemon.bounded_planner() {
+            hard_stop(&entries, tokens)
+        } else {
+            0
+        };
+        let count = (entries.len() - recent_entries(&entries).len()).max(hidden);
         let excess: usize = entries[..count].iter().map(|e| tokens.count(&e.text)).sum();
         let total = excess
             + entries[count..]
                 .iter()
                 .map(|e| tokens.count(&e.text))
                 .sum::<usize>();
+        // decision: ORCH-718 — the exchanges count too, not only tokens: a chat of short exchanges (live 2026-11-25:
+        // 94 exchanges, 19.5k tokens beyond the last 20) never reached a token figure, so it never folded and the
+        // planner reread the whole chat on every message (Python's `_keep_recent` read tokens only: fixed against it)
         if count == 0
-            || (excess < FOLD_CHUNK_TOKENS
+            || (hidden == 0
+                && exchanges(&entries[..count]) < RECENT_EXCHANGES
+                && excess < FOLD_CHUNK_TOKENS
                 && total <= RECENT_CONVERSATION_TOKENS + FOLD_CHUNK_TOKENS)
         {
             return;

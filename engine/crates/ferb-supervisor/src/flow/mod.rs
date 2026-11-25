@@ -157,6 +157,14 @@ pub trait Daemon: Send + Sync {
     fn reads_card_replies(&self) -> bool {
         true
     }
+    /// ORCH-719, ORCH-724, ORCH-725: whether the planner's context is bounded as the owner's design keeps it (true): at
+    /// most 40 exchanges and 20k tokens of the chat word for word whatever the summary did, what that leaves out folded
+    /// too, no line of the entries' ages, and the latest result's block only when the conversation doesn't show it. A
+    /// replay of a Python recording, whose planner read the whole chat with both blocks, says false (the named
+    /// difference); every test of these bounds runs with it on.
+    fn bounded_planner(&self) -> bool {
+        true
+    }
     /// `getattr(gateway.caps.get(tool), "reads_content", False)`.
     fn reads_content(&self, tool: &str) -> bool;
     /// `gateway.tools_for(grant)`: the rows `{name, description, input_schema}`.

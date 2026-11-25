@@ -118,15 +118,18 @@ const SEEDED: usize = 60;
 /// ORCH-719 (owner): with no summary, the planner gets at most 40 exchanges word for word, a stop that needs no model
 /// call.
 const HARD_STOP: usize = 40;
-/// What the planner is given today with no summary: every exchange (the fold's token triggers were never reached,
-/// context audit 2026-11-25). The strict bound comes with the stop itself (T-1331, ORCH-719 step 2), whose patch
-/// sets this to HARD_STOP; until then the test keeps today's bound so a regression past it still fails.
-const RAW_CEILING: usize = SEEDED;
+/// The ceiling the test holds: ORCH-719's stop itself (ORCH-724, the bounded planner on).
+const RAW_CEILING: usize = HARD_STOP;
 
 // decision: ORCH-720
+// decision: ORCH-724
 #[test]
 fn a_long_chat_without_a_summary_gives_the_planner_a_bounded_raw_history() {
     let mut w = world_with("one_step_task", |_| {});
+    // the planner FERB runs (a Python recording's replay keeps its whole chat: ORCH-725's named difference)
+    w.daemon
+        .bounded
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     {
         let db = w.db.lock().unwrap();
         for i in 0..SEEDED {

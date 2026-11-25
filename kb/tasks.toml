@@ -799,14 +799,6 @@ status = "open"
 why = "Owner asked 2026-11-24. PHN-421/614: a small sender he runs; the Mac calls it when the phone's app is closed; no words, only the question encrypted for that phone. Needs: where it runs, FCM and APNs keys, each phone's push token at pairing, the Mac's authenticated call. T-1247 is the iPhone half."
 decisions = ["PHN-421", "PHN-614", "PHN-566"]
 
-[T-1331]
-title = "Context step 2: profile due-check, raw-chat hard stop and fold, checker order, planner trims"
-area = "orchestration"
-kind = "build"
-status = "open"
-why = "ORCH-719 (owner 2026-11-25); the design and its numbers are in kb/plans/context.md, step order there."
-decisions = ["ORCH-719"]
-
 [T-1332]
 title = "Context step 3: snapshots keep the whole record and show the worker what changed"
 area = "hands"
@@ -814,7 +806,6 @@ kind = "build"
 status = "open"
 why = "ORCH-719 (owner 2026-11-25); the design and its numbers are in kb/plans/context.md, step order there."
 decisions = ["ORCH-719"]
-after = ["T-1331"]
 
 [T-1333]
 title = "Context step 4: RUN-470 request rewriting off by default; RUN-472 superseded"
@@ -848,7 +839,7 @@ title = "Context step 7: the checker middle path, tested offline on the recorded
 area = "orchestration"
 kind = "build"
 status = "open"
-why = "ORCH-719 (owner 2026-11-25); the design and its numbers are in kb/plans/context.md, step order there."
+why = "ORCH-719 (owner 2026-11-25); kb/plans/context.md. Also the checker's cache order (journal 251): shared prefix of two checks of a task 4.2% today; recorded calls first with stable text (an id per span, no totals, fixed run labels and markers) about 32%."
 decisions = ["ORCH-719"]
 after = ["T-1335"]
 

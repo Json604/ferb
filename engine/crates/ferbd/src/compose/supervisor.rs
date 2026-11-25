@@ -77,6 +77,11 @@ pub trait Reads: Send + Sync {
     fn reads_card_replies(&self) -> bool {
         true
     }
+    /// ORCH-719, ORCH-724 and ORCH-725's named difference: a replay of a Python recording (the stand-ins' script)
+    /// reads the whole chat with its ages line and the latest result's block, as Python's planner did.
+    fn bounded_planner(&self) -> bool {
+        true
+    }
     fn on_task_start<'a>(&'a self, tree_id: &'a str) -> BoxFuture<'a, ()>;
     fn on_task_finish<'a>(&'a self, tree_id: &'a str) -> BoxFuture<'a, ()>;
     /// (bundle id, name, pid) of the apps running now.
@@ -725,6 +730,9 @@ impl Daemon for SupDaemon {
     }
     fn reads_card_replies(&self) -> bool {
         self.reads.reads_card_replies()
+    }
+    fn bounded_planner(&self) -> bool {
+        self.reads.bounded_planner()
     }
     fn named_only(&self, tool: &str) -> bool {
         self.gateway

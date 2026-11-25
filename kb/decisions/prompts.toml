@@ -903,3 +903,13 @@ rule = "Review item 13. The sections about a runner that doesn't exist (a ground
 why = "abilities.read ran 0 times in the live period and the planner refused an image check on 11-25; the procedure read as if nothing could run."
 paths = ["engine/runtime/abilities/browser_verification/SKILL.md", "engine/fixtures/catalog/prompt_replacements.json"]
 untestable = "Procedure text (TEST-500); the replacement is checked by ferb-context's parity test and ferbd's tools_context."
+
+[PRM-383]
+title = "supervisor.md says the latest result isn't repeated when the conversation shows it"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "supervisor.md's Layer 2 sentence about the latest result shown in full adds that it is left out when the conversation already shows it word for word with its id (ORCH-725); the rest of the sentence is unchanged."
+why = "The planner reads where each fact is; a block that is sometimes missing needs its rule stated once."
+paths = ["engine/runtime/orchestrator/prompts/supervisor.md", "engine/fixtures/catalog/prompt_changes.json"]
+untestable = "Prompt text (TEST-500); the named change is checked by ferb-supervisor's prompts test and ferb-context's parity test."

@@ -13897,3 +13897,145 @@ per-step rates of planner rows are tool calls under the turn (lookups), small by
 tool; the live trace does not record them yet (adding them to span inputs would change the recorded replays). The
 worker's span for unreported usage is tested with the scripted runtime, not a real program. ORCH-720/721 and
 RUN-477/478 were the next free IDs at 8c5a0fb4; T-1331 may take some in parallel.
+
+## 2026-11-25 · 252 · The conversation folds every 20 exchanges, not only on token figures
+
+**What.** The running summary never ran on the owner's Mac: since the cutover (2026-11-17) the store holds 0
+`chat.summary`, 0 `chat.summary_failed` and 0 `model.summary` spans, while the planner read the whole chat on every
+message. The fold's trigger (`flow/fold.rs` `start_keep_recent`, Python's `_keep_recent`) counted tokens only: fold
+once the tail beyond the last 20 exchanges holds FOLD_CHUNK_TOKENS (20k) or the whole tail passes 35k. The grouping
+was not the cause (`history.rs` `recent_entries` groups by `Entry.opens`, which `timeline` sets on every
+`chat.message` not read with another). Measured with the real `timeline` and `recent_entries` over a read-only copy of
+the owner's conversation rows: 257 entries in 94 exchanges; 165 entries beyond the last 20 exchanges, 19,508 tokens
+(o200k); 28,795 in all. Both figures were just under, so nothing folded, and the planner kept every entry since
+install: the fold only drops the planner's tail, which reads the summary and every entry after what it covers
+(`flow/turn.rs` `conversation_view`, unchanged). Now the tail also folds once it holds RECENT_EXCHANGES (20) exchanges
+beyond the last 20 (`history::exchanges`, grouped as `recent_entries` groups), so the planner reads the summary and 20
+to 39 exchanges, the last 20 right after a fold (ORCH-303; ORCH-304's "folds about every 20-40 exchanges"). The token
+figures stay as triggers for long exchanges. No number changed. Every turn takes this path: FERB.app's and a phone's
+`chat.send` both reach `Inner::turn` (`flow/turn.rs` :415, after the decision); the owner's 96 messages since 11-17
+are all in chat `owner`. A temporary chat folds within itself through the same path; its summary rows are among the
+rows `temporary::forget` deletes.
+
+**Why.** ORCH-303 (owner) is "the running summary plus the last 20 exchanges, never history filling the window";
+ORCH-326's figures (an agent's) were sized for long exchanges. Folding every turn instead would add a model call per
+message and move the cached conversation prefix each turn; a strict 20-exchange cut without folding would hide what
+lies between the summary and the last 20.
+
+**The owner's first fold (catch-up).** On the first turn after the update the 165-plus entries beyond the last 20
+exchanges fold in the background after the planner's decision, in calls of at most FOLD_CHUNK_TOKENS each, each
+written before the next (`summarize`): the backlog is under 20k tokens as `foldable` counts them (19.5k with one per
+entry's separator, less the notices, which a call folds without copying), so one summary call, two if the next turns
+push it past 20k. In general the catch-up is ⌈backlog tokens / 20k⌉ calls (an
+entry too big alone takes a call of its own), one fold per chat at a time; a failed call ends it
+(`chat.summary_failed`) and the next turn tries again. After it, one summary call per 20 owner messages: at the
+owner's pace since 11-17 (94 messages in 9 days; 18-28 on a busy day) about one call every two days, one or two on a
+busy day, each reading summary.md, the summary before it (at most 2k tokens) and the 20 exchanges it folds (about
+5-10k tokens on his chat). The token-only trigger would have folded about every 6 days at that pace (3.2k tokens a
+day), the planner reading up to about 90 exchanges between.
+
+**Fixed against Python.** `_keep_recent` read tokens only, so a chat of short exchanges kept growing in the planner's
+context past ORCH-303's 20 exchanges (PLAN's table of bugs found).
+
+**kb.** ORCH-718 (agent; refines ORCH-326 for ORCH-303 and ORCH-304).
+
+**Evidence.** `tests/summary_fold_by_exchanges.rs` on the recorded plain_reply scenario through the real supervisor
+with stand-in models (temp store, injected ids and time): 45 short seeded exchanges and a new message make one summary
+call after the planner's decision; the `chat.summary` row covers exactly the 26 oldest exchanges; the next planner call
+reads the summary and only the last 20 exchanges; 38 seeded (19 beyond) make none. The first test fails without the
+change (one model call, no summary). `replay_more` (39, `summary_fold` included) passes unchanged. The owner's store was
+read only (`sqlite3 -readonly`, `mode=ro`); the measurement was a throwaway test over a dump in a temp folder, removed.
+
+**Unverified.** No live fold on the owner's chat: the summary's words, the calls the catch-up actually makes and the
+planner's input after it are the owner's next turn's. The measurement stubbed the timeline's two reads (a task's
+recorded outcome, a notice's sources), so a few task results told in a reply may count where the real timeline hides
+them (fewer tokens, the same conclusion).
+
+## 2026-11-25 · 251 · Context step 2: the raw chat's hard stop, the profile pass's due-check, the planner's trims; the checker's order and the repeated Claude requests measured
+
+**Why (T-1331, ORCH-719 step 2).** The owner's design (kb/plans/context.md parts 6, 8 and 10) and its numbers; the
+evidence is the context audit and the independent review (`.local/context-audit.md`, `context-design-review.md`). The
+exchange-based fold (journal 252, ORCH-718) lands with this step.
+
+**The hard stop (ORCH-719's numbers, ORCH-724 how).** Whatever the summary did, the planner reads at most 40 exchanges
+and 20k tokens of the chat word for word (`words.rs` HARD_STOP_EXCHANGES, HARD_STOP_TOKENS), with no model call.
+`history::hard_stop` cuts the entries after the summary into blocks anchored at the first of them (a block closes after
+20 exchanges or at 10k tokens) and keeps the newest whole blocks that fit, so the cut moves only at a block's end and
+the cached conversation prefix stays for many turns; an exchange over 10k tokens alone is cut entry by entry, newest
+kept. The header then reads "N earlier entries of this conversation are not shown here (FERB keeps every entry;
+chat.history reads them in full)." It sits in `conversation_view`, the one path the planner, the attention check and
+data.context take. The fold (`start_keep_recent`) also folds what the hard stop leaves out when that is more than what
+lies beyond the last 20 exchanges, so the summary and the entries shown leave no gap (each extra fold covers at least
+10k tokens of chat: about one summary call per 10k tokens when every exchange is long).
+
+**The profile pass (MEM-484, fixed against Python).** `profile.rs` `due` ended `Ok(self.render()?.1 > 0)`: once the
+profile was over PROFILE_TOKENS every hourly check ran the pass (live: one byte-identical 20.7k-character input 38 times,
+274k tokens written to Claude's cache and never read). Now a profile over its size is due only when what the pass reads
+(its `pass_context` without the Today line) differs from what it read once the last pass was applied; the pass's
+journal row keeps a 16-hex hash of it (`input`), and a row without one (an older build's) is due once. The weekly pass,
+the early pass for a waiting item and the hour between tries are unchanged. The edit is `due`, two helpers and the row's
+extra field, away from the pending always-on change.
+
+**The planner's trims (ORCH-725, PRM-383).** No "Ages of the items above" line (each entry already shows its date and
+time; the situation block the time now). One browser-profile list: the stable facts keep the inventory (name, account,
+identity of every profile) without Python's "Paired owner profiles" line, and the connections line lists only profiles
+not paired to the owner when the live facts give each paired one its own line. The latest result's block is left out
+when every row of it is in the conversation word for word, in an entry naming its id (`planner::latest_unless_shown`);
+a short form, a result without its id, or a card with a row missing keeps it. supervisor.md's sentence about that block
+says so (PRM-383, `prompt_changes.json`). The system's `{capabilities}` line naming the paired browsers is shared by
+every role and stays.
+
+**The named difference.** `Daemon::bounded_planner` (true in ferbd) turns on the hard stop, the fold of what it hides
+and both planner trims; the Python recordings' replays (`tests/replay`, `support_control` unless a test turns it on,
+ferbd's stand-ins) say false and keep their planner's input byte for byte, as `lean_check` and `reads_card_replies` do.
+Without it, `summary_fold` (23 exchanges of about 900 bytes, counted at a token per byte as the recordings were) hid
+four entries. ferb-daemon's `_environment` cases are compared with the one-list rule applied to Python's output
+(`one_profile_list`); ferb-learning's fixture rows without `input`.
+
+**Measured, owner's store read only (`mode=ro`), 8 planner turns since 11-24.** Context median 109,216 → 50,316
+characters (6629bacf, 95 exchanges: ages line −9,818, profile lists −1,355, conversation 91,891 → 44,053 with 35
+exchanges as a fold leaves them; the latest block was repeated in 2 of the 8). At 3.8 characters a token, with the
+system (46.5k characters), the lookups' schemas and Claude Code's framing (about 7k) and the screenshot (1.6k): about 50k
+tokens a message before, **about 34k after**, at any chat length; ORCH-719's index (step 8) brings it toward 27-32k.
+
+**The checker's order (not built; measured).** The review assumed the recorded calls are the same between two checks
+of a task. On the 59 recorded checks since 11-17 they aren't: each check wraps every call in `<untrusted-data id=…>`
+with a fresh random id, heads each "Recorded call n of {total}", labels runs only once there are two, and moves its
+omission markers as calls are added; and the checker's system carries the live facts with the minute ("This Mac …:
+Monday 2026-11-23 01:10"), so two checks part about 15.9k characters into the system. Shared prefix of consecutive
+checks of one task (no reruns, ORCH-696 has none): 4.2% today; 6.4% with the live facts moved after the context;
+reordering the blocks alone: no gain; recorded calls first with text that stays the same (an id per span, no total,
+stable run labels and markers): 31.9%. That is the checker evidence T-1336 rebuilds, so it is recorded there
+(kb/tasks.toml) rather than built twice. Measured by a throwaway script over `spans.input_json` (system and context of
+each check, read only), not kept.
+
+**The repeated Claude planner requests (diagnosed, not FERB's).** 11 of the 72 Claude planner turns made 2-3 requests.
+Four called a FERB lookup (a `tool.call` span under the turn): by design. Seven had no FERB tool call and two
+`tool_use` blocks (StructuredOutput is the only other tool offered), output about twice a single answer (19ffe240,
+"17 × 23 = 391": 352 tokens against 187-226), and each extra request re-read the whole prompt from the cache: 968ca700 =
+3 requests of about 83.6k (83,915 written once, 166,990 read). 494k of the 4.26M Claude planner tokens were those extra
+requests, almost all cached reads. FERB's planner made one runtime call each (`timing.call.model_calls` 1, no repair
+span, no "repair" or "follow_up" mark, `typed` strict): the second StructuredOutput call is made inside Claude Code
+2.1.310, whose own validation retries, in-turn nudge and model-fallback retraction can each produce it; FERB keeps
+neither the tool result Claude Code sent between the two calls nor per-request usage, so which one is not shown. T-1330's
+per-request count in FERB's relay will say; nothing in FERB's schema or loop was found to cause it.
+
+**Evidence.** In a worktree, its own target folder, `nice -n 10`, 2 jobs, through ferb-test-guard; no model, no real
+home: `cargo test --no-fail-fast -p ferb-supervisor -p ferb-learning -p ferb-daemon -p ferbd -p ferb-context` on
+fe836ff8: 740 passed, 6 ignored, 0 failed (a first run had ferbd's `seams_wired` ask for the new trait default to be
+named: it is in `seams-off.txt`). New: `raw_chat_hard_stop.rs` (3), `planner_trims.rs` (2), ferb-learning `profile_due.rs` (2), ferb-daemon
+`the_planner_reads_one_browser_profile_list`; each shown failing with its change off (the bound off, the old `due`).
+Every recorded replay passes unchanged (`replay`, `replay_more` with `summary_fold`, `control_scenarios`, ferbd's
+`chat_replay`, the prompts test with PRM-383's named change). `cargo fmt --all --check`, `cargo clippy -p
+ferb-supervisor -p ferb-daemon -p ferb-learning -p ferbd --all-targets -- -D warnings` clean; `kb lock`, `kb gen`, `kb
+check` ok; `git diff --check` clean. The owner's store was read only (`sqlite3 -readonly`, `mode=ro`).
+
+**Unverified.** No live turn: the planner's size after the change is an estimate from recorded inputs (3.8 characters a
+token), and whether the planner looks older entries up when the header says they are left out needs the real-model
+eval. The hard stop counts o200k tokens live; the recordings count a token per byte. Not run: `./gate.sh portable` and
+the whole workspace (only the five crates above). Rebuilt on fe836ff8 (T-1330's step 1): ORCH-720's raw-chat guard
+(`context_guards.rs`) now holds RAW_CEILING = HARD_STOP with the bounded planner on, and my profile id moved to MEM-484
+(MEM-480..483 are the always-on change's); ids are the next free at fe836ff8.
+
+**kb.** Agent: ORCH-724, ORCH-725, MEM-484, PRM-383 (ORCH-718 from 252). T-1331 deleted (T-1332 waits on no other step now); T-1336's
+why carries the checker measurement.
