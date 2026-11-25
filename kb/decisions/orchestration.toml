@@ -2543,3 +2543,14 @@ why = "Nothing of the chat is kept once it is over, a restart included: the fold
 evidence = "ferb-supervisor temporary_chat.rs the_files_a_temporary_chat_was_sent_go_when_it_ends_and_at_every_start; ferb-daemon phone_files.rs a_temporary_chat_s_files_leave_the_upload_folder_for_its_own_folder; FERB.app TemporaryChatTests."
 paths = ["engine/crates/ferb-daemon/src/phone/files.rs", "engine/crates/ferb-daemon/src/phone/gate.rs", "engine/crates/ferb-supervisor/src/flow/temporary.rs", "engine/crates/ferb-core/src/temporary.rs", "engine/crates/ferbd/src/compose/mod.rs", "apps/mac/FERBNotch/Sources/NotchCore/ComposerIntake.swift"]
 live = ["LIVE-1212"]
+
+[ORCH-719]
+title = "One context design for every AI: FERB-level waste fixes, the owner's numbers, kb/plans/context.md"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "ok understood, lets keep our own compaction. / yeha agree, i forgot some models might not have 200k limit. / yes, this sounds much better"
+words_source = "Owner 2026-11-25 on kb/plans/context.md: FERB's own hand-off; fresh run at 200k or 70% of a smaller window, net 245k; a fixed tool core with every tool listed and find/use."
+rule = "Context is handled at FERB's level on every runtime (kb/plans/context.md): whole snapshot records, the worker shown what changed; a fixed tool core (worker 25, checker 10) with every tool listed and find/use; a fresh run at 200k tokens or 70% of a smaller window with a code-built hand-off, runtime compaction as a net at 245k; the checker's middle path; the planner's last 20 exchanges, hard stop at 40 or 20k tokens, a 14-day index of 6 lines a day, month and year lines, the newest 15 open items; a confirmed profile of at most 1,500 tokens."
+why = "Workers are 86% of input; old page snapshots and full tool descriptions resent every step are most of it, and the fix must not depend on one AI. The owner judged costs for all users, not his test usage."
+untestable = "A design decision whose parts are built and tested under T-1330..T-1337; each part's tests carry this id."
