@@ -13253,3 +13253,15 @@ it for the calls that pass it on; every other step, count, row and digest is com
 - The 600 s grace is a mechanism's margin, not one of STORE-419's windows; if the owner reads it as a retention
   number (AGENTS.md rule 18), it is his to change. The marks live in memory, so a restart only delays deletions.
 - No live check: no Rust install has rows 30 or 90 days old yet; not run on a real store.
+
+## 2026-11-25 · 228 · RUN-476 confirmed live (LIVE-1216)
+
+The owner switched every role to Claude on the installed build (f18d5ab3's FERB.app carrying c42a6ce8), sent three
+messages in his chat a few seconds apart and one in a temporary chat, then switched back to Codex (journal
+runtimes.changed 1813, 1837). The model.turn spans' usage (spans.output_json, cache_write_reported true):
+1st message (cold after the switch): 1h 70,338, 5m 11,724; 2nd: 1h 207, 5m 11,341, read 70,338; 3rd: 1h 222, 5m 11,391,
+read 70,545; temporary chat's first: 1h 22,353, 5m 4,319. So FERB's prefix is written once at the hour and read after,
+and Claude Code's end-of-message breakpoint is written at five minutes (before RUN-476, journal 208, that tail went at
+the hour every turn). About 8.5k input-token equivalents saved per kept-chat turn (1.25x instead of 2x on ~11.3k).
+Four Claude calls in all. Note: `ferb trace --json` shows only the total cache_write_tokens; the split is in the
+span's stored output (usage.rs writes it), read here from the database.
