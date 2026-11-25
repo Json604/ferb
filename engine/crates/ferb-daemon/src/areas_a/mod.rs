@@ -126,6 +126,8 @@ pub struct State {
     /// Memory: `_forgetting` (the work forgets left behind), `_owner_followups`.
     pub(crate) forgetting: RefCell<Vec<tokio::task::JoinHandle<()>>>,
     pub(crate) followups: RefCell<std::collections::BTreeMap<String, (String, String)>>,
+    /// Retention: the newest loop wake-up's seq at each pass, with the pass's time (`retention::wake_up_marks`).
+    pub(crate) wake_up_marks: RefCell<Vec<(ferb_clock::py::Time, i64)>>,
     /// Facts that just joined the always-on profile, told together once the burst is over (`memory::now_always_on`).
     pub(crate) joined: RefCell<Vec<ferb_learning::items::Item>>,
     pub(crate) joined_telling: Cell<bool>,
@@ -373,6 +375,7 @@ impl State {
             stopped: Cell::new(false),
             forgetting: RefCell::default(),
             followups: RefCell::default(),
+            wake_up_marks: RefCell::default(),
             joined: RefCell::default(),
             joined_telling: Cell::new(false),
             login_names: Rc::new(tokio::sync::Mutex::new(())),

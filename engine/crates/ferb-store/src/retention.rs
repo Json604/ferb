@@ -4,7 +4,8 @@
 //! short batches, dependents first (`delete_rows`). It never deletes what nothing else
 //! preserves: the task list and results, episodes, memory, verdicts, schedules, chat and day
 //! summaries are named nowhere here (nor stage 2's chat tables, `chat_entries` and the rest of migration 0063: kept
-//! forever, STORE-401).
+//! forever, STORE-401). Added after Python (`aged`, STORE-419): perception batches after 30 days, notices' records
+//! and learned-node change rows after 90, loop wake-ups once they have fired.
 //!
 //! Seam: the settings come in as `get(section, key, default)` (`ferb/config.py`); the daemon
 //! decides the cutoffs and runs the pass.
@@ -27,6 +28,18 @@ pub const ACCESSIBILITY_DAYS: i64 = 7;
 pub const TYPED_DAYS: i64 = 7;
 /// Rows a delete transaction takes (`retention.py:36`; decision: STORE-406).
 pub const BATCH: usize = 200;
+/// Perception batches (and their receipts) go this long after the batch was made (decision: STORE-419).
+pub const PERCEPTION_DAYS: i64 = 30;
+/// A notice's record (`attention_notices`) goes this long after it was made (decision: STORE-419). The chat keeps
+/// the notice as it was shown (`journal`, `chat_history`, `chat_entries`: kept forever, STORE-401, ENG-12).
+pub const NOTICE_DAYS: i64 = 90;
+/// A learned-node change row (`learning_changes`) goes this long after it was written (decision: STORE-419).
+pub const CHANGE_DAYS: i64 = 90;
+/// A fired loop wake-up goes only once it is at least this old (seconds; decision: STORE-432): a waiter takes its
+/// cursor and saves it in two statements, and a wake-up stored between them must still be there when it looks.
+pub const WAKE_UP_GRACE_S: i64 = 600;
+/// The plan statuses whose waiting steps and loops can still read a wake-up: the plan store's `pending`.
+const LIVE_PLAN: &str = "('running', 'suspended', 'steps_done')";
 
 /// STORE-401's "operational journal kinds" (`retention.py:40-54`; decision: STORE-408), in
 /// sorted order as the query binds them (`retention.py:225`). Owner and chat kinds, day
@@ -120,6 +133,8 @@ pub fn dependents(table: &str) -> &'static [(&'static str, &'static str, &'stati
         "task_plans" => &[("plan_steps", "task_id", "task_id")],
         "timers" => &[("timer_deliveries", "timer_id", "id")],
         "trail" => &[("perception_receipts", "event_id", "id")],
+        // decision: STORE-419 — a batch's receipts go with it
+        "perception_batches" => &[("perception_receipts", "batch_id", "id")],
         _ => &[],
     }
 }
@@ -640,6 +655,134 @@ pub fn operational(conn: &Connection, cutoff: &str) -> Result<Vec<(&'static str,
     ));
     found.retain(|(_, ids)| !ids.is_empty());
     Ok(found)
+}
+
+/// STORE-419's rows, read before anything is deleted (decision: STORE-419): the rowids by table of perception
+/// batches made before `perception_cutoff` (their receipts go with them, `dependents`), notices made before
+/// `notice_cutoff`, learned-node change rows written before `change_cutoff`, and the loop wake-ups that have fired
+/// (`fired_wake_ups`) at or below `wake_ups_upto` (the newest seq known to be `WAKE_UP_GRACE_S` old; None: none
+/// yet); a table with none is left out. Times compare as instants (`julianday`), whatever offset a row was written
+/// with; a time that isn't one keeps its row.
+pub fn aged(
+    conn: &Connection,
+    perception_cutoff: &str,
+    notice_cutoff: &str,
+    change_cutoff: &str,
+    wake_ups_upto: Option<i64>,
+) -> Result<Vec<(&'static str, Vec<i64>)>> {
+    let before = |table: &str, written: &str, cutoff: &str| -> Result<Vec<i64>> {
+        column(
+            conn,
+            &format!(
+                "SELECT rowid FROM {table} WHERE julianday({written}) < julianday(?) ORDER BY rowid"
+            ),
+            [cutoff],
+        )
+    };
+    let mut found = vec![
+        (
+            "perception_batches",
+            before("perception_batches", "created_at", perception_cutoff)?,
+        ),
+        (
+            "attention_notices",
+            before("attention_notices", "created_at", notice_cutoff)?,
+        ),
+        (
+            "learning_changes",
+            before("learning_changes", "at", change_cutoff)?,
+        ),
+        (
+            "plan_events",
+            match wake_ups_upto {
+                Some(upto) => fired_wake_ups(conn, upto)?,
+                None => Vec::new(),
+            },
+        ),
+    ];
+    found.retain(|(_, ids)| !ids.is_empty());
+    Ok(found)
+}
+
+/// The loop wake-ups that have fired (decision: STORE-419): the `plan_events` rows (by seq) no waiting step can
+/// still read. A plan's wait step (its `plan_steps` output's `event_cursor`) or loop (`loop_state.event_cursor`)
+/// reads only its event's rows after its cursor, and a waiter that starts takes the newest row as its cursor; so a
+/// row at or below the cursor of every waiter of its event, in every plan still running, suspended or with its
+/// steps done, has been read by each one that ever will. A waiter whose step its plan doesn't name readably counts
+/// as waiting for every event. Only rows at or below `upto` are read (the caller's grace, `WAKE_UP_GRACE_S`).
+pub fn fired_wake_ups(conn: &Connection, upto: i64) -> Result<Vec<i64>> {
+    // the lowest cursor of each event's waiters; None: a waiter of unknown event
+    let mut lowest: HashMap<Option<String>, i64> = HashMap::new();
+    let mut statement = conn.prepare(&format!(
+        "SELECT p.plan, w.step_id, w.cursor FROM task_plans p JOIN (\
+           SELECT task_id, step_id, event_cursor AS cursor FROM loop_state \
+           UNION ALL \
+           SELECT task_id, step_id, \
+                  CASE WHEN json_valid(output) THEN json_extract(output, '$.event_cursor') END AS cursor \
+             FROM plan_steps) w ON w.task_id = p.task_id \
+         WHERE p.status IN {LIVE_PLAN} AND w.cursor IS NOT NULL"
+    ))?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let plan: Option<String> = row.get(0)?;
+        let step: String = row.get(1)?;
+        // a cursor that isn't a number keeps every row of its event
+        let cursor = match row.get::<_, Sql>(2)? {
+            Sql::Integer(n) => n,
+            Sql::Real(x) => x.floor() as i64,
+            _ => 0,
+        };
+        let event = match waits_on(plan.as_deref(), &step) {
+            Some(Some(event)) => Some(event),
+            Some(None) => continue, // a step that waits for no event
+            None => None,
+        };
+        let at = lowest.entry(event).or_insert(cursor);
+        *at = (*at).min(cursor);
+    }
+    let any = lowest.get(&None).copied();
+    let mut fired = Vec::new();
+    let mut statement =
+        conn.prepare("SELECT seq, event FROM plan_events WHERE seq <= ? ORDER BY seq")?;
+    let mut rows = statement.query([upto])?;
+    while let Some(row) = rows.next()? {
+        let (seq, event): (i64, Option<String>) = (row.get(0)?, row.get(1)?);
+        let own = lowest.get(&event).copied();
+        if !own.into_iter().chain(any).any(|cursor| seq > cursor) {
+            fired.push(seq);
+        }
+    }
+    Ok(fired)
+}
+
+/// The newest wake-up's seq (0: none), the mark the daemon notes with its clock at each pass: every row at or below
+/// it existed then, so once the mark is `WAKE_UP_GRACE_S` old, so are they (decision: STORE-432).
+pub fn wake_up_mark(conn: &Connection) -> Result<i64> {
+    Ok(
+        conn.query_row("SELECT COALESCE(MAX(seq), 0) FROM plan_events", [], |r| {
+            r.get(0)
+        })?,
+    )
+}
+
+/// The event a plan's step wakes on (`Step.wakes_on`: its repeat rule's event for a loop, else its own): Some(None)
+/// when the step waits for none, None when the plan doesn't name the step readably.
+fn waits_on(plan: Option<&str>, step: &str) -> Option<Option<String>> {
+    let plan: Value = serde_json::from_str(plan?).ok()?;
+    let found = plan
+        .get("steps")?
+        .as_array()?
+        .iter()
+        .find(|s| s.get("id").and_then(Value::as_str) == Some(step))?;
+    let rule = match found.get("repeat") {
+        Some(repeat @ Value::Object(_)) => repeat,
+        _ => found,
+    };
+    match rule.get("event") {
+        None | Some(Value::Null) => Some(None),
+        Some(Value::String(event)) => Some(Some(event.clone())),
+        Some(_) => None,
+    }
 }
 
 /// `finished_roots_before` (`retention.py:234-241`): root tasks that ended before the cutoff

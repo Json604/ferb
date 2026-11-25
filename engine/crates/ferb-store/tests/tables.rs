@@ -600,10 +600,72 @@ fn same(got: &Value, want: &Value, what: &str) {
     }
 }
 
+/// The one named difference in the clean-up's plans (decision: STORE-419, after Python): the hourly retention pass
+/// now ages perception batches out after 30 days and learned-node change rows after 90, so the steps that remove
+/// them are `live` (STORE-412): the owner's OK approves them by table, and their digest is read again from the
+/// approved steps as `cleanup::plan` reads it. `oks` maps each of Python's digests changed so to the new one, for the
+/// calls that pass it on; a plan with neither step keeps Python's digest.
+fn store_419(want: &Value, oks: &mut HashMap<String, String>) -> Value {
+    let live = |step: &Value| {
+        step["table"] == "perception_batches"
+            || (step["table"] == "learning_changes"
+                && step["what"] == "the rollups' change history")
+    };
+    match want {
+        Value::Object(map) if map.contains_key("steps") && map.contains_key("ok") => {
+            let mut out = map.clone();
+            let steps: Vec<Value> = map["steps"].as_array().unwrap().clone();
+            if !steps.iter().any(live) {
+                return want.clone();
+            }
+            let steps: Vec<Value> = steps
+                .into_iter()
+                .map(|mut step| {
+                    if live(&step) {
+                        step["live"] = json!(true);
+                    }
+                    step
+                })
+                .collect();
+            let approved: Vec<Value> = steps
+                .iter()
+                .map(|step| {
+                    if step.get("live") == Some(&json!(true)) {
+                        json!({"table": step["table"], "live": true})
+                    } else {
+                        step.clone()
+                    }
+                })
+                .collect();
+            let text = pyjson::dumps_with(
+                &json!({"steps": approved, "compact": map["compact"]}),
+                Style {
+                    ascii: true,
+                    sort_keys: true,
+                    indent: None,
+                },
+            );
+            let ok = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(text.as_bytes()))[..16]
+                .to_owned();
+            oks.insert(map["ok"].as_str().unwrap().to_owned(), ok.clone());
+            out.insert("steps".to_owned(), Value::Array(steps));
+            out.insert("ok".to_owned(), json!(ok));
+            Value::Object(out)
+        }
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(k, v)| (k.clone(), store_419(v, oks)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 fn replay(scenario: &str) {
     let fixture = fixture();
     let world = World::new(&fixture);
     let steps = fixture["scenarios"][scenario].as_array().unwrap();
+    let mut oks: HashMap<String, String> = HashMap::new();
     for (i, step) in steps.iter().enumerate() {
         if let Some(query) = step.get("sql") {
             let params: Vec<Sql> = step["params"].as_array().unwrap().iter().map(sql).collect();
@@ -614,8 +676,18 @@ fn replay(scenario: &str) {
                 .unwrap_or_else(|e| panic!("{scenario} step {i}: {e}"));
         } else if let Some(name) = step.get("call").and_then(Value::as_str) {
             let what = format!("{scenario} step {i}: {name} {}", step["args"]);
-            match (world.call(name, &step["args"]), step.get("err")) {
-                (Ok(got), None) => same(&got, &step["ret"], &what),
+            let mut args = step["args"].clone();
+            let mut want = step["ret"].clone();
+            if name.starts_with("cleanup.") {
+                if let Some(ok) = args.get("ok").and_then(Value::as_str) {
+                    if let Some(new) = oks.get(ok) {
+                        args["ok"] = json!(new);
+                    }
+                }
+                want = store_419(&want, &mut oks);
+            }
+            match (world.call(name, &args), step.get("err")) {
+                (Ok(got), None) => same(&got, &want, &what),
                 (Err(error), Some(want)) => same(&raised(&error), want, &what),
                 (Ok(got), Some(want)) => panic!("{what}: Python raised {want}, Rust gave {got}"),
                 (Err(error), None) => panic!("{what}: Rust failed: {error}"),
@@ -678,7 +750,7 @@ fn retention_plans_and_deletes_what_python_does() {
     replay("retention");
 }
 
-// decisions: STORE-402, STORE-411, STORE-412, STORE-416
+// decisions: STORE-402, STORE-411, STORE-412, STORE-416, STORE-419
 #[test]
 fn the_clean_up_removes_what_python_does_only_on_the_matching_ok() {
     replay("cleanup");
@@ -759,7 +831,7 @@ fn the_clean_up_never_writes_a_protected_table() {
     assert!(!cleanup::pending(world.db.path()));
 }
 
-// decisions: STORE-5, ENG-11
+// decisions: STORE-5, ENG-11, STORE-419
 // decision: HAND-547
 // decision: SENSE-429
 #[test]
@@ -795,7 +867,16 @@ fn the_rule_tables_are_python_s() {
     assert_eq!(pairs(&cleanup::DROPPED), c["dropped"]);
     let mut trimmed = cleanup::TRIMMED.to_vec();
     trimmed.sort();
-    assert_eq!(json!(trimmed), c["trimmed"]);
+    // Python's, then exactly the table the hourly pass ages out since STORE-419 (decision: STORE-419)
+    let mut python: Vec<&str> = c["trimmed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t.as_str().unwrap())
+        .collect();
+    python.push("perception_batches");
+    python.sort();
+    assert_eq!(trimmed, python);
     // Python's list, then exactly the stage-2 tables (migration 0063), kept forever as
     // chat_history is (decisions: ENG-11, ENG-8, STORE-401)
     let mut protected = c["protected"].as_array().unwrap().clone();

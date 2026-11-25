@@ -13174,3 +13174,82 @@ check, so the activation should have landed; if not, the reply's put-back still 
 owner's own window now also puts the owner's app back at the event (HAND-570 skipped `owner` facts, but HAND-560's
 call-end put-back already did it then, so only the moment changes; the owner's line for that window still reads "I
 left it as it was"). ferbd's wiring (`Tools::new` there) has no test of its own.
+
+## 2026-11-25 · 224 · STORE-419's retention: perception after 30 days, notices' records and change rows after 90, fired wake-ups
+
+**What was missing** (kb T-10, checked at 9c896d32). Nothing deleted `attention_notices` (the only writers and
+readers are ferb-orchestrator `attention.rs`, ferb-store `chat_history.rs` and `data_view.rs`; RULES' row said
+"forever", retention.rs:180-182). `learning_changes` rows went only in the clean-up's one-time rollup removal
+(cleanup.rs:495). `perception_batches` were emptied only by the clean-up (cleanup.rs:32-41); the hourly pass trimmed
+receipts only with their trail rows (`dependents("trail")`). One correction to T-10's why: a wake-up table does exist.
+`plan_events` (migration 0028) is the loop wake-up queue T-402 named: ferb-supervisor `notify_plan_event`
+(flow/tree.rs:2091) stores a row when a running plan has a step waiting on its topic (plan_store.rs:397), and wait steps
+and loops read the rows after a saved cursor (tree.rs:1885-1942, flow/loops.rs:954, 1424). Nothing deleted its rows.
+
+**What was built** (STORE-419's numbers unchanged; ruling STORE-432). The hourly retention pass, no new loop:
+- ferb-store `retention.rs`: `PERCEPTION_DAYS` 30, `NOTICE_DAYS` 90, `CHANGE_DAYS` 90 (:32-37, fixed days, no
+  setting); `aged` (:662) reads, by rowid, perception batches made more than 30 days before the pass's clock,
+  notices' records and learned-node change rows more than 90 days old, and the fired wake-ups; `dependents`
+  (:134) takes a batch's receipts with it. Ages compare instants (`julianday`), so a row written east or west of UTC
+  is judged by its instant (the operational journal query already does this); a row exactly as old as its window
+  stays, a second older goes; a time that isn't one keeps its row.
+- `fired_wake_ups` (:702): a `plan_events` row goes once every waiter of its event in a plan still running,
+  suspended or with its steps done (the plan store's `pending`) has a cursor at or past it. Waiters are each live
+  plan's `loop_state` rows and `plan_steps` outputs holding `event_cursor` (a reopened step keeps its output, so not
+  only `waiting` ones); the event is the step's `wakes_on` read from the stored plan (`waits_on`, :748); a step that
+  waits for no event (a probe-only loop) doesn't count; a waiter whose step can't be read counts for every event.
+  A waiter that starts takes the newest seq as its cursor (`event_cursor`, AUTOINCREMENT never reuses one), so a
+  deleted row is never one it could read. A waiter takes that cursor and saves it in two statements
+  (flow/loops.rs:954 then the row's insert; tree.rs:1885-1893), so a fired row also has to be `WAKE_UP_GRACE_S` (600 s,
+  beside the other constants) old: `wake_up_mark` gives the newest seq, the daemon notes it with its clock at each
+  pass (`State.wake_up_marks`, in memory) and passes `aged` the newest seq it noted at least 600 s earlier; rows above
+  it stay. The first pass after a start deletes no wake-up; with the hourly pass a fired row goes one to two hours
+  after it was stored (the coordinator's change, closing the race the first version left open).
+- ferb-daemon `areas_a/retention.rs`: `purge_plan` reads `aged` with the other plans (:113); `purge_pass` deletes it
+  after the operational records, in BATCH-sized transactions, dependents first, yielding between tables (:183);
+  `retention.purged` gains `aged` (rows by table, :288) and is journaled when any went; the pass's answer gains `aged`.
+- Only the notice's record goes: the chat's copies (journal `chat.notice`, `chat_history`, `chat_entries`) are in
+  `cleanup.PROTECTED` and stay (STORE-401, ENG-12); learned nodes stay. Nothing in PROTECTED is touched.
+- ferb-store `cleanup.rs`: `TRIMMED` gains `perception_batches` (:84) and the rollups' change-history step is `live`
+  (:234): the hourly pass now changes those rows, so the owner's OK approves them by table (STORE-412) instead of
+  refusing when a row ages out between the preview and the OK.
+
+**Named differences from the frozen fixtures** (`tables.rs`): `the_rule_tables_are_python_s`: TRIMMED is Python's
+plus `perception_batches`; the clean-up replay (`store_419`): those two steps carry `live: true`, and each plan
+holding one has its digest read again from the approved steps as `cleanup::plan` reads it, Python's digest mapped to
+it for the calls that pass it on; every other step, count, row and digest is compared to Python's as before.
+
+**Evidence.** In a worktree, `CARGO_TARGET_DIR` in it, through `ferb-test-guard` as `gate.sh test` runs it:
+`cargo test -p ferb-store -p ferb-daemon --locked`: 311 passed, 0 failed (50 result lines), on c42a6ce8 (rebased onto f18d5ab3 unchanged but for this entry). `cargo fmt --all --
+--check` clean; `cargo clippy -p ferb-store -p ferb-daemon --all-targets --locked -- -D warnings` clean; `cargo check
+-p ferbd` builds. New tests:
+- ferb-store `tests/retention_aged.rs` (9): perception batches at 29 days, exactly 30, 30 days and a second, 31,
+  30 days and an hour written at +05:30 (goes), 29 days 23 hours written at -05:00 (stays), and an unreadable time
+  (stays), with their receipts; notices at 89/90/90+1 s/91 days, the same two offsets and one never shown, the
+  91-day notice's `chat.notice` journal row and `chat_history` row kept; change rows at 89/90/90+1 s/91 days and the
+  offsets, the node kept; wake-ups with no waiter, a running loop and wait step on two events, a probe-only loop, a
+  suspended plan's lower cursor, an ended plan, an unreadable plan; a fired row newer than the grace's mark stays
+  and none goes without a mark; seq keeps counting after a delete; nothing aged leaves every table out; the clean-up's OK still applies after the pass ages a batch out between preview and OK.
+  With the age test changed to a plain string comparison (a mutation, reverted), the three window tests fail.
+- ferb-daemon `tests/retention_aged.rs` (1): `purge_pass` on a daemon with an injected clock: 29/30/30+1 s/31-day
+  batches with receipts, 89/90/90+1 s/91-day notices and change rows; 6 rows go and the `retention.purged` line counts
+  them by table; 599 s later the three rows that were exactly as old as their windows go. An unwaited wake-up stays
+  at the first pass and at 599 s, and goes at 600 s; one stored after the
+  first pass stays until 600 s after the pass that first noted it (at 1,198 s it stays, at 1,199 s it goes).
+`tools/kb/run kb lock`, `kb gen`, `kb check`: ok.
+
+**Open.**
+- About's "what FERB keeps" (RULES, STORE-5) is unchanged: it never listed perception batches, learned-change
+  history, notices' records or the wake-up queue, and its "notices: forever" row stays true of the chat. New rows
+  would be owner-facing words and named differences in three frozen fixtures (store `tables.json`, daemon
+  `bodies.json`, daemon-b `bodies-small.json`); left for the owner.
+- Consequences read from the code, not tested: a notice's id is its once-only key (`tell_owner_once`, INSERT OR
+  IGNORE); after 90 days the same id could be posted again (the idents read carry a time, a one-off id, or state kept
+  elsewhere: set-aside.json, the phone's warning). `expire_derived` (a forget of trail rows, typed text's expiry)
+  finds a notice through its record, so a forget of a trail row a 90-day-old notice cited no longer clears the chat's
+  copy; only Jev's notices cite trail rows (Jev is off) and typed text expires at 7 days. A receipt that goes while its
+  trail row stays (trail retention set above 30 days, or a day without its summary) makes that row unsent again for
+  Jev's batcher if Jev is switched on. `memory.rollback` of a batch older than 90 days rolls back nothing.
+- The 600 s grace is a mechanism's margin, not one of STORE-419's windows; if the owner reads it as a retention
+  number (AGENTS.md rule 18), it is his to change. The marks live in memory, so a restart only delays deletions.
+- No live check: no Rust install has rows 30 or 90 days old yet; not run on a real store.

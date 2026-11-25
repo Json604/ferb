@@ -368,3 +368,12 @@ status = "active"
 rule = "When damage found twice (STORE-430) is all in full-text tables (FTS3/4/5: every line of the check is one the table's own `PRAGMA integrity_check('<table>')` reports), FERB rebuilds them (`INSERT INTO t(t) VALUES('rebuild')`, one transaction), checks again and keeps the database; the daemon journals store.index_rebuilt {tables, why} and logs it, the owner isn't asked. Other damage, a refused rebuild or damage left after it sets the database aside (STORE-1); a lock, I/O or permission error is raised (STORE-4)."
 why = "A search index is derived data: moving the whole database aside for it loses the owner's chat, pairing, memory and tasks from his view for nothing a rebuild can't restore."
 paths = ["engine/crates/ferb-store/src/salvage.rs", "engine/crates/ferbd/src/compose/mod.rs"]
+
+[STORE-432]
+title = "STORE-419 as built: a notice's record, a fired wake-up after a 10-minute grace, ages as instants"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "The hourly pass (`retention::aged`) deletes perception_batches with their receipts more than 30 days after created_at, attention_notices (created_at) and learning_changes (at) rows more than 90 days old; a row exactly as old stays; ages compare instants (julianday). Only the notice's record goes; the chat's copies stay (STORE-401, ENG-12). A plan_events row goes once every waiter of its event in a running, suspended or steps-done plan has a cursor at or past it and a pass noted it at least WAKE_UP_GRACE_S (10 min) before. The clean-up's perception_batches and rollup-changes steps are live."
+why = "Waiters read rows after a saved cursor and a new one starts at the newest seq, so a row no live cursor of its event is below can't be read again; the grace covers a waiter between taking and saving its cursor. The chat is kept forever by owner decision."
+paths = ["engine/crates/ferb-store/src/retention.rs", "engine/crates/ferb-store/src/cleanup.rs", "engine/crates/ferb-daemon/src/areas_a/retention.rs"]

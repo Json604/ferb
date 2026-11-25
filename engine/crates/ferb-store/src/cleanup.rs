@@ -79,8 +79,9 @@ pub const DROPPED: [(&str, &str); 4] = [
     ),
 ];
 /// Tables of `EMPTIED` whose rows the hourly retention pass also trims while the daemon runs:
-/// their steps are `live` (`cleanup.py:57`).
-pub const TRIMMED: [&str; 2] = ["decisions", "perception_receipts"];
+/// their steps are `live` (`cleanup.py:57`). Added after Python: `perception_batches`, which the pass
+/// ages out after 30 days (decision: STORE-419).
+pub const TRIMMED: [&str; 3] = ["decisions", "perception_receipts", "perception_batches"];
 /// Never written by a run: what STORE-402 protects and what FERB keeps forever
 /// (`cleanup.py:59-63`), then stage 2's chat tables (migration 0063, kept forever as `chat_history` is; no retention
 /// rule names them; decisions: ENG-8, STORE-401).
@@ -230,11 +231,10 @@ pub fn plan(conn: &Connection, cards: &dyn CardSources) -> Result<Value> {
             )));
         }
         if changes != 0 {
-            steps.push(Value::Object(step(
-                "learning_changes",
-                changes,
-                "the rollups' change history",
-            )));
+            let mut s = step("learning_changes", changes, "the rollups' change history");
+            // the hourly pass ages change rows out after 90 days (decision: STORE-419)
+            s.insert("live".to_owned(), json!(true));
+            steps.push(Value::Object(s));
         }
     }
     let rollups: Vec<String> = {

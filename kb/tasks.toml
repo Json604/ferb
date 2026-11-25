@@ -127,14 +127,6 @@ kind = "chore"
 status = "open"
 why = "notes/test-tasks.md Before step 13: `nice -n 10 uv run pytest -q`, `uv run mypy ferb/core` and `git diff --check` pass on the commit the step-13 FERB.app is built from."
 
-[T-10]
-title = "Build STORE-419 retention: perception 30 d, fired wake-ups, notices and change rows 90 d"
-area = "storage"
-kind = "build"
-status = "open"
-why = "Checked 2026-11-24 (journal 205): not built. Notices stay forever (ferb-store retention.rs:180-182); learned-node change rows have no window (only cleanup.rs:495's one-time rollup removal); perception batches are only emptied once (cleanup.rs:32-41, TRIMMED :83); no wake-up table exists to trim."
-decisions = ["STORE-419"]
-
 [T-12]
 title = "Later: Build code watchers (ORCH-506)"
 area = "orchestration"

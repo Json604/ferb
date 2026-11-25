@@ -19,7 +19,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 60 | 5 | 10 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 36 | 9 | 7 |
 | runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 67 | 5 | 10 |
-| storage | Storage | `engine/runtime/store` | 36 | 5 | 4 |
+| storage | Storage | `engine/runtime/store` | 37 | 4 | 4 |
 | tests | Tests | `tests` | 15 | 8 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |
 

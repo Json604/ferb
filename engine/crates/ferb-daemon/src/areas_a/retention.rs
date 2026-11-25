@@ -66,11 +66,13 @@ pub fn gb(n: i64) -> String {
     ferb_browser::downloads::gb(n)
 }
 
-/// The pass's clock, its windows, and what it deletes (`_PurgePlan`).
+/// The pass's clock, its windows, and what it deletes (`_PurgePlan`); `aged`: STORE-419's rows by table
+/// (`retention::aged`), added after Python.
 pub struct PurgePlan {
     pub now: Time,
     pub windows: Vec<(&'static str, i64)>,
     pub rows: Rows,
+    pub aged: Vec<(&'static str, Vec<i64>)>,
 }
 
 impl PurgePlan {
@@ -107,11 +109,38 @@ pub fn purge_plan(st: &State) -> Result<PurgePlan, String> {
         ROOTS_PER_PURGE,
     )
     .map_err(|e| e.to_string())?;
+    // decision: STORE-419 — fixed windows, no setting
+    let mark = retention::wake_up_mark(st.db().conn()).map_err(|e| e.to_string())?;
+    let aged = retention::aged(
+        st.db().conn(),
+        &back(&now, retention::PERCEPTION_DAYS),
+        &back(&now, retention::NOTICE_DAYS),
+        &back(&now, retention::CHANGE_DAYS),
+        wake_up_marks(st, now, mark),
+    )
+    .map_err(|e| e.to_string())?;
     Ok(PurgePlan {
         now,
         windows: w,
         rows,
+        aged,
     })
+}
+
+/// The newest wake-up seq noted at least `WAKE_UP_GRACE_S` before `now` (None: no pass noted one that long ago, as
+/// after a start), after noting `mark` at `now`; older notes are dropped (decision: STORE-432). A clock that went back
+/// makes no note old.
+fn wake_up_marks(st: &State, now: Time, mark: i64) -> Option<i64> {
+    let mut marks = st.wake_up_marks.borrow_mut();
+    let old = marks
+        .iter()
+        .rposition(|(at, _)| (now - *at).num_seconds() >= retention::WAKE_UP_GRACE_S);
+    let upto = old.map(|i| marks[i].1);
+    if let Some(i) = old {
+        marks.drain(..i);
+    }
+    marks.push((now, mark));
+    upto
 }
 
 #[derive(Default)]
@@ -122,6 +151,8 @@ struct Counts {
     trail: i64,
     roots_done: usize,
     by_table: Map<String, Value>,
+    aged: i64,
+    aged_by_table: Map<String, Value>,
 }
 
 fn texts(ids: &[String]) -> Vec<Sql> {
@@ -138,7 +169,8 @@ fn delete(st: &State, table: &str, key: &str, ids: &[Sql]) -> Result<i64, String
 
 /// One pass (`_purge_pass`'s steps in order; Python yields to the loop between batches, which the caller does here
 /// by running each pass as its own job): old trees (each once its episode exists), loose spans, Jev decisions,
-/// operational records, activity rows; then evidence, recovery copies, the downloads cap, typed text, resource
+/// operational records, STORE-419's rows (perception batches, notices' records, learned-node change rows, fired loop
+/// wake-ups; after Python), activity rows; then evidence, recovery copies, the downloads cap, typed text, resource
 /// samples and shell logs. `retention.purged` is journaled when something went or roots wait.
 pub async fn purge_pass(st: &Rc<State>, purges: &dyn Purges) -> Result<Map<String, Value>, String> {
     let plan = purge_plan(st)?;
@@ -163,6 +195,15 @@ pub async fn purge_pass(st: &Rc<State>, purges: &dyn Purges) -> Result<Map<Strin
         if n != 0 {
             let before = c.by_table.get(*table).and_then(Value::as_i64).unwrap_or(0);
             c.by_table.insert((*table).to_owned(), json!(before + n));
+        }
+        tokio::task::yield_now().await;
+    }
+    for (table, ids) in &plan.aged {
+        let rowids: Vec<Sql> = ids.iter().map(|r| Sql::Integer(*r)).collect();
+        let n = delete(st, table, "rowid", &rowids)?;
+        c.aged += n;
+        if n != 0 {
+            c.aged_by_table.insert((*table).to_owned(), json!(n));
         }
         tokio::task::yield_now().await;
     }
@@ -262,7 +303,7 @@ fn journal_purged(
                "evidence_days": plan.days("evidence_days"), "evidence": evidence,
                "recovery_days": plan.days("recovery_days"), "recovery": recovery,
                "operational_days": plan.days("operational_days"), "operational": c.by_table,
-               "roots_left": left}),
+               "aged": c.aged_by_table, "roots_left": left}),
         None,
     );
 }
@@ -277,6 +318,7 @@ fn purge_rest(st: &State, purges: &dyn Purges, plan: &PurgePlan, c: &Counts) -> 
     if c.spans != 0
         || c.decisions != 0
         || c.operational != 0
+        || c.aged != 0
         || evidence != 0
         || recovery != 0
         || plan.rows.left != 0
@@ -315,7 +357,7 @@ fn purge_rest(st: &State, purges: &dyn Purges, plan: &PurgePlan, c: &Counts) -> 
     });
     crate::shared::object(
         json!({"spans": c.spans, "decisions": c.decisions, "operational": c.operational,
-                                 "trail": c.trail, "evidence": evidence, "recovery": recovery, "downloads": 0,
+                                 "aged": c.aged, "trail": c.trail, "evidence": evidence, "recovery": recovery, "downloads": 0,
                                  "resources": resources, "shell_logs": shell_logs}),
     )
 }

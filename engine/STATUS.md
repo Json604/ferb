@@ -39,7 +39,7 @@ files that are read in git at `9d3f84bc` (`kb/config.toml` `historical`).
 | Part | Python | Lines | Rust crate | State |
 |---|---|---|---|---|
 | Store: connection, migrations, checksums | `ferb/store/db.py`, migrations | 240 | `ferb-store` | verified (journal 3) |
-| Store: typed tables (spans, results, history, retention, clean-up, salvage) | `ferb/store` | ~1,550 | `ferb-store` (Python's JSON and times: `ferb-py`) | verified (journal 11; salvage fixed against Python, journal 158) |
+| Store: typed tables (spans, results, history, retention, clean-up, salvage) | `ferb/store` | ~1,550 | `ferb-store` (Python's JSON and times: `ferb-py`) | verified (journal 11; salvage fixed against Python, journal 158); STORE-419's retention after Python, tested offline (journal 224) |
 | Stored data viewer and the owner's delete of a turn (no Python counterpart; STORE-422..425) | - | - | `ferb-store` `data_view`, `ferb-supervisor` `data_rpc`, `data_delete`; FERB.app Settings → Stored data | built and tested through the RPC server and Swift (journal 83, with STORE-426's learned memories, screenshots and the fresh-conversation marker); not live-checked (LIVE-956) |
 | Redaction and origins | `ferb/sanitize` (not `images.py`), `ferb/core/origin.py` | 2,118 | `ferb-sanitize` | verified and hardened (journal 4, 13) |
 | RPC wire, roles, app-only check | `ferb/daemon/server.py`, `auth.py`, `app_peer.py` | ~900 | `ferb-rpc`; Security framework and audit token: `ferb-platform-macos` | verified offline; signed-app check unproven (journal 5) |
