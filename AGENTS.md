@@ -18,6 +18,8 @@ patches. Judge designs by quality, the owner's goals and security, never by buil
   `tools/kb/run kb show <file>` before editing). Owner decisions are authoritative; a later decision supersedes an
   earlier one. If code, a prompt or this file disagrees with a decision, name both and ask the owner.
 - `README.md`: setup and use (being rewritten).
+- `kb/plans/`: plans the owner agreed (`context.md` for model context, `security-audit.md` for the audit's scope,
+  `developer-id.md`); a plan's numbers are his decisions, its mechanisms the agents'.
 - Runtime Markdown under `engine/runtime/` (`orchestrator/prompts/*.md`, `memory/*.md`, `abilities/**`,
   `decide/prompts/*.md`) is executable input, not documentation; it changes only as the `prompts` area's decisions in
   kb/ say. With `engine/runtime/store/migrations` (the store's schema) and `engine/runtime/identity/secret_helper.swift`,
@@ -119,6 +121,14 @@ in `engine/fixtures` hold what it produced.
   coordinator runs the whole workspace's checks before committing. Launch every part whose needs are met at once
   rather than in waves. The shared brief is `engine/AGENT-BRIEF.md`. Subagents run on Opus or below (owner,
   2026-11-13); the coordinator's own model is kept for a big decision or an independent verification.
+  - Each brief names the agent's journal number; new ids are the next free at its HEAD and the coordinator
+    renumbers on merge (append-only files keep both sides; `kb gen` rebuilds MAP.md).
+  - Agents work in their own worktree and delete it and its build folders when they end; check free disk before a
+    large build. A Unix socket path must stay under 104 bytes: build phone-link tests under a short path.
+  - Never stop or kill a process you didn't start: no `./gradlew --stop` (Android runs `--no-daemon`), no killing
+    by name.
+  - A real-model run states its call count first and has a hard ceiling enforced by a counting relay; a sign-in is
+    used read-only from a temporary copy, never refreshed, printed or written back; stop if it would refresh.
 
 ## Development
 
@@ -161,9 +171,24 @@ older FERB build must keep working (STORE-403).
 - **A behavior rule the owner states goes in the shared path every route uses**, plus a sweep of prompts, facts and
   errors; never tool by tool.
 - **North star:** an agent that controls the Mac the way the owner can, in the background, and keeps learning by doing.
+- **Think for every user, for years.** Give costs as rates (per message, per step, per day) for light and heavy users
+  and for long use; the owner's own records are test traffic, used as measured examples, never as "it's cheap enough".
+- **No model call the owner didn't ask for** (MEM-466, MEM-467): background work runs on code; a model is called only
+  for a request, a check he set up, or a step a decision names, and its rate is stated.
+- **Check before relaying.** A subagent's or reviewer's finding is a claim until you have checked it against the code
+  or the records; say who found it and whether you verified it. Say plainly when something you told the owner was
+  wrong.
+- **Say where each item comes from.** In any list for the owner, mark what he decided, what an agent found (a bug, an
+  undecided case, a proposal) and what is waiting on him; never present an agent's finding or proposal as agreed work.
+- **Show before landing.** Owner-facing wording and screens (the exact text, a picture) are shown to the owner before
+  they land.
+- **One path for every AI.** A behaviour or cost fix lives where FERB controls every runtime (its tools, the tools it
+  offers, its instructions, when runs start and end, the planner's and checker's input), never inside one runtime only
+  (ORCH-719, `kb/plans/context.md`).
 
 ## Branch
-The Rust rewrite happens on `rust` (PROJ-508); `main` stays as it is until the rewrite is merged. Agents commit and
+Work happens on `rust` (PROJ-508). The rewrite is merged: `main` is kept equal to `rust`, fast-forwarded at each push
+(`git push origin rust`, then `git push origin rust:main`, after `tools/kb/run gate push` passed). Agents commit and
 push through the hooks;
 never force-push. The checkout can be shared by parallel agents: never `git stash`, never reset others' work, and check
 `git diff --cached` before committing.
@@ -189,3 +214,9 @@ daemon change, recorded in kb/. `swift test` in `apps/mac/FERBNotch` after
   fake update to every user.
 - **Rust tests:** `engine/gate.sh test` (`nice -n 10` while the owner works); never two full workspace runs at once.
   Live checks are in `kb/live.toml` and need the owner watching.
+- **Installing the owner's builds:** only when no task is running (the tasks table), quit FERB.app, move the old app to
+  the Trash, `ditto` the new one, open it. A phone build goes only to the owner's test phone after its serial and model
+  are checked; never touch another adb device.
+- **The website** (`site/`) is deployed with the Vercel CLI from `site/` (`npx vercel deploy --prod`), not from
+  GitHub; the Hobby plan allows 12 functions. Its settings are added with `vercel env add` from files, never printed.
+  Secret files (keys, client secrets) are kept outside the repository and never opened into a conversation.
