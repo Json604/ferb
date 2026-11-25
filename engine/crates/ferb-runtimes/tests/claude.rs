@@ -9,8 +9,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ferb_core::types::{Identity, Task, TaskRole};
-use ferb_runtimes::claude::{ClaudeRuntime, Host, Mode, ToolProxy};
+use ferb_core::types::{Identity, ModelRequest, Task, TaskRole};
+use ferb_runtimes::claude::{
+    tail_after_marker, ClaudeRuntime, Host, Mode, ToolProxy, MESSAGES_TTL,
+};
 use ferb_runtimes::forms::Refusals;
 use ferb_runtimes::run::Adapter;
 use serde_json::{json, Value};
@@ -219,6 +221,29 @@ async fn play(case: &Value, index: usize, fx: &Value) -> Value {
     )
 }
 
+/// Whether a spawn is Claude Code itself (not its `-v` probe).
+fn is_program(spawn: &Value) -> bool {
+    spawn["argv"]
+        .as_array()
+        .is_some_and(|a| a.iter().any(|x| x == "--input-format"))
+}
+
+// decision: RUN-476
+/// RUN-476's named difference (T-1324): a run whose request has text after FERB's marker starts Claude Code with its
+/// message breakpoints at five minutes; Python's environment didn't name the setting. Nothing else in a recording
+/// changes.
+fn messages_ttl(mut python: Value, request: &ModelRequest) -> Value {
+    if !tail_after_marker(request) {
+        return python;
+    }
+    for spawn in python["spawns"].as_array_mut().into_iter().flatten() {
+        if is_program(spawn) {
+            spawn["env"][MESSAGES_TTL.0] = json!(MESSAGES_TTL.1);
+        }
+    }
+    python
+}
+
 // decision: RUN-409, RUN-413, RUN-415, RUN-419, RUN-420, RUN-421, RUN-447, RUN-440, RUN-445, RUN-446, ENG-2
 #[tokio::test(flavor = "current_thread")]
 async fn claude_matches_python() {
@@ -227,7 +252,11 @@ async fn claude_matches_python() {
     let mut failures = Vec::new();
     for (i, case) in cases.iter().enumerate() {
         let got = play(case, i, &fx).await;
-        if let Some(d) = first_diff(&got, &case["python"], "") {
+        let want = messages_ttl(
+            case["python"].clone(),
+            &request_of(&case["scenario"]["request"]),
+        );
+        if let Some(d) = first_diff(&got, &want, "") {
             failures.push(format!("{}: {d}", case["scenario"]["name"]));
         }
     }
@@ -238,4 +267,78 @@ async fn claude_matches_python() {
         cases.len(),
         failures.join("\n")
     );
+}
+
+fn text_request(system: &str, parts: &[&str], cacheable: usize) -> ModelRequest {
+    request_of(&json!({"system": system, "parts": parts, "cacheable": cacheable}))
+}
+
+// decision: RUN-476
+#[test]
+fn claude_codes_end_breakpoint_is_five_minutes_only_where_a_tail_follows_ferbs_marker() {
+    // a planner turn: the stable prefix, then the live facts and the new message
+    assert!(tail_after_marker(&text_request(
+        "instructions",
+        &["facts", "conversation", "now", "message"],
+        2
+    )));
+    // no stable part: the marker is on the system text, the parts follow
+    assert!(tail_after_marker(&text_request(
+        "instructions",
+        &["message"],
+        0
+    )));
+    // no marker at all: everything is the tail
+    assert!(tail_after_marker(&text_request("", &["message"], 0)));
+    // pictures after a fully stable text are a tail of their own
+    let mut pictured = request_of(&json!({"system": "s", "parts": ["a"], "cacheable": 1,
+        "images": [{"data_b64": "aW1n", "ref": "r", "mime": "image/png"}]}));
+    assert!(tail_after_marker(&pictured));
+    // FERB's marker on the last block: Claude Code's would replace it, so the hour stays
+    pictured.images.clear();
+    assert!(!tail_after_marker(&pictured));
+    assert!(!tail_after_marker(&text_request("instructions", &[], 0)));
+    // Claude Code drops blank text blocks, so only blank text after the marker is no tail
+    assert!(!tail_after_marker(&text_request("s", &["a", "  \n"], 1)));
+}
+
+// decision: RUN-476
+#[tokio::test(flavor = "current_thread")]
+async fn claude_code_starts_with_its_message_breakpoints_at_five_minutes_unless_ferbs_marker_ends_the_request(
+) {
+    let fx = fixture("claude.json");
+    let case = fx["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| {
+            c["scenario"]["name"] == "a planner turn with lookups, images, an alias and an effort"
+        })
+        .expect("the planner case")
+        .clone();
+    let program_env = |got: &Value| -> Vec<Value> {
+        got["spawns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| is_program(s))
+            .map(|s| s["env"].clone())
+            .collect()
+    };
+    let got = play(&case, 0, &fx).await;
+    let envs = program_env(&got);
+    assert_eq!(envs.len(), 1);
+    assert_eq!(envs[0][MESSAGES_TTL.0], MESSAGES_TTL.1);
+    // FERB's own marker keeps the hour
+    assert_eq!(envs[0]["CLAUDE_CODE_PROMPT_CACHE_TTL"], "1h");
+    let probe = &got["spawns"][0];
+    assert!(!is_program(probe) && probe["env"].get(MESSAGES_TTL.0).is_none());
+
+    let mut whole = case.clone();
+    whole["scenario"]["request"] = json!({"system": "", "parts": ["a", "b"], "cacheable": 2});
+    let got = play(&whole, 1, &fx).await;
+    let envs = program_env(&got);
+    assert_eq!(envs.len(), 1);
+    assert!(envs[0].get(MESSAGES_TTL.0).is_none(), "{}", envs[0]);
+    assert_eq!(envs[0]["CLAUDE_CODE_PROMPT_CACHE_TTL"], "1h");
 }

@@ -84,6 +84,25 @@ pub fn limits_for(model: Option<&str>) -> Result<ModelLimits, FerbError> {
     })
 }
 
+/// RUN-476: the pinned Claude Code's switch for its own message breakpoints (the end of each request it sends).
+/// "5m" is the only value it takes; its system and FERB's own marker keep CLAUDE_CODE_PROMPT_CACHE_TTL's hour.
+pub const MESSAGES_TTL: (&str, &str) = ("CLAUDE_CODE_MESSAGES_PROMPT_CACHE_TTL", "5m");
+
+/// RUN-476: whether the request's text has a tail after FERB's marker, so Claude Code's own end breakpoint lands on
+/// a block of its own. When FERB's marked block is the message's last (Claude Code drops blank text blocks), Claude
+/// Code's breakpoint would replace that marker, so the hour stays (as RUN-437 for the API loop).
+pub fn tail_after_marker(request: &ModelRequest) -> bool {
+    let blocks = content(request);
+    let kept: Vec<&Value> = blocks
+        .iter()
+        .filter(|b| b["type"] != "text" || b["text"].as_str().is_some_and(|t| !t.trim().is_empty()))
+        .collect();
+    match kept.iter().rposition(|b| b.get("cache_control").is_some()) {
+        Some(i) => i + 1 < kept.len(),
+        None => true,
+    }
+}
+
 /// The Agent SDK's AssistantMessageError kinds that are account facts (claude_sdk.py:142).
 fn account_error(kind: &str) -> &'static str {
     match kind {
@@ -281,12 +300,14 @@ impl ClaudeRuntime {
         Box::new(move || m())
     }
 
-    /// claude_sdk.py `_options`: FERB's own sign-in and bundled Claude Code, or the run is refused.
+    /// claude_sdk.py `_options`: FERB's own sign-in and bundled Claude Code, or the run is refused. `tail`: the
+    /// request has text after FERB's marker ([`tail_after_marker`]).
     fn options(
         &self,
         run_id: &str,
         token_file: Option<&Path>,
         stated_form: bool,
+        tail: bool,
     ) -> Result<(String, Options), RuntimeError> {
         let Some(own) = claude_home(&self.ferb_home) else {
             return Err(RuntimeError::unsupported(
@@ -313,6 +334,11 @@ impl ClaudeRuntime {
             ("ENABLE_TOOL_SEARCH", "false".into()),
         ] {
             env.insert(k.to_string(), v);
+        }
+        // RUN-476: Claude Code's end breakpoint covers the changing tail, which the next turn never reads; a run's
+        // later calls, seconds apart, still read it within five minutes
+        if tail {
+            env.insert(MESSAGES_TTL.0.to_string(), MESSAGES_TTL.1.to_string());
         }
         let mut mcp = None;
         if self.mode == Mode::Worker || token_file.is_some() {
@@ -378,8 +404,9 @@ impl ClaudeRuntime {
         run_id: &str,
         token_file: Option<&Path>,
         stated_form: bool,
+        tail: bool,
     ) -> Result<Client, RuntimeError> {
-        let (cli, options) = self.options(run_id, token_file, stated_form)?;
+        let (cli, options) = self.options(run_id, token_file, stated_form, tail)?;
         Client::connect(
             self.host.spawner.as_ref(),
             &cli,
@@ -508,7 +535,16 @@ impl ClaudeRun {
             old.disconnect().await;
         }
         let token = self.lock().token_file.clone();
-        let client = Arc::new(self.rt.connect(&self.id, token.as_deref(), true).await?);
+        let client = Arc::new(
+            self.rt
+                .connect(
+                    &self.id,
+                    token.as_deref(),
+                    true,
+                    tail_after_marker(&self.request),
+                )
+                .await?,
+        );
         self.lock().client = Some(client.clone());
         self.lock().timer.begin();
         let request = self
@@ -549,7 +585,12 @@ pub async fn start(
     .to_string();
     let mut client: Option<Arc<Client>> = None;
     let body = async {
-        let (cli, options) = rt.options(&run_id, token_file.as_deref(), typed == "stated")?;
+        let (cli, options) = rt.options(
+            &run_id,
+            token_file.as_deref(),
+            typed == "stated",
+            tail_after_marker(request),
+        )?;
         steps.mark("options");
         let inner = async {
             let c = Arc::new(

@@ -805,14 +805,6 @@ status = "open"
 why = "Owner 2026-11-24: \"there should be a lock button in phone app that can be toggled by user\"; on PHN-8: \"yeah its my updated call\" (PHN-835). Build the switch on both phones (on by default; the Mac's checks unchanged), move the apps' PHN-8 citations to PHN-835, supersede PHN-8."
 decisions = ["PHN-835", "PHN-8", "PHN-129"]
 
-[T-1324]
-title = "Claude Code writes the planner's changing tail to the 1-hour cache every turn, and no turn reads it"
-area = "runtimes"
-kind = "bug"
-status = "open"
-why = "Journal 208 (spans 2026-11-21..24): every Claude planner turn wrote input minus cached (8.7k-10k tokens in a kept chat, 5.6k-6.8k in a temporary one) at the 1-hour rate; the next turn read only FERB's breakpoint. The end breakpoint is Claude Code's own; can FERB keep it off a one-call turn?"
-decisions = ["ORCH-325"]
-
 [T-1325]
 title = "Later: proactiveness, designed with the owner, reusing the paused import and session tracking"
 area = "memory"

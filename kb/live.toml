@@ -5222,3 +5222,12 @@ request = "Look at Continue with Google and Continue with Apple on each: the pho
 pass = "Each button has its logo left of its words, the words centred; Google's G in its colours and the Apple logo, the same size as each other; alike on all three apps (dark buttons on the phones' white card, white ones on the Mac's dark notch); the logo stays while pressed and while waiting; the buttons look familiar."
 decisions = ["APP-1140", "APP-1141"]
 sitting = "a minute, with the next sign-in check"
+
+[LIVE-1216]
+title = "A Claude planner turn writes its tail at 5 minutes; the next turn still reads FERB's prefix"
+area = "runtimes"
+surface = "FERB.app with this build, Claude as the planner's model, the normal chat (and once the temporary chat)"
+request = "Send three short messages a minute or two apart in the same chat (for example \"what time is it in Tokyo?\", then two follow-ups), then one in a temporary chat. Then, for each turn's planner run, `ferb trace TASK --json` (or the model span's usage)."
+pass = "Each planner turn's cache_write_1h_tokens is only the new stable part (about the previous exchange, a few hundred tokens, or 0), and its cache_write_5m_tokens is the changing tail (the 8.7k-10k a kept chat wrote at one hour in journal 208); cached_input_tokens on the second and third turns still covers FERB's prefix (about 52k-54k in a kept chat), as before; nothing else changes in the replies."
+decisions = ["RUN-476", "RUN-436", "ORCH-325"]
+sitting = "one sitting, about 5 minutes"

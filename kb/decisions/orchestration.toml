@@ -287,6 +287,7 @@ rule = "Planner context goes: instructions, stable facts, running summary, recen
 evidence = "2026-10-30: 125 of 398 planner calls since 10-20 had any cache hit; on average 2.3k of 98k input tokens were cached."
 paths = ["ferb/daemon/areas/environment.py", "ferb/orchestrator/supervisor.py"]
 legacy = "notes/orchestration.md target design 5; Rulings (2026-11-01)"
+live = ["LIVE-1216"]
 
 [ORCH-326]
 title = "Conversation folding figures"

@@ -13091,3 +13091,53 @@ straight into his clipboard, never shown). He said yes to asking first (APP-1142
 relay…" and opens an alert, "Stop using your relay?", "Your phones move to the public relay. FERB doesn't keep the
 relay's link, so to use it again you'll need the link from your server.", with Stop Using It (destructive) and Cancel.
 PhoneSettingsTests pass; the alert itself is the owner's to see (untestable reason recorded).
+
+## 2026-11-25 · 226 · Claude Code's own end breakpoint is cached for five minutes; FERB's marker keeps the hour
+
+**What Claude Code does (T-1324).** Read from the pinned Claude Code 2.1.310's bundled code (the darwin-arm64 binary
+FERB.app carries, its strings only; nothing was run, no sign-in, no network). Each request it sends gets breakpoints on
+its system blocks (TTL `KR`) and on its message markers, the last block of the newest message(s) (TTL `NE`, in its
+`ykr`/`F_r`: a marked user message's last block gets `cache_control` with that TTL, replacing one already there;
+FERB's marker on an earlier block is kept as sent). Both TTLs come from one choice (`Mve`): `FORCE_PROMPT_CACHING_5M`,
+else `CLAUDE_CODE_PROMPT_CACHE_TTL` for its main-thread sources (`sdk` among them; FERB sets "1h"), else settings, else
+the hour for a subscriber. Only `NE` has its own switch: `CLAUDE_CODE_MESSAGES_PROMPT_CACHE_TTL`, an enum taking only
+"5m" (`jZ`): then the message markers go without a TTL (five minutes) while the system ones and the
+`extended-cache-ttl-2025-04-11` beta stay. `DISABLE_PROMPT_CACHING` turns off every marker of its own and that beta,
+and there is no switch to leave the message markers off alone. So a planner turn (one user message: FERB's stable
+prefix with its 1-hour marker, then the live facts and the new message) wrote everything after FERB's marker at the
+hour, and the next turn, whose tail differs, read only up to FERB's marker: journal 208's measurement.
+
+**Fix (RUN-476, Claude adapter only).** A run whose request has text after FERB's marker (`tail_after_marker`: the
+blocks FERB sends, blank text dropped as Claude Code drops it) starts Claude Code with
+`CLAUDE_CODE_MESSAGES_PROMPT_CACHE_TTL=5m`. When FERB's marked block ends the request, Claude Code's marker lands on
+that same block and would turn FERB's hour into five minutes, so the setting is left off there (today's behaviour, as
+RUN-437 does for the API loop). This is RUN-436's shape (the owner's: instructions and history at the hour, the tail at
+five minutes) on Claude Code too, for planners and workers alike: a run's later calls are seconds apart and read the
+tail within five minutes.
+
+**Expected cost.** Anthropic's prices: a 5-minute write is 1.25x input, a 1-hour write 2x, a read 0.1x (0.05x on Opus
+5.5). A kept chat's tail (8.7k-10k tokens a turn) goes from 17.4k-20k input-token equivalents to 10.9k-12.5k, about
+6.5k-7.5k saved a turn (37.5% of that write); a temporary chat's (5.6k-6.8k) saves 4.2k-5.1k. On Opus 5.5 ($4 input,
+$5 and $8 per MTok for the two writes) about 3 cents a kept-chat turn at API prices; on the owner's subscription it is
+usage counted toward his limits. Reads of FERB's prefix are unchanged. The one case that can cost more: a gap over five
+minutes between two calls of one run (a tool call that waits that long) rewrites the tail at 1.25x instead of reading
+it, as the API loop already does under RUN-436.
+
+**Live check (LIVE-1216, the owner runs it).** Three messages a minute or two apart in one chat with Claude as the
+planner, then one in a temporary chat; each planner run's usage (`ferb trace TASK --json`, the model span: Claude
+Code's result usage carries `cache_creation` by TTL, read by usage.rs `from_anthropic`): `cache_write_1h_tokens` only the
+new stable part (a few hundred tokens or 0), `cache_write_5m_tokens` the tail (what journal 208 saw written at the
+hour), `cached_input_tokens` on the later turns still FERB's prefix (about 52k-54k in a kept chat).
+
+**Evidence.** ferb-runtimes: `cargo clippy --all-targets -D warnings` clean, `cargo fmt` clean, every test binary ok
+(claude 3: claude_matches_python with RUN-476's named difference on every recorded case's Claude Code spawn, new
+claude_code_starts_with_its_message_breakpoints_at_five_minutes_unless_ferbs_marker_ends_the_request and
+claude_codes_end_breakpoint_is_five_minutes_only_where_a_tail_follows_ferbs_marker; api, claude_long_lines, codex,
+codex_cache, compact, mcp, real_process, tables, unit). `kb check` ok after `kb lock` and `kb gen`. T-1324 closed;
+ORCH-325 is linked to LIVE-1216 now that its last open task is gone.
+
+**Unverified.** Nothing ran against Claude Code or the API: that 2.1.310 reads the setting as its code says, that the
+API then reports the tail under `ephemeral_5m_input_tokens`, and the saving itself wait on LIVE-1216. I inferred that
+FERB's runs use the `sdk` query source; the change doesn't depend on it (the switch applies to every source). How
+often a worker's calls are more than five minutes apart was not measured. The whole workspace gate was not run (the
+ferb-runtimes crate only).
