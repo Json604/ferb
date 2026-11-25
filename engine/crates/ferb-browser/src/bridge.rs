@@ -102,6 +102,11 @@ pub trait TabDriver: Send + Sync {
     fn held_tasks(&self, _br: &Arc<Bridge>) -> Vec<String> {
         vec![]
     }
+    /// HAND-723: a popup of this driver's task tab (`opener`) just came: the job that puts the owner's app back at
+    /// once (if the browser took the front), not at the tab's next result.
+    fn popup_came(&self, _br: &Arc<Bridge>, _opener: i64) -> Option<BoxFuture<'static, ()>> {
+        None
+    }
 }
 
 type BridgeHook<T> = Arc<dyn Fn(&Arc<Bridge>, &T) + Send + Sync>;
@@ -1421,7 +1426,15 @@ impl Hub {
             if d.task_tab(br, opener).is_none() {
                 continue;
             }
-            match d.adopt(br, opener, ev.tab_id, ev.url.as_deref().unwrap_or("")) {
+            let adopted = d.adopt(br, opener, ev.tab_id, ev.url.as_deref().unwrap_or(""));
+            if adopted.is_some() {
+                // HAND-723: the popup's own moment: Chrome shows (and activates) what a page opens, so the owner's app
+                // goes back now, beside the adoption, not when the click's reply carries the window fact
+                if let Some(job) = d.popup_came(br, opener) {
+                    self.spawn(job);
+                }
+            }
+            match adopted {
                 Some(Adopted::Refused(_)) => {
                     self.spawn_call(br, "popup_refused", json!({"tab_id": ev.tab_id}))
                 }

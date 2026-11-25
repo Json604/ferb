@@ -805,6 +805,22 @@ pub struct FamilyParts {
 }
 
 impl Tools {
+    /// One family's tools over its driver; the driver's popups put the owner's app back through `host` (HAND-723).
+    pub fn new(
+        family: Family,
+        driver: Arc<Driver>,
+        policy: Arc<dyn Policy>,
+        host: Arc<dyn Host>,
+    ) -> Arc<Tools> {
+        driver.set_host(Arc::clone(&host));
+        Arc::new(Tools {
+            family,
+            driver,
+            policy,
+            host,
+        })
+    }
+
     /// `_build_browsers`' owner family: the `Router` over the owner's paired profiles (`choose` picks one by name;
     /// `input`: the owner's hidden input for codes and secrets) and its `browser.*` tools.
     pub fn owner_family(
@@ -819,12 +835,7 @@ impl Tools {
             parts.wake,
             parts.random,
         );
-        Arc::new(Tools {
-            family: OWNER_BROWSER,
-            driver,
-            policy: parts.policy,
-            host: parts.host,
-        })
+        Tools::new(OWNER_BROWSER, driver, parts.policy, parts.host)
     }
 
     /// `add_identity_browser` (ferb/registry.py): FERB's own profile's driver (`FerbIdentity`: tabs in the
@@ -842,12 +853,7 @@ impl Tools {
             parts.wake,
             parts.random,
         );
-        Arc::new(Tools {
-            family: FERB_BROWSER,
-            driver,
-            policy: parts.policy,
-            host: parts.host,
-        })
+        Tools::new(FERB_BROWSER, driver, parts.policy, parts.host)
     }
 
     /// The verbs this family registers, in the registry's order.
@@ -1421,25 +1427,28 @@ impl Tools {
     /// HAND-570: when one of the tab's window facts says a window of the task's (FERB's own, or its pop-up) came up
     /// with the keyboard focus, the daemon puts the owner's app back at once; whether it did goes on that fact
     /// (`app_put_back`, `previous`, `app_why`: apart from the extension's `put_back`, the window minimized).
+    /// HAND-723: a put-back already made the moment the tab's popup came is told on the same fact when nothing is to
+    /// put back now (its window may read unfocused by then, the owner's app being back), else on the first window
+    /// fact of the task's that came up, else the first that came up.
     async fn put_back_owner_app(&self, tab: &TabRef, facts: &mut [Map<String, Value>]) {
-        let Some(at) = facts.iter().position(|f| {
-            crate::surfaced::came_up(f)
-                && f.get("focused") == Some(&Value::Bool(true))
-                && f.get("window").and_then(Value::as_str) != Some("owner")
-        }) else {
-            return;
+        let came_up = |f: &Map<String, Value>| crate::surfaced::came_up(f);
+        let tasks = |f: &Map<String, Value>| {
+            came_up(f) && f.get("window").and_then(Value::as_str) != Some("owner")
         };
-        let Some(t) = self.driver.tab(&tab.tab_id) else {
-            return;
-        };
-        let (Some(owner), Some(pid)) = (t.owner.filter(|o| !o.is_empty()), t.bridge.browser_pid())
+        let focused = facts
+            .iter()
+            .position(|f| tasks(f) && f.get("focused") == Some(&Value::Bool(true)));
+        let Some(at) = focused
+            .or_else(|| facts.iter().position(tasks))
+            .or_else(|| facts.iter().position(came_up))
         else {
             return;
         };
-        let Some(work) = self.host.put_back_owner_app(&owner, pid) else {
-            return;
-        };
-        if let Some(answer) = work.await {
+        let answer = self
+            .driver
+            .app_back_for_facts(self.host.as_ref(), tab, focused.is_some())
+            .await;
+        if let Some(answer) = answer {
             facts[at].extend(answer);
         }
     }

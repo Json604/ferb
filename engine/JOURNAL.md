@@ -13141,3 +13141,36 @@ API then reports the tail under `ephemeral_5m_input_tokens`, and the saving itse
 FERB's runs use the `sdk` query source; the change doesn't depend on it (the switch applies to every source). How
 often a worker's calls are more than five minutes apart was not measured. The whole workspace gate was not run (the
 ferb-runtimes crate only).
+
+## 2026-11-25 · 225 · The owner's app goes back at the pop-up's own moment, not at the click's reply
+
+**What (T-1121, HAND-723, refines HAND-570).** Checked first: the extension sends `popup` (background.js:1662, 1715)
+before it minimizes the pop-up window (`popupWindowDown`), and its window facts travel only on the tab's replies
+(`withSurfaced`); the hub's `on_popup` (bridge.rs) only adopted the tab; HAND-570's put-back ran in `news()` when the
+click's reply carried a focused window fact, about 4 s after the click in task cdba416b. Now, daemon only: when a
+`popup` event names a task tab as its opener and the driver adopts (or refuses past the cap) the pop-up, the hub spawns
+`TabDriver::popup_came`, and the driver runs the same put-back HAND-570 uses (`Driver::app_back_now`: the tab's task
+and browser process to `Host::put_back_owner_app`, which in ferbd takes the sampler's front app before the call and
+puts it back only if the browser is the front app now and wasn't before, skipped if another app is in front). No focus
+fact is needed for it: the front app is the Mac's own fact. Its answer waits on the opener tab (`Tab.app_back`) and is
+told on that tab's next window fact that came up (one of the task's windows first, else any): the extension may read
+the pop-up unfocused (`w.focused`) once the owner's app is back, so the answer no longer depends on `focused: true`. A
+focused fact still asks again (nothing to do once the browser isn't in front; the earlier answer is told then). One
+put-back at a time per driver (`put_back` lock), so the reply's waits for the pop-up's. The host reaches the driver
+through the new `Tools::new` (owner_family, ferb_family and ferbd's two families use it); a driver whose tools were
+built as a bare struct has no host and behaves as before.
+
+**Extension.** Unchanged: no new fact, protocol or minimum version; any extension that sends `popup` gets this.
+
+**Evidence.** ferb-browser `background_first.rs::the_owners_app_goes_back_at_the_popup_not_at_the_reply`: a fake
+extension sends the `popup` event and holds the click's reply; the host is asked while the reply is pending (fails
+with the spawn removed: `left: []`), then the reply's pop-up fact, read unfocused and read focused, tells "FERB put
+Brave Browser back in front" and the owner's line data carries `app_put_back`, once; the next result asks nothing.
+The other background_first tests (HAND-533, HAND-546, HAND-570, HAND-649) pass unchanged.
+
+**Open / unverified.** Live (LIVE-1215 not added; the owner's sign-in pop-up check would show it): whether Chrome is
+already the front app when the `popup` event reaches the daemon (the event follows the debugger attach and the opener
+check, so the activation should have landed; if not, the reply's put-back still runs as before); a pop-up tab in the
+owner's own window now also puts the owner's app back at the event (HAND-570 skipped `owner` facts, but HAND-560's
+call-end put-back already did it then, so only the moment changes; the owner's line for that window still reads "I
+left it as it was"). ferbd's wiring (`Tools::new` there) has no test of its own.

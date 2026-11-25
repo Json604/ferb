@@ -651,3 +651,256 @@ async fn a_window_made_full_screen_is_the_opens_fact_once() {
         assert_eq!(window_made(Some(&bad)), None, "{bad}");
     }
 }
+
+/// HAND-723: the daemon's put-back as the Mac answers it: the browser is the front app until FERB puts the owner's app
+/// back once; asked again after that, nothing is to put back (the browser isn't in front).
+struct FrontUntilPutBack {
+    asked: Mutex<Vec<(String, i32)>>,
+}
+
+impl Host for FrontUntilPutBack {
+    fn pair(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Option<BoxFuture<'_, ferb_browser::Result<Map<String, Value>>>> {
+        None
+    }
+    fn handoff(
+        &self,
+        _: TabRef,
+        _: String,
+        _: ToolContext,
+    ) -> Option<BoxFuture<'_, ferb_browser::Result<Map<String, Value>>>> {
+        None
+    }
+    fn resolve(&self, p: &str, c: &ToolContext, e: bool) -> ferb_browser::Result<String> {
+        NoHost.resolve(p, c, e)
+    }
+    fn owner_path(&self, p: &str, w: &str) -> String {
+        NoHost.owner_path(p, w)
+    }
+    fn read(&self, p: &str) -> ferb_browser::Result<Vec<u8>> {
+        NoHost.read(p)
+    }
+    fn new_file(&self, p: &str, d: &[u8], c: &ToolContext) -> ferb_browser::Result<()> {
+        NoHost.new_file(p, d, c)
+    }
+    fn display_of(&self, r: ferb_browser::mask::Rect) -> Option<i64> {
+        NoHost.display_of(r)
+    }
+    fn recordings(&self) -> Option<Arc<dyn ferb_browser::tools::Recordings>> {
+        None
+    }
+    fn put_back_owner_app(
+        &self,
+        task: &str,
+        browser_pid: i32,
+    ) -> Option<BoxFuture<'_, Option<Map<String, Value>>>> {
+        let mut asked = self.asked.lock().unwrap();
+        asked.push((task.to_string(), browser_pid));
+        let first = asked.len() == 1;
+        Some(Box::pin(async move {
+            first
+                .then(|| json!({"app_put_back": true, "previous": "Brave Browser"}))
+                .and_then(|v| v.as_object().cloned())
+        }))
+    }
+}
+
+/// A fake extension whose third navigate (after the open's own and a first one; the click that opens a sign-in pop-up) first sends the `popup` event for a
+/// tab the task tab opened, then answers only when `answer` is notified, its reply carrying the pop-up window's fact
+/// (`focused` as the extension read it after the event).
+fn connect_popup(
+    hub: Arc<Hub>,
+    answer: Arc<tokio::sync::Notify>,
+    focused: bool,
+) -> Arc<Mutex<Vec<String>>> {
+    let ops: Arc<Mutex<Vec<String>>> = Arc::default();
+    let seen = ops.clone();
+    let (ext_w, hub_r) = tokio::io::duplex(1 << 20);
+    let (hub_w, ext_r) = tokio::io::duplex(1 << 20);
+    tokio::spawn(hub.serve(BufReader::new(hub_r), hub_w, Some(4242)));
+    tokio::spawn(async move {
+        let seq = AtomicI64::new(0);
+        let frame = |mtype: &str, body: &Value| {
+            let body_json = ferb_py::json::dumps(body);
+            let n = seq.fetch_add(1, Ordering::SeqCst) + 1;
+            let mac = sign(&KEY, INSTALL, n, mtype, &body_json);
+            format!(
+                "{}\n",
+                json!({"install_id": INSTALL, "type": mtype, "body_json": body_json, "seq": n, "mac": mac})
+            )
+        };
+        let mut w = ext_w;
+        let hello = json!({"version": MIN_EXTENSION_VERSION, "protocol": PROTOCOL_VERSION, "browser": "chrome",
+                           "paired": true, "nonce": "nonce-1", "tabs": []});
+        w.write_all(frame("hello", &hello).as_bytes())
+            .await
+            .unwrap();
+        let mut lines = BufReader::new(ext_r).lines();
+        let mut navigations = 0;
+        while let Ok(Some(line)) = lines.next_line().await {
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v["type"] != "cmd" {
+                continue;
+            }
+            let cmd: Value = serde_json::from_str(v["body"].as_str().unwrap()).unwrap();
+            let op = cmd["op"].as_str().unwrap().to_string();
+            seen.lock().unwrap().push(op.clone());
+            let value = match op.as_str() {
+                "open" => json!({"tab_id": 21, "url": "about:blank", "title": "", "window_id": 5,
+                                  "group_id": null, "muted": true}),
+                "navigate" => {
+                    navigations += 1;
+                    let url = cmd["args"]["url"].as_str().unwrap_or("").to_string();
+                    let mut v = json!({"tab_id": 21, "url": url, "title": "Sign in"});
+                    if navigations == 3 {
+                        let popup = json!({"event": "popup", "tab_id": 31, "opener_tab_id": 21,
+                                           "url": "https://accounts.example/signin"});
+                        w.write_all(frame("event", &popup).as_bytes())
+                            .await
+                            .unwrap();
+                        answer.notified().await;
+                        v["surfaced"] = json!([{"window": "popup", "cause": "popup_window",
+                                                "focused": focused, "put_back": true, "new_tab": 31}]);
+                    }
+                    v
+                }
+                _ => json!({}),
+            };
+            let result =
+                json!({"id": cmd["id"], "gen": cmd["gen"], "status": "ok", "value": value});
+            if w.write_all(frame("result", &result).as_bytes())
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+    ops
+}
+
+/// HAND-723 (T-1121): the owner's app goes back the moment the task's pop-up comes (the extension's `popup` event),
+/// while the click's reply is still pending, not when that reply carries the window's fact; the fact then tells the
+/// put-back already made, once, whether the extension read the window focused (before the put-back) or not (after
+/// it). With a host that can't put back (an unwired driver) nothing is asked at the event: HAND-570 as before.
+// decision: HAND-723
+// decision: HAND-570
+#[tokio::test(start_paused = true)]
+async fn the_owners_app_goes_back_at_the_popup_not_at_the_reply() {
+    for focused in [false, true] {
+        let answering = Arc::new(FrontUntilPutBack {
+            asked: Mutex::new(vec![]),
+        });
+        let random = Arc::new(Counter::new());
+        let pairings = Arc::new(Pairings::new(
+            Arc::new(Installs),
+            Arc::new(Clocked),
+            random.clone(),
+        ));
+        let published: Arc<Mutex<Vec<(String, Value)>>> = Arc::default();
+        let seen = published.clone();
+        let hub = Hub::new(
+            pairings,
+            Arc::new(NoLedger),
+            Arc::new(move |topic: &str, data: Map<String, Value>| {
+                seen.lock()
+                    .unwrap()
+                    .push((topic.to_string(), Value::Object(data)));
+            }),
+            Arc::new(|| "dev-1".to_string()),
+            random.clone(),
+            Arc::new(Apps),
+            Arc::new(|_| Some("com.google.Chrome".to_string())),
+        );
+        let tasks = Tasks {
+            running: Arc::new(|t: &str| t == "task-a"),
+            root: Arc::new(|t: &str| t.split('.').next().unwrap_or(t).to_string()),
+            ..Tasks::default()
+        };
+        let driver = ferb_browser::driver::Driver::new(
+            hub.clone(),
+            Kind::Owner {
+                choose: Arc::new(|_| Ok(("chrome".to_string(), "Default".to_string()))),
+                input: None,
+            },
+            tasks,
+            None,
+            random,
+        );
+        let tools = Tools::new(
+            OWNER_BROWSER,
+            driver.clone(),
+            Arc::new(Https),
+            answering.clone(),
+        );
+        let answer = Arc::new(tokio::sync::Notify::new());
+        let ops = connect_popup(hub, answer.clone(), focused);
+        settle().await;
+
+        let tab = driver
+            .open_for("https://sign.example/start", "task-a", None, None, false)
+            .await
+            .expect("open");
+        let nav = verb("navigate").unwrap();
+        let args = json!({"tab": tab.tab_id, "url": "https://sign.example/login"});
+        tools.run(nav, &args, &ctx()).await.expect("navigate");
+        assert!(answering.asked.lock().unwrap().is_empty());
+
+        // the click: its pop-up's event comes while its reply is still pending
+        let click = {
+            let (tools, args) = (tools.clone(), args.clone());
+            tokio::spawn(async move { tools.run(nav, &args, &ctx()).await })
+        };
+        settle().await;
+        assert_eq!(
+            *answering.asked.lock().unwrap(),
+            [("task-a".to_string(), 4242)],
+            "asked at the pop-up's event, before the click's reply"
+        );
+
+        answer.notify_one();
+        let out = click.await.unwrap().expect("navigate");
+        settle().await;
+        assert!(
+            ops.lock().unwrap().contains(&"adopt_tab".to_string()),
+            "the pop-up is the task's"
+        );
+        // a focused fact asks once more (nothing to put back by then); the answer told is the pop-up's
+        let asked = answering.asked.lock().unwrap().len();
+        assert_eq!(asked, if focused { 2 } else { 1 }, "focused {focused}");
+        let focus = if focused {
+            " and took the keyboard focus from the owner's app"
+        } else {
+            ""
+        };
+        assert_eq!(
+            out.content["window_shown"],
+            json!([format!(
+                "the page opened a window of its own (a popup, as a sign-in does), and the browser brought that \
+                 window to the front{focus}; FERB minimized it again at once. FERB put Brave Browser back in front"
+            )])
+        );
+        let shown: Vec<Value> = published
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(t, _)| t == "browser.window_shown")
+            .map(|(_, d)| d["shown"].clone())
+            .collect();
+        assert_eq!(
+            shown,
+            vec![
+                json!([{"cause": "popup_window", "window": "popup", "focused": focused,
+                         "put_back": true, "app_put_back": true, "previous": "Brave Browser"}])
+            ]
+        );
+        // told once: the next result carries no window fact and asks nothing
+        let args = json!({"tab": tab.tab_id, "url": "https://sign.example/next"});
+        let next = tools.run(nav, &args, &ctx()).await.expect("navigate");
+        assert!(!next.content.contains_key("window_shown"));
+        assert_eq!(answering.asked.lock().unwrap().len(), asked);
+    }
+}

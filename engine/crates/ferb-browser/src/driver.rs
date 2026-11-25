@@ -311,6 +311,9 @@ pub struct Tab {
     pub markup: (String, String, Vec<i64>),
     /// HAND-649: making FERB's window for this tab's open wasn't plain (the extension's `window_made`), until told.
     pub window_made: Option<Map<String, Value>>,
+    /// HAND-723: the owner's app put back the moment a popup of this tab came (the daemon's answer), until a window
+    /// fact of this tab tells it.
+    pub app_back: Option<Map<String, Value>>,
 }
 
 /// A screenshot whose points resolve: its id, the snapshot and load it goes with, when it was taken
@@ -475,6 +478,7 @@ impl Tab {
             ids_note: Map::new(),
             markup: (String::new(), String::new(), vec![]),
             window_made: None,
+            app_back: None,
         }
     }
 }
@@ -533,6 +537,11 @@ pub struct Driver {
     otp: Mutex<crate::owner::Otp>,
     random: Arc<dyn crate::pairing::Random>,
     state: Mutex<State>,
+    /// HAND-723: the daemon's put-back (the browser tools' host), for the moment a task tab's popup comes.
+    host: Mutex<Option<Arc<dyn crate::tools::Host>>>,
+    /// HAND-723: one put-back of the owner's app at a time (the popup's, then the result's), so the result's sees what
+    /// the popup's did.
+    put_back: tokio::sync::Mutex<()>,
     me: Weak<Driver>,
 }
 
@@ -563,6 +572,8 @@ impl Driver {
             otp: Mutex::default(),
             random,
             state: Mutex::default(),
+            host: Mutex::default(),
+            put_back: tokio::sync::Mutex::new(()),
             me: me.clone(),
         });
         hub.add_driver(Arc::clone(&d) as Arc<dyn TabDriver>);
@@ -573,6 +584,58 @@ impl Driver {
     /// daemon's helper may seal instead; the fixtures replay fixed nonces).
     pub fn set_sealer(&self, sealer: Sealer) {
         *lock(&self.sealer) = sealer;
+    }
+
+    /// HAND-723: the browser tools' host, whose put-back of the owner's app runs the moment a task tab's popup comes
+    /// ([`crate::tools::Tools::new`] sets it).
+    pub fn set_host(&self, host: Arc<dyn crate::tools::Host>) {
+        *lock(&self.host) = Some(host);
+    }
+
+    /// HAND-570, HAND-723: the one put-back of the owner's app for a task tab: the daemon's (`host`) for the tab's task
+    /// and its browser's process, which acts only if that browser is the front app now and wasn't before the call.
+    /// Its answer's fields (`app_put_back`, `previous`, `app_why`); None when nothing was put back.
+    async fn app_back_now(
+        &self,
+        host: &dyn crate::tools::Host,
+        tab: &TabRef,
+    ) -> Option<Map<String, Value>> {
+        let t = self.tab(&tab.tab_id)?;
+        let owner = t.owner.filter(|o| !o.is_empty())?;
+        let pid = t.bridge.browser_pid()?;
+        host.put_back_owner_app(&owner, pid)?.await
+    }
+
+    /// HAND-723: a popup of this task tab just came: the owner's app goes back now, not at the tab's next result; the
+    /// answer waits on the tab for the window fact that tells it.
+    pub(crate) async fn app_back_at_popup(&self, tab: &TabRef) {
+        let Some(host) = lock(&self.host).clone() else {
+            return;
+        };
+        let _one = self.put_back.lock().await;
+        if let Some(answer) = self.app_back_now(host.as_ref(), tab).await {
+            self.update(&tab.tab_id, |t| t.app_back = Some(answer));
+        }
+    }
+
+    /// HAND-570, HAND-723: for the tab's result holding a window fact that came up: the put-back tried now when a fact
+    /// says a window of the task's took the focus (`try_now`), else the answer of the one made at a popup's moment and
+    /// not yet told, taken off the tab either way. After any popup put-back still running.
+    pub(crate) async fn app_back_for_facts(
+        &self,
+        host: &dyn crate::tools::Host,
+        tab: &TabRef,
+        try_now: bool,
+    ) -> Option<Map<String, Value>> {
+        let _one = self.put_back.lock().await;
+        let now = if try_now {
+            self.app_back_now(host, tab).await
+        } else {
+            None
+        };
+        let mut early = None;
+        self.update(&tab.tab_id, |t| early = t.app_back.take());
+        now.or(early)
     }
 
     /// What the daemon supplies besides the tasks (downloads, uploads, the clipboard, the image
@@ -2690,6 +2753,12 @@ fn py_int_strict(text: &str) -> Option<i64> {
 }
 
 impl TabDriver for Driver {
+    fn popup_came(&self, br: &Arc<Bridge>, opener: i64) -> Option<BoxFuture<'static, ()>> {
+        let tab = self.live(br, opener)?.tab;
+        let me = self.me.upgrade()?;
+        Some(Box::pin(async move { me.app_back_at_popup(&tab).await }))
+    }
+
     fn identity(&self) -> Identity {
         self.identity
     }

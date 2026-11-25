@@ -970,12 +970,12 @@ impl Browsers {
             }),
             parts: Some(p.downgrade()),
         });
-        let owner = Arc::new(Tools {
-            family: OWNER_BROWSER,
-            driver: router.clone(),
-            policy: Arc::new(BrowserPolicy),
-            host: host.clone(),
-        });
+        let owner = Tools::new(
+            OWNER_BROWSER,
+            router.clone(),
+            Arc::new(BrowserPolicy),
+            host.clone(),
+        );
         // `FerbIdentity`: FERB's own profile, its secrets through the signed helper (its tools join the registry
         // once that profile is paired as FERB)
         let cfg = p.config();
@@ -998,12 +998,12 @@ impl Browsers {
             Some(wake),
             random,
         );
-        let ferb = Arc::new(Tools {
-            family: FERB_BROWSER,
-            driver: identity.clone(),
-            policy: Arc::new(BrowserPolicy),
+        let ferb = Tools::new(
+            FERB_BROWSER,
+            identity.clone(),
+            Arc::new(BrowserPolicy),
             host,
-        });
+        );
         let downloads = build_downloads(opts, p, Arc::new(ferb_browser::pairing::SystemRandom));
         let uploads = build_uploads(opts, p, Arc::new(ferb_browser::pairing::SystemRandom));
         Browsers {

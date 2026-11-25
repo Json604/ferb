@@ -489,13 +489,6 @@ kind = "build"
 status = "open"
 why = "Owner 2026-11-15: 'this is to be tested separetly with real tests with a new agent … the best methods we can use to kepe ferb performing in bg'. A fresh agent measures on real apps how input reaches a non-front app, then proposes. Needs a time the owner's Mac is free."
 
-[T-1121]
-title = "Put the owner's app back the instant a popup takes focus, not when the click's reply arrives"
-area = "hands"
-kind = "build"
-status = "open"
-why = "HAND-570 acts on the tab's reply (about 4 s after the click). Checked 2026-11-24 (journal 205): not built; the popup event (background.js:1662,1715) carries no focus fact and bridge.rs on_popup puts nothing back."
-
 [T-1122]
 title = "Stage 2 leftovers: the shared conversation's live checks and the one-time archive import"
 area = "engine"

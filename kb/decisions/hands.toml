@@ -2786,3 +2786,12 @@ words = "keep it"
 words_source = "Owner 2026-11-24, 'My choices on the FERB work list', to T-1063 (keep the browser account in a leftover tab's record, or record only the profile and show the account in the answer line alone?)."
 rule = "A leftover tab's record keeps the browser account it was signed in to, in the task's record (its cleanup span, outcome and chat.status) as well as its answer line, as built: an exception the owner keeps to HAND-424's never stored."
 untestable = "Keeps built behaviour; the leftover-tab tests drive it."
+
+[HAND-723]
+title = "The owner's app goes back the moment a task's pop-up comes, not when the click's reply arrives"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "Refines HAND-570. When the extension's popup event names a task tab as its opener (a pop-up FERB adopts or refuses past the tab cap), the daemon at once runs HAND-570's put-back for that tab's task (the browser front now and not before the call; skipped if another app is in front). No focus fact is needed. The answer waits on the opener tab and is told on its next window fact that came up, preferring the task's windows, whatever that fact says of focus; a focused fact still tries again; one put-back at a time. No extension change."
+why = "T-1121: HAND-570 acted only on the tab's reply carrying the window fact, about 4 s after the click (live 2026-11-16, task cdba416b); the popup event arrives right after the pop-up shows."
+paths = ["engine/crates/ferb-browser/src/bridge.rs::on_popup", "engine/crates/ferb-browser/src/driver.rs::app_back_at_popup", "engine/crates/ferb-browser/src/driver.rs::app_back_for_facts", "engine/crates/ferb-browser/src/tools.rs::put_back_owner_app", "engine/crates/ferb-browser/src/tools.rs::Tools::new"]
