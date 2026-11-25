@@ -506,9 +506,10 @@ fn an_import_never_puts_anything_in_always_on_it_lists_what_it_suggests_for_his_
     assert!(eligible.contains(&line_of(&job, "short answers").item_id));
 }
 
-// decision: MEM-461 (the owner, 2026-11-23: "Show me one list to review")
+// decision: MEM-461 (the owner, 2026-11-23: "Show me one list to review"), refined by MEM-480 (the owner, 2026-11-25:
+// "idk ig wait"): one list still, but what an earlier build put in always on waits there for his Yes
 #[test]
-fn lines_an_earlier_build_put_in_always_on_stay_on_until_he_declines_each() {
+fn lines_an_earlier_build_put_in_always_on_leave_it_and_wait_for_his_yes() {
     let env = Env::new("earlier", None);
     at(&env, "2026-11-10T12:00:00+00:00");
     typed(
@@ -553,7 +554,8 @@ fn lines_an_earlier_build_put_in_always_on_stay_on_until_he_declines_each() {
             )
             .unwrap();
     }
-    // the start's step: what is on stays on and waits for his word; his own pin is his answer already
+    // the start's step (MEM-480, superseding MEM-461's "stays on"): what an earlier build put in always on by itself
+    // waits for his word like any suggestion and leaves the prompts meanwhile; his own pin is his answer already
     assert_eq!(job.suggest_always_on().unwrap(), 3);
     assert_eq!(job.suggest_always_on().unwrap(), 0, "marked once");
     let listed = part(&job, "always_on");
@@ -562,10 +564,10 @@ fn lines_an_earlier_build_put_in_always_on_stay_on_until_he_declines_each() {
         ids,
         BTreeSet::from([short.item_id.as_str(), laptop.item_id.as_str()])
     );
-    assert!(listed
-        .iter()
-        .all(|(_, _, note)| note == "Already always on"));
-    // decision: MEM-464 — one already always on is kept or removed, and a part all on has Keep all / Remove all
+    assert!(
+        listed.iter().all(|(_, _, note)| note.is_empty()),
+        "{listed:?}"
+    );
     let review = job.review().unwrap();
     let labels = |v: &serde_json::Value| -> Vec<String> {
         v.as_array()
@@ -574,22 +576,33 @@ fn lines_an_earlier_build_put_in_always_on_stay_on_until_he_declines_each() {
             .map(|b| b["label"].as_str().unwrap().to_owned())
             .collect()
     };
-    for g in review["parts"][0]["groups"].as_array().unwrap() {
-        for i in g["items"].as_array().unwrap() {
-            assert_eq!(labels(&i["answers"]), vec!["Keep", "Remove"]);
-        }
-    }
+    assert_eq!(
+        labels(&review["parts"][0]["answers"]),
+        vec!["Approve", "Decline"]
+    );
     assert_eq!(
         labels(&review["parts"][0]["all"]),
-        vec!["Keep all", "Remove all"]
+        vec!["Approve all", "Decline all"]
     );
     let holds = |id: &str| {
         env.profile
             .holds_up(&env.memory.get(id).unwrap().unwrap(), None)
             .unwrap()
     };
-    assert!(holds(&short.item_id) && holds(&laptop.item_id) && holds(&chess.item_id));
-    // he declines one: it leaves always on, remembered; he approves the other: it stays, his pin now
+    assert!(!holds(&short.item_id) && !holds(&laptop.item_id));
+    assert!(holds(&chess.item_id));
+    let text = env.profile.prompt_text().unwrap();
+    assert!(text.contains(&chess.item_id), "{text}");
+    assert!(
+        !text.contains(&short.item_id) && !text.contains(&laptop.item_id),
+        "{text}"
+    );
+    // still remembered meanwhile
+    assert_eq!(
+        env.memory.get(&short.item_id).unwrap().unwrap().status,
+        "active"
+    );
+    // he declines one: out, remembered; he approves the other: always on, his pin now
     job.answer_review(
         &env.profile,
         "always_on",
@@ -607,6 +620,7 @@ fn lines_an_earlier_build_put_in_always_on_stay_on_until_he_declines_each() {
     )
     .unwrap();
     assert_eq!(in_profile(&env, &short.item_id).as_deref(), Some("owner"));
+    assert!(env.profile.prompt_text().unwrap().contains(&short.item_id));
     assert_eq!(job.review().unwrap()["count"], 0);
 }
 

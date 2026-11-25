@@ -333,15 +333,25 @@ pub fn offers_answered(st: &Rc<State>, state: &str, words: &str, ident: &str) ->
     "Thanks, I'll update them.".into()
 }
 
-/// The owner's "Always on" / "Not always on" on the Memory page for an imported line (MEM-460): his word on it, so it
-/// leaves the review.
+/// The owner's "Always on" / "Not always on" on the Memory page (MEM-460, MEM-481): his word on an imported line, or
+/// on an item of FERB's own understanding, so it leaves the review (a Not always on there is his Decline: it is not
+/// suggested again).
 pub fn profile_word(st: &Rc<State>, item_id: &str, approve: bool) {
-    if job(st)
+    let line = job(st)
         .owner_word_always_on(item_id, approve)
-        .unwrap_or(false)
-    {
-        review_settled(st);
+        .unwrap_or(false);
+    if !line && !approve {
+        let understood = st
+            .memory
+            .get(item_id)
+            .ok()
+            .flatten()
+            .is_some_and(|it| it.origin == "inferred");
+        if understood {
+            let _ = st.profile.decline(item_id, "owner");
+        }
     }
+    review_settled(st);
 }
 
 /// Said after a website's import when FERB deleted the export it had downloaded (IMP-32).
@@ -868,12 +878,18 @@ pub fn site_request(site: &str, profile: &str) -> (String, String) {
 
 /// What the hourly memory pass does here: the coding assistants' history and work log kept up to date when the owner
 /// said Yes (quietly), exports FERB fetched whose import failed or was cancelled deleted a day later, told once, and
-/// the review asked when a remembered fact's check date has come (MEM-472).
+/// the review asked when a remembered fact's check date has come (MEM-472) or FERB's understanding waits for the
+/// owner's Yes (MEM-481).
 pub async fn hourly(st: &Rc<State>) {
     let j = job(st);
     // decision: MEM-472 — a fact whose check date has come joins the review's "Are these still true?", by code alone:
     // the question is asked when none waits; one that waits shows it, as its card reads the list as it stands
-    if j.due_checks().is_ok_and(|due| !due.is_empty()) {
+    // decision: MEM-481 — so does FERB's understanding that would once have joined always on by itself: it waits in
+    // "Keep these in mind all the time?" for his Approve
+    if j.due_checks().is_ok_and(|due| !due.is_empty())
+        || (super::memory::pending_own(st, REVIEW_KIND).is_none()
+            && j.review_lines().is_ok_and(|(on, _, _)| !on.is_empty()))
+    {
         ask_review(st);
     }
     if let Ok(gone) = j.delete_fetched(None) {

@@ -1215,3 +1215,45 @@ rule = "memory/profile.md point 1, after \"Leave out one-off or situational fact
 why = "22 of Tier 1's 59 lines were coding-assistant process rules sent to every role, three pairs contradicting (short against detailed explanations, Brave as main browser against \"don't touch Brave\", \"confirm when uncertain\" against PRM-312)."
 paths = ["engine/runtime/memory/profile.md", "engine/runtime/memory/import_scope.md", "engine/fixtures/catalog/prompt_replacements.json"]
 untestable = "Prompt text (TEST-500); the replacement is checked by ferb-context's parity test and ferb-learning's fixtures."
+
+[MEM-480]
+title = "FERB's understanding waits for the owner's Yes before it is always on"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "the 51 imported lines, where are they??? idk ig wait."
+words_source = "Relayed by the coordinator, 2026-11-25: his answer to the prompt review's Q2 (should the imported lines wait for his Yes in the review card, or go in unreviewed as now?)."
+rule = "Refines MEM-461 (what an earlier build put in always on no longer stays on: it waits for his Yes), MEM-423, MEM-424, MEM-460. Always on carries only his own words, what he confirmed and observed facts. FERB's understanding (inferred: an import's or its own) joins only on his Yes: Approve in the review (one, all, or in his words), Always on on the Memory page, or an older build's Keep. No / Not right / Forget as before. Nothing is deleted; what waits is found by lookups. What an earlier build put in always on by itself, with no answer of his, leaves it and waits for his Yes."
+paths = ["engine/crates/ferb-learning/src/profile.rs", "engine/crates/ferb-learning/src/import_review.rs", "engine/crates/ferb-daemon/src/areas_a/memory.rs", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs"]
+live = ["LIVE-1221"]
+
+[MEM-481]
+title = "One Yes check for FERB's understanding; its own suggestions share the review"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "For MEM-480. `CoreProfile::said_yes` (his row, an older Keep, his Approve of the import line) is the one check `holds_up` (the join, seed, weekly pass) and `entries` (every prompt, the Memory page) apply to an inferred item, whatever row exists. FERB's own understanding seen on two separate days, with no check date and never declined, is listed with the import's suggestions; Decline (or Not always on) journals `memory.always_on_declined`, never suggested again. The hourly pass asks the review when it has such items and none waits."
+why = "Standing a week without being seen again is no reason to ask him; a dated fact is asked \"still true?\" on its date instead (MEM-472)."
+paths = ["engine/crates/ferb-learning/src/profile.rs", "engine/crates/ferb-learning/src/import_review.rs", "engine/crates/ferb-daemon/src/areas_a/memory_import.rs"]
+live = ["LIVE-1221"]
+
+[MEM-482]
+title = "At the start, what is always on without the owner's Yes goes back to the review"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "For MEM-480 and MEM-483. At each start, by code: an imported line in the profile that he approved stays; one with no answer of his (an earlier build's join) is `suggested` again and leaves it; FERB's own inferred rows leave unless he added them; the review is asked; journaled `memory.inferred_waiting` only when something moved. Python's fixtures replay with the old join (`joins_by_itself`), the named difference."
+why = "A once-marker row on every start moved the journal's autoincrement and broke ferbd's chat_replay of the recorded starts; a rule that is true at every start needs no marker."
+paths = ["engine/crates/ferb-learning/src/import_review.rs", "engine/crates/ferb-daemon/src/areas_a/memory.rs", "engine/crates/ferb-learning/tests/fixtures.rs"]
+live = ["LIVE-1221"]
+
+[MEM-483]
+title = "His Approve all of 23 Nov stands: the 65 imported lines stay always on"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "yeah keep them"
+words_source = "Relayed by the coordinator, 2026-11-25: his answer on being told his store shows all 65 imported lines approved by one Approve all at 2026-11-23T03:40:49."
+rule = "Refines MEM-480. An Approve he gave before MEM-480 stands: approved imported lines stay always on and are never asked again. Only lines without his answer, and FERB's own understanding from now on, wait for his Yes."
+paths = ["engine/crates/ferb-learning/src/import_review.rs", "engine/crates/ferb-daemon/src/areas_a/memory.rs"]
+live = ["LIVE-1221"]

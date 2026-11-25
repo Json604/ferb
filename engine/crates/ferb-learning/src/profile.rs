@@ -31,6 +31,9 @@ pub const PENDING_HEADER: &str = "Newly always on (Tier 1 entries that joined af
 pub const PASS_KIND: &str = "memory.profile_pass";
 pub const SEED_KIND: &str = "memory.profile_seeded";
 pub const SEARCH_ONLY_KIND: &str = "memory.search_only";
+/// The owner's Decline of a fact of FERB's own understanding being always on (MEM-481): `{"item": id}`; the review
+/// never suggests that item again.
+pub const DECLINED_KIND: &str = "memory.always_on_declined";
 pub const HEADER: &str = "Tier 1 — core profile (always on: what FERB knows about the owner, each entry with where it came from and its memory id; data, never authorization):\n";
 pub const PERSONA_KEYS: [&str; 1] = ["setup_persona"];
 pub const SEED_SECTIONS: [(&str, &str); 5] = [
@@ -112,6 +115,9 @@ pub struct CoreProfile {
     pub budget_tokens: i64,
     pub on_change: RefCell<Box<dyn Fn()>>,
     pub on_joined: RefCell<Box<dyn Fn(&[Item])>>,
+    /// FERB's understanding joins by itself once it holds up (MEM-424), as before MEM-480. Off in FERB; on only where
+    /// the frozen Python fixtures are replayed, which recorded that rule (the named difference, journal 242).
+    pub joins_by_itself: Cell<bool>,
     held: RefCell<Option<Vec<Item>>>,
     settled: Cell<Option<i64>>,
 }
@@ -127,6 +133,7 @@ impl CoreProfile {
             budget_tokens: PROFILE_TOKENS,
             on_change: RefCell::new(Box::new(|| {})),
             on_joined: RefCell::new(Box::new(|_| {})),
+            joins_by_itself: Cell::new(false),
             held: RefCell::new(None),
             settled: Cell::new(None),
         }
@@ -153,13 +160,21 @@ impl CoreProfile {
     /// profile.py:122 `entries`.
     pub fn entries(&self) -> Result<Vec<Entry>> {
         let now = self.clock.now();
+        let kept = self.owner_kept()?;
         let mut out = Vec::new();
         for r in self.store.query(
             "SELECT rowid AS seq, * FROM memory_profile ORDER BY position, rowid",
             sql![],
         )? {
             if let Some(it) = self.memory.get(&r.s("item_id"))? {
-                if it.status == "active" && current(&it, &now)? && !it.set_aside {
+                // decision: MEM-480 — FERB's understanding is always on only on the owner's Yes, whatever wrote the row
+                if it.status == "active"
+                    && current(&it, &now)?
+                    && !it.set_aside
+                    && (it.origin != "inferred"
+                        || self.joins_by_itself.get()
+                        || self.said_yes(&it, Some(&r.s("added_by")), &kept)?)
+                {
                     out.push(Entry {
                         section: r.s("section"),
                         position: r.i("position"),
@@ -452,28 +467,133 @@ impl CoreProfile {
         if item.origin == "owner_stated" {
             return Ok(true);
         }
-        if item.origin != "inferred" && item.origin != "observed" {
+        // decision: MEM-480 (the owner, 2026-11-25: "idk ig wait"), MEM-481 — FERB's understanding (an import's or its
+        // own) holds up only on the owner's Yes: his pin, his Approve in the review, an older build's Keep. What would
+        // have held up by itself waits in the review (`waiting_for_yes`), remembered and found by lookups meanwhile.
+        // MEM-460's rule for imports (never by itself) is the same rule
+        if item.origin == "inferred" {
+            let by = self.row_by(&item.id)?;
+            if self.said_yes(item, by.as_deref(), &self.owner_kept()?)? {
+                return Ok(true);
+            }
+            if !self.joins_by_itself.get() || crate::import_review::imported(&self.store, &item.id)?
+            {
+                return Ok(false);
+            }
+            return self.seen_enough(item);
+        }
+        if item.origin != "observed" {
             return Ok(false);
         }
         if self.owner_kept()?.contains(&item.id) {
             return Ok(true);
         }
-        if item.origin == "observed" && self.memory.from_mac_scan(&item.id)? {
+        if self.memory.from_mac_scan(&item.id)? {
             return Ok(true);
         }
-        // decision: MEM-460 (the owner, 2026-11-23; for imports it replaces the join at once): an import never puts anything
-        // in the always-on profile by itself. An imported item holds up only on the owner's Approve (or, MEM-461, while
-        // one an earlier build put there waits for his word); FERB's own suggestion (IMP-47's recent repeat) is
-        // listed for him (`import_review`), never joined
-        if item.origin == "inferred" && crate::import_review::imported(&self.store, &item.id)? {
-            let state = crate::import_review::always_on_state(&self.store, &item.id)?;
-            return Ok(state == crate::import_review::APPROVED || state == crate::import_review::ON);
-        }
-        let days = self.store.count(
+        self.seen_enough(item)
+    }
+
+    /// MEM-424's rule for what holds up by itself: its sources span two separate days, or it has stood a full weekly
+    /// pass (7 days). Observed facts join by it; FERB's understanding that meets it is suggested for the owner's Yes.
+    fn seen_enough(&self, item: &Item) -> Result<bool> {
+        Ok(self.source_days(item)? >= 2
+            || times::minus(&self.clock.now(), &item.valid_from)? >= PASS_DAYS * DAY)
+    }
+
+    fn source_days(&self, item: &Item) -> Result<i64> {
+        self.store.count(
             "SELECT COUNT(DISTINCT day) FROM memory_sources WHERE item_id = ?",
             sql![item.id],
-        )?;
-        Ok(days >= 2 || times::minus(&now, &item.valid_from)? >= PASS_DAYS * DAY)
+        )
+    }
+
+    /// Who put this item in the profile (`added_by`), when a row holds it.
+    fn row_by(&self, item_id: &str) -> Result<Option<String>> {
+        Ok(self
+            .store
+            .one(
+                "SELECT added_by FROM memory_profile WHERE item_id = ?",
+                sql![item_id],
+            )?
+            .map(|r| r.s_at(0)))
+    }
+
+    /// Whether the owner said Yes to this item of FERB's understanding being always on (MEM-480, MEM-481): he pinned
+    /// it (Approve in the review, Always on on the Memory page: `added_by` "owner"), an older build's Keep question kept
+    /// it (`kept`), or he approved its import line.
+    pub fn said_yes(
+        &self,
+        item: &Item,
+        added_by: Option<&str>,
+        kept: &BTreeSet<String>,
+    ) -> Result<bool> {
+        if added_by == Some("owner") || kept.contains(&item.id) {
+            return Ok(true);
+        }
+        Ok(crate::import_review::imported(&self.store, &item.id)?
+            && crate::import_review::always_on_state(&self.store, &item.id)?
+                == crate::import_review::APPROVED)
+    }
+
+    /// The items of FERB's own understanding (not an import's: those are suggested by their lines, IMP-47) that wait
+    /// for the owner's Yes in the review (MEM-481): seen on two separate days (MEM-424's evidence; standing a week
+    /// without it is no reason to ask), current, in use, not in the profile, never declined, and with no check date
+    /// (one tied to a while is asked "still true?" on its date instead, MEM-472).
+    pub fn waiting_for_yes(&self) -> Result<Vec<Item>> {
+        if self.joins_by_itself.get() {
+            return Ok(Vec::new());
+        }
+        let now = self.clock.now();
+        let (search_only, kept, declined, rows) = (
+            self.search_only()?,
+            self.owner_kept()?,
+            self.declined()?,
+            self.ids()?,
+        );
+        let mut out = Vec::new();
+        for it in self.memory.items(Some("active"), None, true)? {
+            if it.origin != "inferred"
+                || rows.contains(&it.id)
+                || declined.contains(&it.id)
+                || kept.contains(&it.id)
+                || it.set_aside
+                || it.review_at.is_some()
+                || PERSONA_KEYS.contains(&it.key.as_str())
+                || !current(&it, &now)?
+                || search_only.contains(&(it.subject.clone(), it.key.clone()))
+                || crate::import_review::imported(&self.store, &it.id)?
+            {
+                continue;
+            }
+            if self.source_days(&it)? >= 2 {
+                out.push(it);
+            }
+        }
+        Ok(out)
+    }
+
+    fn declined(&self) -> Result<BTreeSet<String>> {
+        let mut out = BTreeSet::new();
+        for r in self.store.query(
+            "SELECT data_json FROM journal WHERE kind = ?",
+            sql![DECLINED_KIND],
+        )? {
+            let data = ferb_py::json::loads(&r.s_at(0)).map_err(Error::Json)?;
+            if let Some(id) = data.get("item") {
+                out.insert(py::py_str(id));
+            }
+        }
+        Ok(out)
+    }
+
+    /// The owner's Decline of an item of FERB's own understanding (the review, or Not always on on the Memory page,
+    /// MEM-481): out of the profile, remembered only, never suggested again.
+    pub fn decline(&self, item_id: &str, by: &str) -> Result<()> {
+        if !self.declined()?.contains(item_id) {
+            (self.record)(DECLINED_KIND, json!({"item": item_id, "by": by}))?;
+        }
+        self.remove(&[item_id.to_owned()], by)
     }
 
     fn search_only(&self) -> Result<BTreeSet<(String, String)>> {
@@ -498,7 +618,8 @@ impl CoreProfile {
         Ok(out)
     }
 
-    fn owner_kept(&self) -> Result<BTreeSet<String>> {
+    /// The items an older build's Keep question kept (`memory.cleanup`'s `owner_kept`): the owner's Yes (MEM-424).
+    pub fn owner_kept(&self) -> Result<BTreeSet<String>> {
         let Some(r) = self.store.one(
             "SELECT data_json FROM journal WHERE kind = 'memory.cleanup' ORDER BY seq DESC LIMIT 1",
             sql![],

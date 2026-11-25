@@ -5271,3 +5271,12 @@ request = "Ask FERB \"did any official <school> group post a new assignment this
 pass = "The trace shows each named group opened and the week's messages read, not only WhatsApp's search box; the answer names the groups it opened and any it only searched; \"none\" comes only after the groups were opened; the follow-up is answered from the task's records (what it opened), never \"my search covered every chat\"."
 decisions = ["PRM-375", "PRM-373"]
 sitting = "after this change is installed"
+
+[LIVE-1221]
+title = "What you approved stays always on; what FERB works out waits for your Yes"
+area = "memory"
+surface = "FERB.app with this build installed over the owner's current store (his 65 approved imported lines always on), its Memory page, and a phone"
+request = "After the update, open the Memory page and read Always on and To check. Over two days, mention the same new preference in passing in the chat (not \"remember …\"), then look at To check and the chat's \"Can you check a few things I brought in?\". Approve it, or Decline it and say the same thing again a day later. Open the same card on a phone. Quit and reopen FERB.app."
+pass = "Always on still shows your words, what FERB saw on your Mac and the 65 lines you approved, and nothing asks about them again; the preference FERB worked out is not always on by itself and is listed under \"Keep these in mind all the time?\" with Approve / Decline; approved, it shows under Always on at once; declined, it stays off, is still on the Memory page and found when FERB looks it up, and isn't asked again; after the reopen nothing you answered is asked again."
+decisions = ["MEM-480", "MEM-481", "MEM-482", "MEM-483"]
+sitting = "after this build is installed, over two days"

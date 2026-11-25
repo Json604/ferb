@@ -13684,3 +13684,109 @@ lock`, `kb gen`, `kb check` ok; `git diff --check` clean.
 opening each source, no refusals) is for the live checks above. The planner's extra ≈580 tokens a turn are counted, not
 measured on a cache. Rule D's sentence about what the owner asks FERB to write isn't tested against a provider's own
 refusal. PRM-373..382 and MEM-479 were the next free IDs at HEAD 0dfa2fe4; parallel agents may have taken them.
+
+## 2026-11-25 · 242 · FERB's understanding waits for the owner's Yes before it is always on
+
+**The owner (MEM-480).** Asked in the prompt review (Q2) whether the lines FERB brought in from his coding sessions
+should wait for his Yes in the review card or stay always on unreviewed, he said: "the 51 imported lines, where are
+they??? idk ig wait." Read as: inferred lines wait for his Yes. How it is built: MEM-481 and MEM-482 (agent).
+
+**What his store showed** (read-only, `sqlite3 -readonly` on `~/.ferb/ferb.db`, 2026-11-25). Tier 1 held 67 rows: his
+legal name (`owner_stated`), the Mac scan's "mainly for coding" (`observed`) and 65 imported lines (`inferred`), 23
+of them under "How you like things done". All 65 lines say `always_on: approved` with `always_on_at`
+2026-11-23T03:40:49 and are `added_by = owner`: 21 were added and 44 kept as his pins in the same millisecond, 36 s
+after the card "Can you check a few things I brought in? 65 things to keep in mind all the time" was asked (journal
+seq 1079 → 1084-1104). Journal 183's commit (8ac05fc0) records that he answered that review with Approve all; the
+card then stayed open with an empty list (the close was published only from 04:29) and was marked expired at the
+08:22 restart, when nothing was left to ask. The second card (2026-11-24 09:56) was "1 thing I said I'd check with
+you" and was answered (superseded at 09:59), not left to expire. So the prompt review's premise ("unreviewed", "expired
+twice unanswered") was wrong about the first card: the 65 were approved, in one tap. Told so, he answered: "yeah keep
+them" (MEM-483): his Approve all stands, the 65 stay always on and are never asked again; only lines without his
+answer, and FERB's own understanding from now on, wait for his Yes.
+
+**The one check** (ferb-learning `profile.rs`). `CoreProfile::said_yes`: an inferred item is his when he added its row
+(`added_by` owner: Approve in the review, Always on on the Memory page), an older build's Keep kept it (`memory.cleanup`
+`owner_kept`), or he approved its import line. `holds_up` (so `saved`'s join at once, the seed and the weekly pass's
+`eligible`) admits an inferred item only through it; MEM-424's two days / a week no longer joins FERB's understanding
+(it still joins observed facts; the Mac scan's join at once is unchanged). `entries` applies the same check, so a row
+holding an inferred item without his Yes (an older build's join, `follow`'s new version, any write) never reaches a
+prompt, the Memory page's Always on or the review's "already on". Nothing is deleted: the items stay active, in
+memory search and `memory.read`.
+
+**FERB's own understanding in the same review** (`import_review.rs`, MEM-481). `CoreProfile::waiting_for_yes`: inferred
+items no import holds, seen on two separate days (MEM-424's evidence; standing a week unseen is no reason to ask),
+with no check date (a dated fact is asked "still true?" on its date, MEM-472; without this it was listed twice),
+not set aside, never declined. They are listed in "Keep these in mind all the time?" next to the import's suggestions,
+as review lines with no import line (`understood`), grouped by kind (preference: how you like me to work; env: your
+setup; else about you), in their saved words. Approve pins it (`keep`); Decline journals `memory.always_on_declined`
+and it is never suggested again (`CoreProfile::decline`); the Memory page's Not always on on such an item is the same
+Decline (`profile_word`). The hourly pass asks the review when it lists such items and no review question waits.
+`suggest_always_on` now marks a line always on (his Yes) `approved`, and one an earlier build put there (`on`, or a row
+with no Yes) `suggested`; `on` is only read from older data. MEM-464's Keep / Remove stays in the code but nothing
+listed is always on any more, so it is not drawn.
+
+**The start's step** (`ImportJob::wait_for_yes`, called from `memory::start` before the questions are restored;
+MEM-482, MEM-483). At each start, by code: an imported line in the profile that he approved stays, whenever he
+approved it; one with no answer of his (an earlier build's join, MEM-445) goes back to `suggested` and its row leaves
+(`CoreProfile::remove`, which settles the prompt); FERB's own inferred rows leave too unless he added them himself; an
+older build's Keep stays; a declined line's stray row leaves without asking again. It journals
+`memory.inferred_waiting {left, asked_again}` only when it moved something, and the review is then asked
+(`review_start(converted || waiting > 0)`). A first version journaled a once-marker on every start; that extra row
+moved the journal's autoincrement and broke ferbd's `chat_replay` comparison of the recorded starts (`journal row 14
+seq`: Python 15, Rust 16) in every scenario; a rule that holds at every start needs no marker. On his store the step
+changes nothing: his legal name, the Mac scan's fact and the 65 lines stay always on, and no question is asked about
+them. What waits for him from now on is FERB's own understanding seen on two separate days.
+
+**How he reviews them.** FERB.app's Memory page "To check" (`MemoryReviewSection`, which reads `memory.review` whenever
+the page opens, so it is there on demand whatever happened to the card), the chat's card "Can you check a few things
+I brought in?" (asked at the first start of this build, restored with its id at every restart while anything is left,
+on the Mac and both phones), or his own words in the chat. Approve / Decline per line, Approve all / Decline all per
+part. The phones show the review only as the chat's card (no Memory page there).
+
+**Python fixtures** (named difference). The learning recordings joined FERB's understanding by itself; they are
+replayed with `CoreProfile::joins_by_itself` set (false in FERB), so every other step still compares strictly
+(`tests/fixtures.rs`).
+
+**Words for the owner to review.** None new. The card, the parts, the groups and the buttons are the review's existing
+words (journal 178). FERB's own understanding shows in its saved words, which are third person ("The owner prefers
+tea"), where imported lines show their "You …" form; the Memory page already shows them so.
+
+**kb.** MEM-480 (owner, his words; refines MEM-461, MEM-423, MEM-424, MEM-460), MEM-483 (owner, his words: his
+Approve all stands; refines MEM-480), MEM-481 and MEM-482 (agent), LIVE-1221 new. MEM-479 (prompt item 11, the profile pass leaves coding-process rules out) is the complement: it chooses among
+what holds up; this decides what may hold up at all. MEM-461 is refined, not superseded: its folding of the old notices stands and is cited by tests in ferb-mobile,
+ferb-supervisor and FERB.app.
+
+**Evidence.**
+- ferb-learning `tests/inferred_waits.rs` (new): FERB's understanding is not always on when saved nor after a week and
+  a second day; the weekly pass's context leaves it out and its answer naming it is refused; it is listed under "How
+  you like me to work"; Approve puts it in the prompts and `eligible`, and a later pass keeps it; Decline keeps it out,
+  remembered, and a later repeat never lists it again. A `code` row holding an inferred item never reaches the
+  prompts; the Memory page's Always on (`add` by owner) does.
+- ferb-learning `tests/import_profile.rs`: the MEM-461 test now says what an earlier build put in always on leaves the
+  prompts and is listed as a suggestion (Approve / Decline, no "Already always on"), his own pin counts as approved,
+  Decline and Approve as before.
+- ferb-daemon `tests/a_memory_inferred_waits.rs` (new, real ferb-rpc server): a store like his (his first start's
+  clean-up on an empty memory, his words and a Mac-scan fact in the profile, 65 imported lines approved by one Approve
+  all) plus 3 lines an earlier build joined by itself, through `memory::start`: his words, the fact and the 65 stay
+  always on; the 3 leave, stay active and are found by `memory_item_search`; one question "3 things to keep in mind
+  all the time. Answer each one here, or just tell me."; `memory.review` lists 3 with Approve all / Decline all; a
+  restart asks the same question again, never a new one; `memory.review.answer` approve puts one in, decline keeps one
+  out and remembered; the step journaled once, and a later start keeps every answer, the 65 included. FERB's own
+  understanding said on two days is asked by the hourly pass ("1 thing to keep in mind all the time"), drawn under
+  "How you like me to work", and `memory.profile {op: remove}` is his No: the question closes and the next hour asks
+  nothing.
+- On 629a6798, `cargo test -p ferb-learning -p ferb-daemon --no-fail-fast`: 285 passed, 0 failed. Earlier, before
+  the owner's "yeah keep them" (code otherwise the same), `cargo test -p ferb-learning -p ferb-daemon -p ferbd
+  --no-fail-fast`: 464 passed, 1 failed: ferbd `chat_replay`
+  `the_more_scenarios_through_the_program` (`owner_closed_tab`: journal row 22 `plan.answer` where Python had
+  `question.answered`, an ordering of a task's rows, no memory row). Run alone it failed once more and passed once
+  (`owner_closed_tab` replayed fully both times), so it reads as the replay's timing under load; not run at HEAD to
+  compare. The first build of this change failed every `chat_replay` scenario on `journal row 14 seq` (see the
+  start's step) and was fixed. clippy `-D warnings` on ferb-learning and ferb-daemon (all targets) and `cargo fmt
+  --all --check` clean.
+- `tools/kb/run kb lock`, `kb gen`, `kb check`: ok. `git diff --check` clean.
+
+**Unverified.** Not run on his store (no install; read-only queries only); the upgrade is tested on a store built to
+his shape. The prompts' text after the step is read from the tests, not a trace. FERB.app and the phones are
+unchanged and their `swift test` / Gradle suites not run. The weekly pass's model choosing among fewer eligible items
+is not run with a model. LIVE-1221 is new for the owner.

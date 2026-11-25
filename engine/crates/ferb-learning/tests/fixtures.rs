@@ -65,6 +65,10 @@ fn replay(sc: &Value, root: &std::path::Path) -> (usize, Vec<String>) {
         std::fs::write(folder.join("conversations.json"), export.to_string()).unwrap();
     }
     let env = Env::new(name, Some(root));
+    // decision: MEM-480, MEM-482 (named difference, the owner's "idk ig wait" of 2026-11-25): Python joined FERB's
+    // understanding to the core profile by itself once it held up (MEM-424); FERB now waits for the owner's Yes
+    // (tests/inferred_waits.rs). The recordings are replayed with Python's rule, so every other step compares strictly
+    env.profile.joins_by_itself.set(true);
     let runtime = rt();
     replay_on(&env, sc, root, &runtime)
 }

@@ -131,7 +131,8 @@ pub(crate) fn wire(st: &Rc<State>) {
 }
 
 /// The start's memory steps (`_build_memory`, memory.py:70-85): memory cleaned once, the core profile seeded and
-/// settled, the old fact-node copies closed, FERB's waiting questions asked again, an interrupted import resumed, the
+/// settled, the old fact-node copies closed, FERB's understanding without the owner's Yes taken out of always on
+/// (MEM-482), FERB's waiting questions asked again, an interrupted import resumed, the
 /// website watches' interval brought to FERB's current one (MEM-477).
 pub fn start(st: &Rc<State>) -> ferb_learning::Result<()> {
     let record = |kind: &str, data: Value| st.journal.append(kind, Some(data), None).map(|_| ());
@@ -139,8 +140,11 @@ pub fn start(st: &Rc<State>) -> ferb_learning::Result<()> {
     st.profile.seed()?;
     st.profile.settle("start")?;
     ferb_learning::upgrade::close_fact_nodes(&st.store, &ferb_clock::py::iso(&st.now()), &record)?;
+    // decision: MEM-480, MEM-482, MEM-483 — FERB's understanding always on without the owner's Yes goes back to the
+    // review; what he approved stays
+    let waiting = super::memory_import::job(st).wait_for_yes(&st.profile)?;
     let converted = restore_memory_questions(st)?;
-    super::memory_import::review_start(st, converted);
+    super::memory_import::review_start(st, converted || waiting > 0);
     super::memory_import::resume(st);
     super::memory_import::watch_intervals(st);
     Ok(())
