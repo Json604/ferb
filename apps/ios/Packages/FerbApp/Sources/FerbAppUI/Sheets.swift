@@ -266,7 +266,10 @@ struct Profile: View {
                      connection: AnyView(ConnectionRow(mark: linkMark(model.ui.link, lost: model.ui.linkLost),
                                                        state: linkStateWords(linkMark(model.ui.link, lost: model.ui.linkLost)),
                                                        path: linkPathWords(linkMark(model.ui.link, lost: model.ui.linkLost)),
-                                                       onClick: { model.show(.connection) })))
+                                                       onClick: { model.show(.connection) })),
+                     // kb PHN-847: locks at once, whatever the switch says; the sheet closes into the lock page
+                     lockNow: AnyView(CardRow(title: L.s("profile_lock_now"), detail: L.bio("profile_lock_now_detail"),
+                                              onClick: { model.lockNow() }) { RowIcon(symbol: "lock.fill") } trailing: { EmptyView() }))
     }
 }
 

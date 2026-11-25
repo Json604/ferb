@@ -176,6 +176,8 @@ fun ProfileSheet(
     more: (@Composable () -> Unit)? = null,
     /** PHN-801: the connection's row, first (its state as the top bar's badge shows it; its sheet on a tap). */
     connection: (@Composable () -> Unit)? = null,
+    /** kb PHN-847: "Lock FERB now", right under the lock switch; nothing in the lab. */
+    lockNow: (@Composable () -> Unit)? = null,
 ) {
     Sheet(title = "This phone", bottomInset = insets.bottom, onDismiss = onClose) {
         SheetTitle("This phone", onClose)
@@ -186,6 +188,10 @@ fun ProfileSheet(
             }
             CardRow("Fingerprint to open", "Every time FERB opens", leading = { RowIcon(FerbIcons.lock) },
                 trailing = { PhoneSwitch(lockOn, onLock, "Fingerprint to open") })
+            if (lockNow != null) {
+                Divide()
+                lockNow()
+            }
             Divide()
             CardRow("Stay connected", "Questions arrive while the app is closed", leading = { RowIcon(FerbIcons.bell) },
                 trailing = { PhoneSwitch(stayConnected, onStayConnected, "Stay connected") })

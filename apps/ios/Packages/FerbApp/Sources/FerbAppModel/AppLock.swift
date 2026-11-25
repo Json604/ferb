@@ -97,6 +97,8 @@ public final class Session {
     /// How many times the app has locked since the process began (a cold start's lock isn't one): [LockTeller] counts
     /// these, not `locked`, because with the owner's lock switch off (kb PHN-845) the app opens again at once.
     public private(set) var locks = 0
+    /// The lock now on is the owner's "Lock FERB now" (kb PHN-847): [LockTeller] tells the Mac so. Until unlocked.
+    public private(set) var byHand = false
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private let sleep: @Sendable (Double) async -> Void
 
@@ -140,13 +142,16 @@ public final class Session {
     }
 
     public func unlocked() {
+        byHand = false
         lock.unlocked()
         locked = false
         promptDue = false
     }
 
     /// The owner's own lock from inside the app: the lock page waits for his tap (no prompt by itself, PHN-616).
-    public func lockNow() {
+    /// `byHand`: his "Lock FERB now" (kb PHN-847); the same lock as the five minutes' (PHN-15), and the Mac is told so.
+    public func lockNow(byHand: Bool = false) {
+        if !lock.locked { self.byHand = byHand }
         lock.lock()
         setLocked(true)
     }

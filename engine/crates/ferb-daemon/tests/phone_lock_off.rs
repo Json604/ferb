@@ -258,3 +258,96 @@ async fn removing_the_phone_or_pairing_it_again_turns_the_lock_back_on() {
         "{rows:?}"
     );
 }
+
+/// The phone's unlock statement from its opening prompt (PHN-649): `{domain, nonce, made}` signed by `key`.
+fn statement(key: &p256::ecdsa::SigningKey, nonce: &str) -> Value {
+    signed(
+        key,
+        &json!({"domain": "ferb.unlock-statement.v1", "nonce": nonce, "made": 1_700_000_000_000_i64})
+            .to_string(),
+    )
+}
+
+/// The owner's "Lock FERB now" (`phone.lock {by_hand}`) on a lock-off phone: chat and tasks wait for its next signed
+/// unlock, on every connection, while the switch itself stays off; the opening prompt's statement or `phone.unlock`
+/// ends the wait, and the plain lock (five minutes away) keeps the lock-off grant as before. Audited as by hand.
+// decision: PHN-848
+// decision: PHN-847
+// decision: PHN-846
+#[tokio::test]
+async fn a_lock_by_hand_holds_a_lock_off_phone_until_its_next_signed_unlock() {
+    let w = world(None).await;
+    let keys = Keys::new(1);
+    pair(&w, P1, &keys, true, true).await;
+    w.clock.advance(301.0); // the pairing's own window lapses (PHN-647)
+    let mut c = Conn::phone(&w, P1, "s").await;
+    c.present(&keys).await;
+    c.signed_call(&keys.strong, "phone.lock_off", json!({}))
+        .await
+        .unwrap();
+    // the plain lock: chat and tasks stay open (PHN-846)
+    c.ok("phone.lock", json!({})).await;
+    c.ok("tasks.list", json!({})).await;
+    // by hand: nothing of chat and tasks, here or on a new connection that proved the device key
+    let out = c.ok("phone.lock", json!({"by_hand": true})).await;
+    assert_eq!(out["unlocked"], false);
+    for m in ["tasks.list", "chat.entries.days", "notices.list"] {
+        assert_eq!(
+            refused(c.call(m, json!({}), None).await),
+            code::LOCKED,
+            "{m}"
+        );
+    }
+    let mut d = Conn::phone(&w, P1, "t").await;
+    d.present(&keys).await;
+    assert_eq!(
+        refused(d.call("tasks.list", json!({}), None).await),
+        code::LOCKED
+    );
+    // what a locked phone can always do still works; the switch itself stays as the owner set it
+    d.ok("chat.status", json!({})).await;
+    assert_eq!(row_of(&w, P1)["lock_off"], true);
+    assert!(audit_text(&w).contains("by_hand"), "{}", audit_text(&w));
+    // a later plain lock doesn't end the wait
+    d.ok("phone.lock", json!({})).await;
+    assert_eq!(
+        refused(d.call("tasks.list", json!({}), None).await),
+        code::LOCKED
+    );
+    // the opening prompt's statement ends it: and after the next plain lock the grant is back, an hour on
+    w.clock.advance(2.0);
+    d.call(
+        "phone.unlock_statement",
+        json!({"age_ms": 1000}),
+        Some(statement(&keys.lock, "nonce-hand-0123456789")),
+    )
+    .await
+    .unwrap();
+    d.ok("tasks.list", json!({})).await;
+    d.ok("phone.lock", json!({})).await;
+    w.clock.advance(3600.0);
+    d.ok("tasks.list", json!({})).await;
+    c.ok("chat.entries.days", json!({})).await;
+    // the Mac's own card (`phone.unlock`) ends it too
+    d.ok("phone.lock", json!({"by_hand": true})).await;
+    assert_eq!(
+        refused(d.call("tasks.list", json!({}), None).await),
+        code::LOCKED
+    );
+    d.unlock(&keys).await;
+    d.ok("phone.lock", json!({})).await;
+    w.clock.advance(3600.0);
+    d.ok("tasks.list", json!({})).await;
+    // a refused unlock doesn't: the wait stays
+    d.ok("phone.lock", json!({"by_hand": true})).await;
+    let ch = d.challenge().await;
+    let wrong = call_proof(&Keys::new(9).lock, &ch, "link.unlock", &json!({}));
+    assert!(d
+        .call("phone.unlock", json!({}), Some(wrong))
+        .await
+        .is_err());
+    assert_eq!(
+        refused(d.call("tasks.list", json!({}), None).await),
+        code::LOCKED
+    );
+}

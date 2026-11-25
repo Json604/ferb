@@ -381,8 +381,11 @@ impl Phones {
                 let mut st = lock(&p.inner.state);
                 gate::unlock_statement(&p.inner, &mut st, &dev, &phone, &a).map_err(coded)
             }),
-            ("phone.lock", |p, s, _| {
-                p.inner.on_session(&s, gate::lock_phone)
+            ("phone.lock", |p, s, a| {
+                let phone = s.phone.clone().unwrap_or_default();
+                let dev = p.inner.live(&phone.device).map_err(coded)?;
+                let mut st = lock(&p.inner.state);
+                gate::lock_phone(&p.inner, &mut st, &dev, &phone, &a).map_err(coded)
             }),
             ("phone.present", |p, s, _| {
                 p.inner.on_session(&s, gate::present)

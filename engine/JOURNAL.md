@@ -13372,3 +13372,75 @@ beforehand"), and, seen earlier, `Dispatchers.resetMain` refused while the app's
 concurrently with setting it"). Both are the test's timing, not the app's: `noFilesUnder` reads a vanished folder as
 "look again", and `settled` retries the Main swap for up to a second. The class passed 8 of 8 runs after the change.
 The same push check's ferb-shell `live` failure passed alone (15/15): load, not code.
+
+## 2026-11-25 · 230 · Lock FERB now in This phone; the lock switch stays
+
+**The owner (PHN-847).** Seeing T-1318's switch (journal 227): "oh, so you meant this by lock switch. hahaha, this
+feature was already there as much as i remember. what i wanted was a lock ferb button, that locks ferb app irrespective
+of the 5minute timer". Asked whether to replace the switch or keep it and add the button: "b, also idts the topbar is a
+good placement for this lock button, its already too overcrowded. have it in the profile modal maybe". T-1318's switch
+was our reading of his earlier "lock button in phone app that can be toggled by user"; it stays by his choice of (b).
+How it is built: PHN-848 (agent).
+
+**The phones** (Android `FerbViewModel.lockNow`, the iPhone's `AppModel.lockNow`; one design, the glass lab's CardRow,
+PHN-416):
+- This phone has "Lock FERB now" right under "Fingerprint to open" (Face ID to open), with the filled lock; not in the
+  top bar. The lab's This phone has no such row; it is the lab's own row kind, nothing new drawn.
+- A tap closes the sheet and locks in the same frame, through the five minutes' own path (PHN-15): `Session.lockNow
+  (byHand)` counts a lock (`Session.locks`, journal 227), so `tellMacOnLock` / `LockTeller` tells the Mac and removes the
+  fetched files, and the view model's lock clearing runs as for any lock. The iPhone sets the gate in the same call
+  (its follows hop a turn). The lock page waits for his tap (no prompt by itself, PHN-616); coming back to the app
+  brings the prompt as any locked arrival does. Nothing is left to wait for, so there is no "Locking…".
+- The one-shot: `Prefs.lockedByHand` (`locked_by_hand`, kept across a new process) is set by the button and cleared
+  when a prompt opens the app (`openApp`, not the unasked open). While set, the lock-off open (`openUnasked`) and the
+  lock-off start page don't apply (`asksToOpen()`), so with the switch off the app shows the lock page and asks; a
+  cancelled prompt, a `recheck` and a new process keep it. The switch itself is untouched.
+
+**The Mac.** Should the Mac stop granting LOCK_OFF_OPEN after a manual lock? Yes, and it could be done through the
+existing call: the app's lock page is the gate for someone holding the phone, but with the switch off the device key
+alone (no prompt) still read chat and tasks; after a lock the owner chose, it shouldn't until he opens the app again.
+- ferb-mobile `lock_by_hand` (ffi `lockByHand`): the same lock, `link.lock {"by_hand": true}`. The bridge passes only
+  that flag on (`phone.lock {by_hand: true}`); an older Mac's bridge drops the params and does the plain lock.
+- The daemon's gate keeps `locked_by_hand` per phone: `lock_off_open` is false for it on every connection until
+  `phone.unlock` or `phone.unlock_statement` succeeds (the prompt's statement on the phone's reopen, or the Mac card's
+  unlock); audited as `phone.lock {by_hand: true}`. A plain lock (five minutes) keeps PHN-846's grant as before. In
+  memory, as the windows are: a daemon restart forgets it (and every window), and the phone's own one-shot still asks.
+
+**Words for the owner to review** (Android; the iPhone where it differs):
+- `profile_lock_now`: "Lock FERB now"
+- `profile_lock_now_detail`: "Opens again with your fingerprint"; iPhone: "Opens again with %@" (Face ID, Touch ID or
+  "your passcode": "Opens again with your passcode")
+
+**kb.** PHN-847 (owner, his words; refines PHN-15 and PHN-835), PHN-848 (agent), LIVE-1218 new; STATUS S11 names this
+journal.
+
+**Evidence.**
+- ferb-daemon `tests/phone_lock_off.rs` (real ferb-rpc server), new
+  `a_lock_by_hand_holds_a_lock_off_phone_until_its_next_signed_unlock`: on a lock-off phone the plain lock keeps tasks open; `phone.lock {by_hand}` refuses tasks, the chat's
+  days and notices (`locked`) on that connection and a new device-proved one, while `chat.status` works and the switch
+  stays off; audited `by_hand`; a later plain lock doesn't end it; the opening prompt's statement ends it (and an hour
+  after the next plain lock tasks are open again), `phone.unlock` ends it, a refused unlock doesn't. `cargo test -p
+  ferb-daemon`: 245 passed, 0 failed; clippy `-D warnings` clean.
+- ferb-link `tests/real_daemon.rs`, new `a_lock_by_hand_crosses_the_bridge_and_holds_a_lock_off_phone` (bridge + real
+  daemon): the switch off, `link.lock` keeps tasks, `link.lock {by_hand}` gives `locked`, the signed unlock opens it.
+  ferb-mobile `tests/remote.rs`, new `locking_by_hand_tells_the_mac_so` (`link.lock` params `{}` then
+  `{"by_hand": true}`; offline false). By their own manifests: ferb-link 77 passed, 5 ignored; ferb-mobile 111;
+  ferb-mobile-ffi 23; clippy (`--features devrelay` for ferb-link) clean; `gate.sh fmt` clean. The link's socket tests
+  need a short build path: cargo resolves a symlinked `--target-dir`, so they ran in `/private/tmp/lkn` (removed).
+- Android (`--offline --no-daemon`): `:app:testDebugUnitTest` 383, `:design:test` 113, 0 failures. New `LockNowTest`:
+  the button locks at once (sheet gone, lock page, the Mac told `lock:hand` once, fetched files gone, no prompt by
+  itself; a second tap nothing; after the unlock the five minutes' lock is the plain one); with the switch off it shows
+  the lock page and asks, the prompt by itself on return, a cancel keeps it, a new process keeps it, a passed prompt
+  clears it and the five minutes then open unasked again; a cancelled prompt and `recheck` keep it; the row in the
+  real profile sheet closes into the lock page. `profile.png` re-recorded and looked at (the row under the switch).
+  One recording run was stopped by a Gradle stop command from outside this worktree; rerun.
+- iPhone: `apps/ios/tools/build.sh test` on its own simulator ("FERB iOS locknow", deleted after), the phone library
+  rebuilt from this change: FerbAppTests 245 (new `LockNowTests`, the same three model cases), FerbDesignTests 75,
+  FerbCoreTests 15 (1 skipped), FerbMobileTests 4, FERBUITests 8, 0 failures; `app/profile-noon.png` re-recorded
+  (`TEST_RUNNER_FERB_RECORD_SNAPSHOTS=1`, only that test) and looked at; `strings.py --check` clean.
+- `tools/kb/run kb lock`, `kb gen`, `kb check`: ok. `git diff --check` clean.
+
+**Unverified.** No device, no install, no live check (LIVE-1218 is new for the owner). Not run: the Android
+instrumented tests; a real prompt after the lock; a real Mac with an older bridge (its plain-lock fallback is read
+from the code: `link.lock` passed `{}` to the daemon whatever it was sent). A daemon restart forgets the Mac's hold
+(the phone's one-shot still asks), not tested across a restart.

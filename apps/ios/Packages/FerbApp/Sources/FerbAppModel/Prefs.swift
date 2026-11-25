@@ -17,6 +17,14 @@ public final class Prefs: @unchecked Sendable {
         set { d.set(newValue, forKey: "app_lock") }
     }
 
+    /// kb PHN-847: the owner locked FERB with "Lock FERB now" and hasn't opened it since: it opens only with Face ID
+    /// (the phone's own kind) or the passcode, even with `lockOnOpen` off. Set by the button, cleared by the next unlock;
+    /// kept across a new process. (Android's lockedByHand.)
+    public var lockedByHand: Bool {
+        get { d.bool(forKey: "locked_by_hand") }
+        set { d.set(newValue, forKey: "locked_by_hand") }
+    }
+
     /// PHN-420 on iOS (kb PHN-810, PHN-811): the pictures of the Mac out of screenshots and FERB hidden while the screen
     /// is recorded or mirrored; on unless the owner turns it off. The app switcher is always covered.
     public var blockScreenshots: Bool {

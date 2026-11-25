@@ -500,6 +500,46 @@ async fn a_phone_opens_on_its_pairing_unlocks_by_statement_and_forgets_itself() 
     );
 }
 
+/// The owner's "Lock FERB now" crosses the bridge (kb PHN-848): `link.lock {by_hand: true}` reaches the daemon's
+/// `phone.lock` with it, so a phone whose app lock is off gets nothing of chat and tasks until its next signed unlock;
+/// the plain `link.lock` keeps them open as before (PHN-846).
+// decision: PHN-848
+// decision: PHN-847
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lock_by_hand_crosses_the_bridge_and_holds_a_lock_off_phone() {
+    let w = real(5).await;
+    let p = TestPhone::start("phone", &w.shared, false, None, true).await;
+    w.pair(&p).await;
+    // the presence proof is the link's own, on its own thread: wait for the first private call to pass
+    let mut open = false;
+    for _ in 0..50 {
+        if p.call("schedules.list", json!({})).await.is_ok() {
+            open = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    assert!(open, "the paired phone's device key was not proved");
+    p.sensitive("phone.lock_off", json!({}))
+        .await
+        .expect("the switch off");
+    p.call("link.lock", json!({})).await.expect("link.lock");
+    assert!(
+        p.call("tasks.list", json!({})).await.is_ok(),
+        "the plain lock keeps a lock-off phone's tasks open"
+    );
+    p.call("link.lock", json!({"by_hand": true}))
+        .await
+        .expect("link.lock by hand");
+    assert_eq!(code(p.call("tasks.list", json!({})).await), errors::LOCKED);
+    p.unlock().await.expect("the signed unlock");
+    p.call("link.lock", json!({})).await.expect("link.lock");
+    assert!(
+        p.call("tasks.list", json!({})).await.is_ok(),
+        "after the signed unlock the grant is back"
+    );
+}
+
 /// FERB.app's controls reach the helper only through the daemon (S4): the pairing code, the status with each phone's
 /// connection, the relay's test in plain words, Always use my relay; the daemon's limit refuses a code before one is
 /// drawn, with the code FERB.app and the link read as `device_limit`.

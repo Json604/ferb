@@ -191,6 +191,10 @@ public final class FerbPhone {
     /// until the next unlock. ok(false): offline.
     public func lock() async -> Outcome<Bool> { await call { try $0.lock() } }
 
+    /// The owner's "Lock FERB now" (kb PHN-847): `lock`, and the Mac is told it was by his hand, so with the app's lock
+    /// switch off it gives chat and tasks again only after the next signed unlock (PHN-848).
+    public func lockByHand() async -> Outcome<Bool> { await call { try $0.lockByHand() } }
+
     /// The app opened by the prompt alone (offline): the conversation is read again once the Mac admits it.
     public func unlocked() async -> Outcome<Void> { await call { try $0.unlocked() } }
 

@@ -543,6 +543,27 @@ fn the_app_lock_switch_is_kept_on_the_mac_off_signed_on_with_nothing() {
     assert_eq!(m.cached_mac_info().unwrap().unwrap().lock_off, Some(false));
 }
 
+/// The owner's "Lock FERB now" (kb PHN-847): the same lock as the five minutes' (the watch stops, the Mac is told),
+/// and the Mac is told it was by his hand (`link.lock {by_hand: true}`, PHN-848); the plain lock sends nothing more.
+// decision: PHN-847
+// decision: PHN-848
+#[test]
+fn locking_by_hand_tells_the_mac_so() {
+    let mac = FakeMac::new("C1");
+    let phone = Phone::new();
+    let m = connected(&phone, &mac, "direct");
+    assert!(m.lock().unwrap());
+    assert!(m.lock_by_hand().unwrap(), "the Mac was told");
+    assert_eq!(
+        mac.calls_of("link.lock"),
+        vec![json!({}), json!({"by_hand": true})]
+    );
+    assert!(!m.link_state().watching && m.link_state().locked);
+    // offline, the lock is the phone's alone
+    m.link_event(common::phone::OFFLINE);
+    assert!(!m.lock_by_hand().unwrap());
+}
+
 /// "Until I'm back at my Mac" (GATE-615): offered per question in the status; the answer is `chat.approve {granted,
 /// until_back}` with no proof (a signer passed is not used), refused `locked` when the unlock window is closed (the
 /// app unlocks and answers again) and refused for a question it wasn't offered on. FERB's use of the screen is read

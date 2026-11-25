@@ -5240,3 +5240,12 @@ request = "In This phone, turn Fingerprint to open (Face ID to open) off, cancel
 pass = "Off asks once; a cancel keeps it on. Off, the app opens straight in, even after 10 minutes: chat, sending and tasks with no fingerprint and no card. A money check, Files and the key place still ask. FERB.app's Settings, Phone shows the phone. On again, opening asks as before."
 decisions = ["PHN-835", "PHN-845", "PHN-846"]
 sitting = "about 15 minutes, one phone after the other"
+
+[LIVE-1218]
+title = "Lock FERB now locks at once and asks to open again, even with Fingerprint to open off"
+area = "phone"
+surface = "FERB.app and the Android APK and iPhone build of this change, paired"
+request = "With Fingerprint to open (Face ID to open) on, open This phone from the top-right button and tap Lock FERB now; unlock. Turn Fingerprint to open off, tap Lock FERB now, swipe the app away and open it again; cancel the prompt once, then pass it. Read the chat, then leave the app for 10 minutes and come back."
+pass = "Each tap closes the sheet into the lock page at once; nothing asks until you tap Unlock or come back to the app. With the switch off it still asks after Lock FERB now, also after the app was swiped away, and a cancel keeps it locked. Once opened, the chat reads as before, and 10 minutes away opens straight in again with no fingerprint. The switch stays off throughout."
+decisions = ["PHN-847", "PHN-848"]
+sitting = "about 10 minutes per phone"

@@ -22,6 +22,15 @@ class Prefs(context: Context) {
         get() = p.getBoolean("app_lock", true)
         set(v) = p.edit().putBoolean("app_lock", v).apply()
 
+    /**
+     * kb PHN-847: the owner locked FERB with "Lock FERB now" and hasn't opened it since: it opens only with the
+     * fingerprint or screen lock, even with [lockOnOpen] off. Set by the button, cleared by the next unlock; kept across
+     * a new process.
+     */
+    var lockedByHand: Boolean
+        get() = p.getBoolean("locked_by_hand", false)
+        set(v) = p.edit().putBoolean("locked_by_hand", v).apply()
+
     /** PHN-420: whole-app screenshot blocking, on unless the owner turns it off. */
     var blockScreenshots: Boolean
         get() = p.getBoolean("secure", true)

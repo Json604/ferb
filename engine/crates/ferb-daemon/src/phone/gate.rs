@@ -4,7 +4,7 @@
 //! (`ferb_rpc::classes`), with the owner's later decisions: routine questions answered from the notification without
 //! the fingerprint (PHN-417), and the six on-screen methods (PHN-117, PHN-120).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use ferb_rpc::auth::{PHONE_FILES, PHONE_SESSION};
@@ -53,6 +53,10 @@ pub(crate) struct State {
     statement_nonces: HashMap<String, HashMap<String, f64>>,
     /// PHN-649: when each phone's app last locked (`phone.lock`): a statement made before it is refused.
     locked_at: HashMap<String, f64>,
+    /// kb PHN-848: the phones whose owner locked the app by hand ("Lock FERB now", `phone.lock {by_hand}`) and that
+    /// haven't unlocked since: their lock-off grant (PHN-846) waits for the next signed unlock. In memory, as the
+    /// windows are.
+    locked_by_hand: HashSet<String>,
 }
 
 fn invalid(why: &str, done: &str) -> Refusal {
@@ -116,6 +120,7 @@ impl State {
         self.windows.remove(device);
         self.statement_nonces.remove(device);
         self.locked_at.remove(device);
+        self.locked_by_hand.remove(device);
         self.seen_written.remove(device);
     }
 
@@ -244,8 +249,12 @@ impl State {
     /// method is one of chat and tasks (`classes::LOCK_OFF_OPEN`): it needs no unlock window. Nothing else changes: a
     /// hard Yes or a hidden answer still carries its own proof, files, memory, settings and every sensitive call
     /// keep theirs.
+    /// Not after the owner locked the app by hand, until its next signed unlock (kb PHN-848).
     pub(crate) fn lock_off_open(&self, dev: &Phone, phone: &PhoneSession, method: &str) -> bool {
-        dev.lock_off && classes::lock_off_open(method) && self.proved_present(phone)
+        dev.lock_off
+            && !self.locked_by_hand.contains(&phone.device)
+            && classes::lock_off_open(method)
+            && self.proved_present(phone)
     }
 
     pub(crate) fn is_unlocked(&mut self, phone: &PhoneSession, now: f64, limits: &Limits) -> bool {
@@ -559,6 +568,7 @@ pub(crate) fn unlock(
         .map_or_else(|r| code_name(r.code), |_| "ok".to_owned());
     inner.audit(&phone.device, "phone.unlock", "link", &outcome, json!({}));
     checked?;
+    st.locked_by_hand.remove(&phone.device);
     let now = inner.mono();
     let w = (now, now + inner.limits.unlock_idle_s);
     st.sess(&phone.device, &phone.session).unlocked = Some(w);
@@ -599,6 +609,7 @@ pub(crate) fn unlock_statement(
         json!({"by": "statement"}),
     );
     checked?;
+    st.locked_by_hand.remove(&phone.device);
     let now = inner.mono();
     let w = (now, now + inner.limits.unlock_idle_s);
     st.sess(&phone.device, &phone.session).unlocked = Some(w);
@@ -663,17 +674,29 @@ fn statement_ok(
     Ok(())
 }
 
-/// `phone.lock`: this phone's unlock ends (the app locked).
+/// `phone.lock`: this phone's unlock ends (the app locked). `{by_hand: true}`: the owner's "Lock FERB now" (kb
+/// PHN-847): a phone whose app lock is off also gets nothing of chat and tasks until its next signed unlock (PHN-848).
+/// Only ever stricter, so it needs no proof.
 pub(crate) fn lock_phone(
     inner: &Inner,
     st: &mut State,
     _dev: &Phone,
     phone: &PhoneSession,
+    params: &Params,
 ) -> Result<Params, Refusal> {
+    let by_hand = params.get("by_hand").and_then(Value::as_bool) == Some(true);
     st.sess(&phone.device, &phone.session).unlocked = None;
     st.windows.remove(&phone.device);
     st.locked_at.insert(phone.device.clone(), inner.mono());
-    inner.audit(&phone.device, "phone.lock", "link", "ok", json!({}));
+    if by_hand {
+        st.locked_by_hand.insert(phone.device.clone());
+    }
+    let detail = if by_hand {
+        json!({"by_hand": true})
+    } else {
+        json!({})
+    };
+    inner.audit(&phone.device, "phone.lock", "link", "ok", detail);
     let mut out = Params::new();
     out.insert("unlocked".into(), json!(false));
     Ok(out)

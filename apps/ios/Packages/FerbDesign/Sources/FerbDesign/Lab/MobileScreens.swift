@@ -830,13 +830,16 @@ public struct ProfileSheet: View {
     var instead: (title: String, detail: String, onClick: (() -> Void)?)?
     /// PHN-801: the connection's row, first (its state as the top bar's badge shows it; its sheet on a tap).
     var connection: AnyView?
+    /// kb PHN-847: "Lock FERB now", right under the lock switch; nothing in the lab.
+    var lockNow: AnyView?
 
     public init(macName: String = "MacBook Pro", pairedSince: String = "10 November", insets: PhoneInsets = .lab,
                 lockOn: Bool = true, stayConnected: Bool = true, onClose: (() -> Void)? = nil, onLock: ((Bool) -> Void)? = nil,
                 onStayConnected: ((Bool) -> Void)? = nil, onForget: (() -> Void)? = nil, more: AnyView? = nil,
                 lockTitle: String = "Face ID to open", instead: (title: String, detail: String, onClick: (() -> Void)?)? = nil,
-                connection: AnyView? = nil) {
+                connection: AnyView? = nil, lockNow: AnyView? = nil) {
         self.connection = connection
+        self.lockNow = lockNow
         self.lockTitle = lockTitle
         self.instead = instead
         self.macName = macName
@@ -861,6 +864,10 @@ public struct ProfileSheet: View {
                 }
                 CardRow(title: lockTitle, detail: "Every time FERB opens") { RowIcon(symbol: "lock") } trailing: {
                     PhoneSwitch(on: lockOn, onChange: onLock, label: lockTitle)
+                }
+                if let lockNow {
+                    Divide()
+                    lockNow
                 }
                 Divide()
                 if let instead {

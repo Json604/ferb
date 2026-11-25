@@ -62,6 +62,9 @@
 
     <!-- chat -->
     <string name="chat_placeholder">Add to this</string>
+    <!-- "Lock FERB now" in This phone (kb PHN-847) -->
+    <string name="profile_lock_now">Lock FERB now</string>
+    <string name="profile_lock_now_detail">Opens again with your fingerprint</string>
     <string name="profile_lock_off_note">Done. FERB now opens your chat and tasks without your fingerprint. It still asks for it before money, deleting, passwords and secrets, and to open files from your Mac.</string>
     <string name="err_mac_older">This needs a newer FERB on your Mac. Update FERB on your Mac, then try again.</string>
     <string name="err_app_older">This needs a newer FERB on this phone. Update the app, then try again.</string>

@@ -163,6 +163,7 @@ class FakePhone : PhoneApi {
     val opens = ArrayList<Boolean>()
     override fun setOpen(on: Boolean) { opens += on }
     override suspend fun lock(): Outcome<Boolean> { calls += "lock"; return Outcome.Ok(true) }
+    override suspend fun lockByHand(): Outcome<Boolean> { calls += "lock:hand"; return Outcome.Ok(true) }
     override suspend fun unlocked(): Outcome<Unit> { calls += "unlocked"; return Outcome.Ok(Unit) }
     override suspend fun stopEverything(): Outcome<Unit> { calls += "stop-everything"; return Outcome.Ok(Unit) }
     /** "Until I'm back" (PHN-611): what the Mac says about screen use, and what "Ask me again" gets. */

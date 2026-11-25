@@ -643,7 +643,9 @@ public final class LockTeller {
         follow = Follow({ session.locks }) { [weak self] n in
             guard let self, n != told else { return }
             told = n
-            Task { _ = await api.lock() }
+            // kb PHN-848: the owner's "Lock FERB now" says so, and the Mac holds a lock-off phone until its next unlock
+            let hand = session.byHand
+            Task { if hand { _ = await api.lockByHand() } else { _ = await api.lock() } }
             local.wipeFetched()
         }
     }

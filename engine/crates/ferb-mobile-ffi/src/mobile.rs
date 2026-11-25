@@ -622,6 +622,12 @@ impl Mobile {
         guard(|| Ok(self.core()?.lock()?))
     }
 
+    /// The owner's "Lock FERB now" (kb PHN-847): `lock`, and the Mac is told it was by his hand, so a phone whose app
+    /// lock is off gets chat and tasks again only after its next signed unlock (PHN-848). Network: not on the UI thread.
+    pub fn lock_by_hand(&self) -> Result<bool, FerbError> {
+        guard(|| Ok(self.core()?.lock_by_hand()?))
+    }
+
     /// The app unlocked without reaching the Mac (offline): the conversation is read again from the next sync, when
     /// the Mac admits it. `unlock` does this itself.
     pub fn unlocked(&self) -> Result<(), FerbError> {

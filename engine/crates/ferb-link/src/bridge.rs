@@ -1740,7 +1740,16 @@ impl Session {
                 self.daemon("phone.unlock", json!({}), req.proof.take())
                     .await
             }
-            "link.lock" => self.daemon("phone.lock", json!({}), None).await,
+            // kb PHN-848: the owner's "Lock FERB now" says so; nothing else of the phone's params reaches the daemon
+            "link.lock" => {
+                let by_hand = req.params.get("by_hand").and_then(Value::as_bool) == Some(true);
+                let params = if by_hand {
+                    json!({"by_hand": true})
+                } else {
+                    json!({})
+                };
+                self.daemon("phone.lock", params, None).await
+            }
             // PHN-649: the unlock signed in the app's opening prompt before the link was up; its age by the phone's
             // steady clock rides beside the signed statement
             "link.unlock_statement" => {

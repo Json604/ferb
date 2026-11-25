@@ -152,6 +152,7 @@ final class FakePhone: PhoneApi {
     var opens: [Bool] = []
     func setOpen(_ on: Bool) { opens.append(on) }
     func lock() async -> Outcome<Bool> { calls.append("lock"); return .ok(true) }
+    func lockByHand() async -> Outcome<Bool> { calls.append("lock:hand"); return .ok(true) }
     func unlocked() async -> Outcome<Void> { calls.append("unlocked"); return .ok(()) }
     func stopEverything() async -> Outcome<Void> { calls.append("stop-everything"); return .ok(()) }
     /// "Until I'm back" (PHN-611): what the Mac says about screen use, and what "Ask me again" gets.
@@ -546,8 +547,9 @@ final class Rig {
     nonisolated static let someone = AccountInfo(id: "11111111-1111-4111-8111-111111111111", email: "someone@example.com", name: "Someone",
                                      providers: ["google"])
 
-    func model(corpus: Corpus? = nil, locator: Locator? = nil, now: (() -> Date)? = nil) -> AppModel {
-        let m = AppModel(api: phone, account: account, session: session, prefs: prefs, local: local, screenLock: { [weak self] in self?.screenLock ?? true },
+    /// `session`: another process's (a test of what a new process shows); the rig's own by default.
+    func model(corpus: Corpus? = nil, locator: Locator? = nil, now: (() -> Date)? = nil, session: Session? = nil) -> AppModel {
+        let m = AppModel(api: phone, account: account, session: session ?? self.session, prefs: prefs, local: local, screenLock: { [weak self] in self?.screenLock ?? true },
                          corpus: corpus, now: now ?? Date.init, locator: locator, timing: timing, steady: { [clock] in clock.t })
         m.prompts = prompts
         return m

@@ -138,7 +138,8 @@ fun tellMacOnLock(scope: kotlinx.coroutines.CoroutineScope, session: Session, ap
     session.locks.collect { n ->
         if (n != told) {
             told = n
-            api.lock()
+            // kb PHN-848: the owner's "Lock FERB now" says so, and the Mac holds a lock-off phone until its next unlock
+            if (session.byHand) api.lockByHand() else api.lock()
             withContext(Dispatchers.IO) { local.wipeFetched() }
         }
     }
@@ -160,6 +161,10 @@ class Session(now: () -> Long) {
 
     /** How many times the app has locked since the process began (a cold start's lock isn't one): [tellMacOnLock]. */
     val locks: StateFlow<Int> = _locks.asStateFlow()
+
+    /** The lock now on is the owner's "Lock FERB now" (kb PHN-847): [tellMacOnLock] tells the Mac so. Until unlocked. */
+    @Volatile var byHand: Boolean = false
+        private set
 
     /** The unlock prompt should appear by itself (PHN-615): the app arrived in front locked. */
     val promptDue: StateFlow<Boolean> = _promptDue.asStateFlow()
@@ -185,12 +190,17 @@ class Session(now: () -> Long) {
     }
 
     fun unlocked() {
+        byHand = false
         lock.unlocked()
         publish()
     }
 
-    /** The owner's own lock from inside the app: the lock page waits for his tap (no prompt by itself, PHN-616). */
-    fun lockNow() {
+    /**
+     * The owner's own lock from inside the app: the lock page waits for his tap (no prompt by itself, PHN-616).
+     * [byHand]: his "Lock FERB now" (kb PHN-847); the same lock as the five minutes' (PHN-15), and the Mac is told so.
+     */
+    fun lockNow(byHand: Boolean = false) {
+        if (!lock.locked) this.byHand = byHand
         lock.lock()
         publish()
     }

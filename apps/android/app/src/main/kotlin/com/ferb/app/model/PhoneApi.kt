@@ -105,6 +105,9 @@ interface PhoneApi {
     /** PHN-15: the app locked: the Mac is told and the conversation waits for the next unlock. */
     suspend fun lock(): Outcome<Boolean>
 
+    /** kb PHN-847, PHN-848: the owner's "Lock FERB now": [lock], and the Mac is told it was by his hand. */
+    suspend fun lockByHand(): Outcome<Boolean> = lock()
+
     /** The app opened by the prompt alone (the Mac out of reach): the next sync reads the conversation again. */
     suspend fun unlocked(): Outcome<Unit>
 
@@ -255,6 +258,7 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override fun setOpen(on: Boolean) = phone.setOpen(on)
     override fun retryLink() = phone.retry()
     override suspend fun lock() = phone.lock()
+    override suspend fun lockByHand() = phone.lockByHand()
     override suspend fun unlocked() = phone.unlocked()
     override suspend fun stopEverything() = phone.stopEverything()
     override suspend fun status() = phone.call { it.status() }

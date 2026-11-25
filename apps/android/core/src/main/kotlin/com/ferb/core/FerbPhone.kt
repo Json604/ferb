@@ -232,6 +232,12 @@ class FerbPhone(
      */
     suspend fun lock(): Outcome<Boolean> = call { it.lock() }
 
+    /**
+     * The owner's "Lock FERB now" (kb PHN-847): [lock], and the Mac is told it was by his hand, so with the app's lock
+     * switch off it gives chat and tasks again only after the next signed unlock (PHN-848).
+     */
+    suspend fun lockByHand(): Outcome<Boolean> = call { it.lockByHand() }
+
     /** The app opened by the prompt alone (offline): the conversation is read again once the Mac admits it. */
     suspend fun unlocked(): Outcome<Unit> = call { it.unlocked() }
 

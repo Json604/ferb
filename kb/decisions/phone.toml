@@ -4465,3 +4465,27 @@ words_source = "Owner 2026-11-25, shown T-1318's design: (a) as built, one finge
 rule = "Refines PHN-125 and PHN-835: a phone whose app lock the owner turned off gets its chat and tasks from the Mac with no fingerprint and no unlock window, from a connection that proved the phone's device key. Money, deleting, secrets, files and other important actions keep their proofs (PHN-105, PHN-110, PHN-112, PHN-121, PHN-129, PHN-133, PHN-137). The list of what opens is classes::LOCK_OFF_OPEN."
 why = "His choice of (b)."
 live = ["LIVE-1217"]
+
+
+[PHN-847]
+title = "Lock FERB now in This phone locks the app at once, whatever the five minutes; the lock switch stays"
+by = "owner"
+date = 2026-11-25
+status = "active"
+words = "oh, so you meant this by lock switch. hahaha, this feature was already there as much as i remember. what i wanted was a lock ferb button, that locks ferb app irrespective of the 5minute timer / b, also idts the topbar is a good placement for this lock button, its already too overcrowded. have it in the profile modal maybe"
+words_source = "Owner 2026-11-25, after seeing T-1318's lock switch (PHN-835, PHN-846), then asked whether to (a) replace the switch with a button or (b) keep the switch and add the button."
+rule = "Refines PHN-15 and PHN-835. This phone (the profile sheet the top-right button opens), not the top bar, has Lock FERB now on both phones. A tap locks the app at once by the five-minute lock's own path (the lock page, the Mac told, the fetched files removed), and the app then opens only with the fingerprint, face or device lock, even with Fingerprint to open off, until that prompt passes. T-1318's switch was our reading of his earlier \"lock button in phone app that can be toggled by user\"; it stays by his choice of (b)."
+why = "He wanted a button that locks FERB now, not only after five minutes away."
+live = ["LIVE-1218"]
+
+
+[PHN-848]
+title = "Lock FERB now: a one-shot on the phone; the Mac holds a lock-off phone until its next signed unlock"
+by = "agent"
+date = 2026-11-25
+status = "active"
+rule = "For PHN-847. The row closes the sheet and calls Session.lockNow(byHand); the phone keeps locked_by_hand (prefs, kept across a new process) until a prompt opens the app, and while it is set the lock-off open (openUnasked) and start page don't apply. The Mac is told link.lock {by_hand: true}, which the bridge passes as phone.lock {by_hand}; the daemon then gives that phone nothing of classes::LOCK_OFF_OPEN on any connection until phone.unlock or phone.unlock_statement succeeds (in memory, like the windows). An older Mac takes it as the plain lock. No Locking… state: the lock is the phone's own."
+why = "The app's lock page is the gate for someone holding the phone; the Mac's hold keeps the device key alone from reading chat and tasks after a lock the owner chose, and the five-minute lock keeps PHN-846's grant."
+rejected = ["A new link method for the lock by hand: an older Mac refuses an unknown method, while the parameter falls back to the plain lock", "Keeping the hold in the store: a daemon restart already ends every unlock window, and the phone's own one-shot survives a restart of either side"]
+paths = ["apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt", "apps/android/app/src/main/kotlin/com/ferb/app/FerbApplication.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppModel.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppLock.swift", "engine/crates/ferb-mobile/src/remote.rs", "engine/crates/ferb-link/src/bridge.rs", "engine/crates/ferb-daemon/src/phone/gate.rs"]
+live = ["LIVE-1218"]

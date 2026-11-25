@@ -729,12 +729,13 @@ public final class AppModel {
         switch s {
         // the lock page needs neither the library, the store nor the link: it shows at the first frame (PHN-633)
         // signed out (kb PHN-827): the sign-in, right after the lock and before anything else of FERB's
-        // with the owner's lock switch off there is no lock page: the start's, the moment before it opens (PHN-845)
-        case .closed, .starting: gate = !screenLock() ? .noScreenLock : locked ? (settings.lockOn ? .locked : .starting) : !signedIn ? .signIn : .starting
+        // with the owner's lock switch off there is no lock page: the start's, the moment before it opens (PHN-845),
+        // unless he locked it by hand (kb PHN-847)
+        case .closed, .starting: gate = !screenLock() ? .noScreenLock : locked ? (asksToOpen() ? .locked : .starting) : !signedIn ? .signIn : .starting
         case .failed: gate = !signedIn && !locked && screenLock() ? .signIn : .failed
         case .open:
             if !screenLock() { gate = .noScreenLock }
-            else if locked { gate = settings.lockOn ? .locked : .starting }
+            else if locked { gate = asksToOpen() ? .locked : .starting }
             else if !signedIn { gate = .signIn }
             else if let l {
                 if l.phase == .pairingWaitForMac { gate = .codes }
@@ -1101,6 +1102,8 @@ public final class AppModel {
 
     /// The app is open: the lock's state, the open's facts (PHN-13). `unasked`: without the prompt (PHN-846).
     private func openApp(unasked: Bool = false) {
+        // kb PHN-847: the prompt passed: "Lock FERB now" is spent
+        if !unasked { prefs.lockedByHand = false }
         session.unlocked()
         opened()
         statementExpired = false
@@ -1119,7 +1122,7 @@ public final class AppModel {
     /// and everything else asks as before (files after the idle minutes, a hard Yes, a private answer, a setting). A
     /// phone with no passcode still can't use the app. (Android's openUnasked.)
     private func openUnasked() {
-        guard lockHandled, session.locked, session.front, !settings.lockOn, screenLock(), ui.gate != .failed else { return }
+        guard lockHandled, session.locked, session.front, !asksToOpen(), screenLock(), ui.gate != .failed else { return }
         AppLog.i("opened without the lock: the owner's switch is off")
         lockHandled = false
         openApp(unasked: true)
@@ -1128,6 +1131,25 @@ public final class AppModel {
             // no unlock statement reads the chat this time: the link already up reads it now (else its coming online)
             if api.link?.paired == true && api.link?.phase == .online { await syncNow() }
         }
+    }
+
+    /// The locked app opens only with the prompt: the owner's lock switch is on (kb PHN-835), or he locked it with
+    /// "Lock FERB now" and hasn't opened it since (kb PHN-847).
+    private func asksToOpen() -> Bool { settings.lockOn || prefs.lockedByHand }
+
+    /// "Lock FERB now" in This phone (kb PHN-847; Android's lockNow): the app locks at once, by the five minutes' own
+    /// path (PHN-15: the lock page, the Mac told, the fetched files gone; `LockTeller`), the sheet closing into the lock
+    /// page in the same frame. It opens again only with the prompt, even with the lock switch off, until that prompt
+    /// passes; the Mac is told it was by hand, so it holds a lock-off phone's chat and tasks until the next signed
+    /// unlock (PHN-848).
+    public func lockNow() {
+        guard !session.locked else { return }
+        AppLog.i("locked by hand")
+        prefs.lockedByHand = true
+        sheet = nil
+        session.lockNow(byHand: true)
+        // the lock page in this same update, not after the gate's follow hops (the rest of the lock's clearing follows)
+        gateOf(api.state, api.link, session.locked)
     }
 
     /// This phone's "Face ID to open" (kb PHN-835, PHN-846; Android's setAppLock). Off is the Mac's to keep: one prompt

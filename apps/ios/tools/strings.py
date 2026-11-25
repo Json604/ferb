@@ -32,6 +32,8 @@ IOS = {
     "no_lock_text": "This app controls your Mac, so it needs Face ID, Touch ID or your passcode. This iPhone has no passcode. Set one in Settings, then come back.",
     # the app's lock switch (kb PHN-835, PHN-846): the phone's own kind; the system prompt shows only its reason line
     "prompt_lock_off_subtitle": "FERB will open your chat and tasks without %@",
+    # "Lock FERB now" (kb PHN-847): the phone's own kind
+    "profile_lock_now_detail": "Opens again with %@",
     "profile_lock_off_note": "Done. FERB now opens your chat and tasks without %@. It still asks for it before money, deleting, passwords and secrets, and to open files from your Mac.",
     # the system prompt shows one line of the app's (its reason); Face ID's own sheet shows the app's name
     "prompt_keys_subtitle": "Your Mac can then ask for %@ before FERB goes ahead",

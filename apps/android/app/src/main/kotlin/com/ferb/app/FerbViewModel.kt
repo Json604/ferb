@@ -651,8 +651,9 @@ class FerbViewModel(
             s is PhoneState.Failed -> Gate.FAILED
             !screenLock() -> Gate.NO_SCREEN_LOCK
             // the lock page needs neither the library, the store nor the link: it shows at the first frame (PHN-633);
-            // with the owner's lock switch off there is no lock page: the start's, the moment before it opens (PHN-845)
-            locked -> if (_settings.value.lockOn) Gate.LOCKED else Gate.STARTING
+            // with the owner's lock switch off there is no lock page: the start's, the moment before it opens (PHN-845),
+            // unless he locked it by hand (kb PHN-847)
+            locked -> if (asksToOpen()) Gate.LOCKED else Gate.STARTING
             // kb PHN-827: FERB's account first, before anything else; it needs neither the library nor the link
             !u.account.known -> Gate.STARTING
             u.account.account == null -> Gate.SIGN_IN
@@ -1041,6 +1042,8 @@ class FerbViewModel(
 
     /** The app is open: the lock's state, the open's facts (PHN-13). [unasked]: without the prompt (PHN-846). */
     private fun openApp(unasked: Boolean = false) {
+        // kb PHN-847: the prompt passed: "Lock FERB now" is spent
+        if (!unasked) prefs.lockedByHand = false
         session.unlocked()
         opened()
         statementExpired = false
@@ -1055,7 +1058,7 @@ class FerbViewModel(
      * with no screen lock still can't use the app.
      */
     private fun openUnasked() {
-        if (!lockHandled || !session.locked.value || !session.front.value || _settings.value.lockOn || !screenLock()) return
+        if (!lockHandled || !session.locked.value || !session.front.value || asksToOpen() || !screenLock()) return
         if (_ui.value.gate == Gate.FAILED) return
         AppLog.i("opened without the lock: the owner's switch is off")
         lockHandled = false
@@ -1066,6 +1069,26 @@ class FerbViewModel(
             val l = api.link.value
             if (l?.paired == true && l.phase == LinkPhase.ONLINE) syncNow()
         }
+    }
+
+    /**
+     * The locked app opens only with the prompt: the owner's lock switch is on (kb PHN-835), or he locked it with "Lock
+     * FERB now" and hasn't opened it since (kb PHN-847).
+     */
+    private fun asksToOpen(): Boolean = _settings.value.lockOn || prefs.lockedByHand
+
+    /**
+     * "Lock FERB now" in This phone (kb PHN-847): the app locks at once, by the five minutes' own path (PHN-15: the
+     * lock page, the Mac told, the fetched files gone; [tellMacOnLock]), the sheet closing into the lock page in the
+     * same frame. It opens again only with the prompt, even with the lock switch off, until that prompt passes; the
+     * Mac is told it was by hand, so it holds a lock-off phone's chat and tasks until the next signed unlock (PHN-848).
+     */
+    fun lockNow() {
+        if (session.locked.value) return
+        AppLog.i("locked by hand")
+        prefs.lockedByHand = true
+        _sheet.value = null
+        session.lockNow(byHand = true)
     }
 
     /**

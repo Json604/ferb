@@ -443,6 +443,17 @@ impl Mobile {
     /// waits still arrives as the Mac's status (PHN-126). Offline, the Mac's window ends by itself after its idle time;
     /// returns whether the Mac was told.
     pub fn lock(&self) -> MobileResult<bool> {
+        self.lock_as(false)
+    }
+
+    /// The owner's "Lock FERB now" (kb PHN-847): the same lock, and the Mac is told it was by his hand
+    /// (`link.lock {by_hand: true}`), so a phone whose app lock is off gets nothing of chat and tasks until its next
+    /// signed unlock (PHN-848). An older Mac takes it as the plain lock.
+    pub fn lock_by_hand(&self) -> MobileResult<bool> {
+        self.lock_as(true)
+    }
+
+    fn lock_as(&self, by_hand: bool) -> MobileResult<bool> {
         let watch = {
             let mut st = self.shared.open_state()?;
             st.locked = true;
@@ -457,7 +468,8 @@ impl Mobile {
         let Ok(t) = self.shared.transport_online() else {
             return Ok(false);
         };
-        t.call("link.lock", "{}", None)
+        let params = if by_hand { r#"{"by_hand":true}"# } else { "{}" };
+        t.call("link.lock", params, None)
             .map_err(MobileError::from_link)?;
         Ok(true)
     }

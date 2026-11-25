@@ -250,6 +250,11 @@ private fun Profile(vm: FerbViewModel, ui: UiState, insets: PhoneInsets, host: H
         // kb PHN-835, PHN-845: Fingerprint to open, on by default; turning it off takes the prompt
         lockOn = s.lockOn,
         onLock = if ("app-lock" in ui.busy) null else ({ on -> vm.setAppLock(on) }),
+        // kb PHN-847: locks at once, whatever the switch says; the sheet closes into the lock page
+        lockNow = {
+            CardRow(stringResource(R.string.profile_lock_now), stringResource(R.string.profile_lock_now_detail),
+                onClick = vm::lockNow, leading = { RowIcon(FerbIcons.lockFill) })
+        },
         stayConnected = s.stayConnected,
         onClose = close,
         onStayConnected = host::stayConnected,

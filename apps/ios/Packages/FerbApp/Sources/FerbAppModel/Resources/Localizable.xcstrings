@@ -2708,6 +2708,28 @@
         }
       }
     },
+    "profile_lock_now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lock FERB now"
+          }
+        }
+      }
+    },
+    "profile_lock_now_detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens again with %@"
+          }
+        }
+      }
+    },
     "profile_lock_off_note": {
       "extractionState": "manual",
       "localizations": {

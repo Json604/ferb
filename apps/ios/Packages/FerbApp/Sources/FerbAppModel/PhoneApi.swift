@@ -44,6 +44,8 @@ public protocol PhoneApi: AnyObject {
     func retryLink()
     /// PHN-15: the app locked: the Mac is told and the conversation waits for the next unlock.
     func lock() async -> Outcome<Bool>
+    /// kb PHN-847, PHN-848: the owner's "Lock FERB now": `lock`, and the Mac is told it was by his hand.
+    func lockByHand() async -> Outcome<Bool>
     /// The app opened by the prompt alone (the Mac out of reach): the next sync reads the conversation again.
     func unlocked() async -> Outcome<Void>
     /// "Stop everything on the Mac" (`stop.engage`): no prompt, works locked, never queued.
@@ -136,6 +138,7 @@ public protocol PhoneApi: AnyObject {
 /// Listings and searches a page at a time (kb PHN-606): `after` is the page before's `next` ("Load more").
 public extension PhoneApi {
     func retryLink() {}
+    func lockByHand() async -> Outcome<Bool> { await lock() }
     func files(path: String?, signer: Signer?) async -> Outcome<Folder> { await files(path: path, signer: signer, after: nil) }
     func searchFiles(query: String, path: String?) async -> Outcome<FoundFiles> { await searchFiles(query: query, path: path, after: nil) }
 }
@@ -194,6 +197,7 @@ public final class LibraryPhone: PhoneApi {
     public func setOpen(_ on: Bool) { phone.setOpen(on) }
     public func retryLink() { phone.retry() }
     public func lock() async -> Outcome<Bool> { await phone.lock() }
+    public func lockByHand() async -> Outcome<Bool> { await phone.lockByHand() }
     public func unlocked() async -> Outcome<Void> { await phone.unlocked() }
     public func stopEverything() async -> Outcome<Void> { await phone.stopEverything() }
     public func status() async -> Outcome<PhoneStatus> { await phone.call { try $0.status() } }
