@@ -326,8 +326,8 @@ impl ferb_clock::tools::TimerBook for DbBook {
     }
 }
 
-/// add_trail, task.evidence, time, wait.for, skills.read, the context readers, secrets.list, about.read,
-/// about.diagnostics, conversation.read, memory.learned.
+/// add_trail, task.evidence, time, wait.for, skills.read, the context readers, the front door's tools, secrets.list,
+/// about.read, about.diagnostics, conversation.read, memory.learned.
 pub fn rest(p: &Parts) -> Vec<Arc<dyn Tool>> {
     let book: Arc<dyn ferb_clock::tools::TimerBook + Send + Sync> = Arc::new(DbBook {
         db: p.db(),
@@ -356,6 +356,13 @@ pub fn rest(p: &Parts) -> Vec<Arc<dyn Tool>> {
         super::waits::wait_for(p),
         ctx("skills.read"),
         ctx("chat.history"),
+        // ORCH-736: the front door's own tools, after chat.history (the catalog's additions), offered only to its grant
+        super::context::front_door(p, "chat.ask"),
+        super::context::front_door(p, "chat.control_task"),
+        super::context::front_door(p, "chat.dispatch_task"),
+        super::context::front_door(p, "chat.remember"),
+        super::context::front_door(p, "chat.schedule"),
+        super::context::front_door(p, "chat.set_reminder"),
         ctx("memory.read"),
         ctx("secrets.list"),
         ctx("about.read"),

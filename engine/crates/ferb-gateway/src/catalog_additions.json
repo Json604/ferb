@@ -487,6 +487,1748 @@
     "observation": false,
     "origin": "ferb"
    }
+  },
+  {
+   "decision": "ORCH-736",
+   "after": "chat.history",
+   "name": "chat.ask",
+   "description": "Ask the owner one short question about a missing what, who or which. Write nothing else in this reply.",
+   "input_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "question": {
+      "type": "string"
+     },
+     "why": {
+      "type": "string",
+      "description": "Optional short explanation of what this action does toward the owner's request."
+     }
+    },
+    "required": [
+     "question"
+    ],
+    "title": "Input",
+    "type": "object"
+   },
+   "added_by_gateway": [
+    "why"
+   ],
+   "acts": false,
+   "scopes": [
+    "chat:act"
+   ],
+   "identities": [
+    "owner"
+   ],
+   "facts": {
+    "risk": 1,
+    "reversible": true,
+    "observation": false,
+    "origin": "ferb",
+    "named_only": true
+   }
+  },
+  {
+   "decision": "ORCH-736",
+   "after": "chat.history",
+   "name": "chat.control_task",
+   "description": "Stop, pause, continue, correct or retry a task in the live tasks list; answer a question on a task's card; pause or stop a conversation FERB holds for the owner.",
+   "input_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "control": {
+      "anyOf": [
+       {
+        "type": "null"
+       },
+       {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "task_id",
+         "action",
+         "new_goal",
+         "standing_sends",
+         "supersedes"
+        ],
+        "properties": {
+         "task_id": {
+          "type": "string"
+         },
+         "action": {
+          "type": "string",
+          "enum": [
+           "stop",
+           "retry",
+           "continue",
+           "pause"
+          ]
+         },
+         "new_goal": {
+          "type": "boolean"
+         },
+         "standing_sends": {
+          "anyOf": [
+           {
+            "type": "string",
+            "enum": [
+             "unchanged"
+            ]
+           },
+           {
+            "type": "array",
+            "items": {
+             "type": "object",
+             "additionalProperties": false,
+             "required": [
+              "capability",
+              "identity",
+              "account",
+              "site",
+              "recipients",
+              "content"
+             ],
+             "properties": {
+              "capability": {
+               "type": "string"
+              },
+              "identity": {
+               "type": "string",
+               "enum": [
+                "owner",
+                "ferb"
+               ]
+              },
+              "account": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "site": {
+               "type": [
+                "string",
+                "null"
+               ]
+              },
+              "recipients": {
+               "type": "array",
+               "items": {
+                "type": "string"
+               }
+              },
+              "content": {
+               "type": [
+                "string",
+                "null"
+               ]
+              }
+             },
+             "description": "One exact send scope. Posting from the owner's browser (a campaign): capability browser.act, site the page's host (x.com), recipients [] for public posts, content null unless the owner gave the exact text, account the account the posts go out from."
+            }
+           }
+          ]
+         },
+         "supersedes": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      ]
+     },
+     "answer_question": {
+      "anyOf": [
+       {
+        "type": "null"
+       },
+       {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "approval_id",
+         "answer"
+        ],
+        "properties": {
+         "approval_id": {
+          "type": "string"
+         },
+         "answer": {
+          "type": "string"
+         }
+        }
+       }
+      ]
+     },
+     "conversation_changes": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "id",
+        "action",
+        "quote"
+       ],
+       "properties": {
+        "id": {
+         "type": "string"
+        },
+        "action": {
+         "type": "string",
+         "enum": [
+          "pause",
+          "resume",
+          "takeover",
+          "close"
+         ]
+        },
+        "quote": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "answers_question": {
+      "type": "boolean"
+     },
+     "why": {
+      "type": "string",
+      "description": "Optional short explanation of what this action does toward the owner's request."
+     }
+    },
+    "title": "Input",
+    "type": "object"
+   },
+   "added_by_gateway": [
+    "why"
+   ],
+   "acts": false,
+   "scopes": [
+    "chat:act"
+   ],
+   "identities": [
+    "owner"
+   ],
+   "facts": {
+    "risk": 1,
+    "reversible": true,
+    "observation": false,
+    "origin": "ferb",
+    "named_only": true
+   }
+  },
+  {
+   "decision": "ORCH-736",
+   "after": "chat.history",
+   "name": "chat.dispatch_task",
+   "description": "Start one task on the Mac, the web or in an app. ack comes first: the one line the owner reads while it starts, in their words. FERB shows it once the task is accepted. task is the goal, the owner's quotes, and what the task may use. Set answers_question when this message answers FERB's previous question.",
+   "input_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "ack": {
+      "type": "string"
+     },
+     "task": {
+      "anyOf": [
+       {
+        "type": "null"
+       },
+       {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "goal",
+         "name",
+         "identity",
+         "worker_type",
+         "targets",
+         "success_conditions",
+         "plan",
+         "folders",
+         "keep_tabs_open",
+         "parts",
+         "earlier_results",
+         "profiles"
+        ],
+        "properties": {
+         "goal": {
+          "type": "string"
+         },
+         "name": {
+          "type": "string"
+         },
+         "identity": {
+          "type": "string",
+          "enum": [
+           "owner",
+           "ferb"
+          ]
+         },
+         "worker_type": {
+          "type": "string"
+         },
+         "targets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "apps",
+           "sites",
+           "paths",
+           "recipients"
+          ],
+          "properties": {
+           "apps": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            }
+           },
+           "sites": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            }
+           },
+           "paths": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            }
+           },
+           "recipients": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            }
+           }
+          }
+         },
+         "success_conditions": {
+          "type": "array",
+          "items": {
+           "type": "object",
+           "additionalProperties": false,
+           "required": [
+            "text",
+            "owner_text",
+            "layer",
+            "check"
+           ],
+           "properties": {
+            "text": {
+             "type": "string"
+            },
+            "owner_text": {
+             "type": "string"
+            },
+            "layer": {
+             "type": "string",
+             "enum": [
+              "outcome",
+              "intake",
+              "artifact",
+              "external"
+             ]
+            },
+            "check": {
+             "anyOf": [
+              {
+               "type": "null"
+              },
+              {
+               "type": "object",
+               "additionalProperties": false,
+               "required": [
+                "kind",
+                "path",
+                "text",
+                "url_contains",
+                "site",
+                "expected",
+                "tool"
+               ],
+               "properties": {
+                "kind": {
+                 "type": "string",
+                 "enum": [
+                  "none",
+                  "file_exists",
+                  "file_contains",
+                  "tab_url",
+                  "account",
+                  "after_change",
+                  "after_value",
+                  "sent",
+                  "paid",
+                  "submitted",
+                  "trashed",
+                  "deleted",
+                  "downloaded",
+                  "uploaded"
+                 ]
+                },
+                "path": {
+                 "type": [
+                  "string",
+                  "null"
+                 ]
+                },
+                "text": {
+                 "type": [
+                  "string",
+                  "null"
+                 ]
+                },
+                "url_contains": {
+                 "type": [
+                  "string",
+                  "null"
+                 ]
+                },
+                "site": {
+                 "type": [
+                  "string",
+                  "null"
+                 ]
+                },
+                "expected": {
+                 "type": [
+                  "string",
+                  "null"
+                 ]
+                },
+                "tool": {
+                 "type": [
+                  "string",
+                  "null"
+                 ]
+                }
+               }
+              }
+             ]
+            }
+           }
+          },
+          "minItems": 1
+         },
+         "plan": {
+          "anyOf": [
+           {
+            "type": "null"
+           },
+           {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+             "steps",
+             "input_paths",
+             "big_job",
+             "time_estimate",
+             "cost_estimate",
+             "standing_sends"
+            ],
+            "properties": {
+             "steps": {
+              "type": "array",
+              "items": {
+               "type": "object",
+               "additionalProperties": false,
+               "required": [
+                "id",
+                "kind",
+                "label",
+                "goal",
+                "depends_on",
+                "inputs",
+                "worker_type",
+                "conditions",
+                "until",
+                "event",
+                "event_match",
+                "question",
+                "options",
+                "conversation",
+                "repeat",
+                "earlier_results"
+               ],
+               "properties": {
+                "id": {
+                 "type": "string"
+                },
+                "kind": {
+                 "type": "string",
+                 "enum": [
+                  "do",
+                  "wait",
+                  "ask",
+                  "converse"
+                 ]
+                },
+                "label": {
+                 "type": "string"
+                },
+                "goal": {
+                 "type": "string"
+                },
+                "depends_on": {
+                 "type": "array",
+                 "items": {
+                  "type": "string"
+                 }
+                },
+                "inputs": {
+                 "type": "array",
+                 "items": {
+                  "type": "string"
+                 }
+                },
+                "worker_type": {
+                 "type": "string"
+                },
+                "conditions": {
+                 "type": "array",
+                 "items": {
+                  "type": "string"
+                 }
+                },
+                "until": {
+                 "type": [
+                  "string",
+                  "null"
+                 ]
+                },
+                "event": {
+                 "type": [
+                  "string",
+                  "null"
+                 ]
+                },
+                "event_match": {
+                 "type": "array",
+                 "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                   "field",
+                   "value"
+                  ],
+                  "properties": {
+                   "field": {
+                    "type": "string"
+                   },
+                   "value": {
+                    "type": "string"
+                   }
+                  }
+                 }
+                },
+                "question": {
+                 "type": "string"
+                },
+                "options": {
+                 "type": "array",
+                 "items": {
+                  "type": "string"
+                 }
+                },
+                "conversation": {
+                 "anyOf": [
+                  {
+                   "type": "null"
+                  },
+                  {
+                   "type": "object",
+                   "additionalProperties": false,
+                   "required": [
+                    "identity",
+                    "account",
+                    "site",
+                    "app",
+                    "thread",
+                    "recipients",
+                    "topic",
+                    "handover_when",
+                    "window_id"
+                   ],
+                   "properties": {
+                    "identity": {
+                     "type": "string",
+                     "enum": [
+                      "owner",
+                      "ferb"
+                     ]
+                    },
+                    "account": {
+                     "type": "string"
+                    },
+                    "site": {
+                     "type": "string"
+                    },
+                    "app": {
+                     "type": "string"
+                    },
+                    "thread": {
+                     "type": "string"
+                    },
+                    "recipients": {
+                     "type": "array",
+                     "items": {
+                      "type": "string"
+                     }
+                    },
+                    "topic": {
+                     "type": "string"
+                    },
+                    "handover_when": {
+                     "type": "string"
+                    },
+                    "window_id": {
+                     "type": [
+                      "string",
+                      "null"
+                     ]
+                    }
+                   }
+                  }
+                 ]
+                },
+                "repeat": {
+                 "anyOf": [
+                  {
+                   "type": "null"
+                  },
+                  {
+                   "type": "object",
+                   "additionalProperties": false,
+                   "required": [
+                    "end_when",
+                    "event",
+                    "event_match"
+                   ],
+                   "properties": {
+                    "end_when": {
+                     "type": "string"
+                    },
+                    "event": {
+                     "type": [
+                      "string",
+                      "null"
+                     ]
+                    },
+                    "event_match": {
+                     "type": "array",
+                     "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                       "field",
+                       "value"
+                      ],
+                      "properties": {
+                       "field": {
+                        "type": "string"
+                       },
+                       "value": {
+                        "type": "string"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  }
+                 ]
+                },
+                "earlier_results": {
+                 "type": "array",
+                 "items": {
+                  "type": "string"
+                 }
+                }
+               }
+              }
+             },
+             "input_paths": {
+              "type": "array",
+              "items": {
+               "type": "string"
+              }
+             },
+             "big_job": {
+              "type": "boolean"
+             },
+             "time_estimate": {
+              "type": "string"
+             },
+             "cost_estimate": {
+              "type": "string"
+             },
+             "standing_sends": {
+              "type": "array",
+              "items": {
+               "type": "object",
+               "additionalProperties": false,
+               "required": [
+                "capability",
+                "identity",
+                "account",
+                "site",
+                "recipients",
+                "content"
+               ],
+               "properties": {
+                "capability": {
+                 "type": "string"
+                },
+                "identity": {
+                 "type": "string",
+                 "enum": [
+                  "owner",
+                  "ferb"
+                 ]
+                },
+                "account": {
+                 "type": [
+                  "string",
+                  "null"
+                 ]
+                },
+                "site": {
+                 "type": [
+                  "string",
+                  "null"
+                 ]
+                },
+                "recipients": {
+                 "type": "array",
+                 "items": {
+                  "type": "string"
+                 }
+                },
+                "content": {
+                 "type": [
+                  "string",
+                  "null"
+                 ]
+                }
+               },
+               "description": "One exact send scope. Posting from the owner's browser (a campaign): capability browser.act, site the page's host (x.com), recipients [] for public posts, content null unless the owner gave the exact text, account the account the posts go out from."
+              }
+             }
+            }
+           }
+          ]
+         },
+         "folders": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          }
+         },
+         "keep_tabs_open": {
+          "type": "boolean"
+         },
+         "parts": {
+          "type": "array",
+          "items": {
+           "type": "object",
+           "additionalProperties": false,
+           "required": [
+            "id",
+            "quote",
+            "label",
+            "direct",
+            "answer_step",
+            "conditions"
+           ],
+           "properties": {
+            "id": {
+             "type": "string"
+            },
+            "quote": {
+             "type": "string"
+            },
+            "label": {
+             "type": "string"
+            },
+            "direct": {
+             "type": [
+              "string",
+              "null"
+             ]
+            },
+            "answer_step": {
+             "type": [
+              "string",
+              "null"
+             ]
+            },
+            "conditions": {
+             "type": "array",
+             "items": {
+              "type": "integer"
+             }
+            }
+           }
+          }
+         },
+         "earlier_results": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          }
+         },
+         "profiles": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "The owner's browser profiles that the owner's own words name for this task (by name, account, browser or a description you resolve from the browser profiles you were given), each as browser/profile from that list (\"chrome/Profile 2\"). The task's browser calls that name no profile then go there. [] when their words name none: the task then uses the profile the owner picked for FERB's web work. When this message names none, a profile the owner's own earlier words name for this kind of work (a remembered item marked \"your words\") counts; never one FERB only observed or inferred, or an earlier task's. A profile this message names replaces a remembered one. A correction naming another profile for a running task lists it here."
+         }
+        }
+       }
+      ]
+     },
+     "answers_question": {
+      "type": "boolean"
+     },
+     "why": {
+      "type": "string",
+      "description": "Optional short explanation of what this action does toward the owner's request."
+     }
+    },
+    "required": [
+     "ack"
+    ],
+    "title": "Input",
+    "type": "object"
+   },
+   "added_by_gateway": [
+    "why"
+   ],
+   "acts": false,
+   "scopes": [
+    "chat:act"
+   ],
+   "identities": [
+    "owner"
+   ],
+   "facts": {
+    "risk": 1,
+    "reversible": true,
+    "observation": false,
+    "origin": "ferb",
+    "named_only": true
+   }
+  },
+  {
+   "decision": "ORCH-736",
+   "after": "chat.history",
+   "name": "chat.remember",
+   "description": "Remember something the owner said, or forget something FERB remembers, quoting the owner's exact words. FERB tells the owner what changed.",
+   "input_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "remember": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "kind",
+        "subject",
+        "key",
+        "content",
+        "quote",
+        "login_origin",
+        "until",
+        "replaces",
+        "review_in_days"
+       ],
+       "properties": {
+        "kind": {
+         "type": "string",
+         "enum": [
+          "fact",
+          "preference",
+          "person",
+          "project",
+          "env"
+         ]
+        },
+        "subject": {
+         "type": "string"
+        },
+        "key": {
+         "type": "string"
+        },
+        "content": {
+         "type": "string"
+        },
+        "quote": {
+         "type": "string"
+        },
+        "login_origin": {
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "until": {
+         "anyOf": [
+          {
+           "type": "null"
+          },
+          {
+           "type": "object",
+           "additionalProperties": false,
+           "required": [
+            "quote",
+            "day",
+            "date",
+            "in_days"
+           ],
+           "properties": {
+            "quote": {
+             "type": "string"
+            },
+            "day": {
+             "anyOf": [
+              {
+               "type": "string",
+               "enum": [
+                "today",
+                "tomorrow",
+                "day_after_tomorrow",
+                "end_of_month",
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+                "next_monday",
+                "next_tuesday",
+                "next_wednesday",
+                "next_thursday",
+                "next_friday",
+                "next_saturday",
+                "next_sunday"
+               ]
+              },
+              {
+               "type": "null"
+              }
+             ]
+            },
+            "date": {
+             "type": [
+              "string",
+              "null"
+             ]
+            },
+            "in_days": {
+             "type": [
+              "integer",
+              "null"
+             ]
+            }
+           }
+          }
+         ]
+        },
+        "replaces": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "review_in_days": {
+         "type": "integer"
+        }
+       }
+      }
+     },
+     "forget": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "item_id",
+        "quote"
+       ],
+       "properties": {
+        "item_id": {
+         "type": "string"
+        },
+        "quote": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "answers_question": {
+      "type": "boolean"
+     },
+     "why": {
+      "type": "string",
+      "description": "Optional short explanation of what this action does toward the owner's request."
+     }
+    },
+    "title": "Input",
+    "type": "object"
+   },
+   "added_by_gateway": [
+    "why"
+   ],
+   "acts": false,
+   "scopes": [
+    "chat:act"
+   ],
+   "identities": [
+    "owner"
+   ],
+   "facts": {
+    "risk": 1,
+    "reversible": true,
+    "observation": false,
+    "origin": "ferb",
+    "named_only": true
+   }
+  },
+  {
+   "decision": "ORCH-736",
+   "after": "chat.history",
+   "name": "chat.schedule",
+   "description": "Create, change, cancel or show schedules, quoting the owner's words. FERB works out the times and tells the owner.",
+   "input_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "schedules": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "request",
+        "name",
+        "when",
+        "repeat",
+        "weekday",
+        "every_minutes",
+        "times",
+        "random",
+        "quote",
+        "targets",
+        "standing_sends",
+        "watch",
+        "until",
+        "when_active",
+        "folders",
+        "identity",
+        "worker_type",
+        "profile",
+        "account"
+       ],
+       "properties": {
+        "request": {
+         "type": "string"
+        },
+        "name": {
+         "type": "string"
+        },
+        "when": {
+         "type": "object",
+         "additionalProperties": false,
+         "required": [
+          "in_minutes",
+          "in_days",
+          "day",
+          "date",
+          "time"
+         ],
+         "properties": {
+          "in_minutes": {
+           "anyOf": [
+            {
+             "type": "number"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "in_days": {
+           "anyOf": [
+            {
+             "type": "integer"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "day": {
+           "anyOf": [
+            {
+             "type": "string",
+             "enum": [
+              "today",
+              "tomorrow",
+              "day_after_tomorrow",
+              "end_of_month",
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday",
+              "saturday",
+              "sunday",
+              "next_monday",
+              "next_tuesday",
+              "next_wednesday",
+              "next_thursday",
+              "next_friday",
+              "next_saturday",
+              "next_sunday"
+             ]
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "date": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "time": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          }
+         }
+        },
+        "repeat": {
+         "type": "string",
+         "enum": [
+          "none",
+          "daily",
+          "weekdays",
+          "weekly",
+          "every"
+         ]
+        },
+        "weekday": {
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "every_minutes": {
+         "type": [
+          "integer",
+          "null"
+         ]
+        },
+        "times": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "random": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "count",
+           "start",
+           "end"
+          ],
+          "properties": {
+           "count": {
+            "type": "integer"
+           },
+           "start": {
+            "type": "string"
+           },
+           "end": {
+            "type": "string"
+           }
+          }
+         }
+        },
+        "quote": {
+         "type": "string"
+        },
+        "targets": {
+         "type": "object",
+         "additionalProperties": false,
+         "required": [
+          "apps",
+          "sites",
+          "paths",
+          "recipients"
+         ],
+         "properties": {
+          "apps": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          },
+          "sites": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          },
+          "paths": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          },
+          "recipients": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          }
+         }
+        },
+        "standing_sends": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "capability",
+           "identity",
+           "account",
+           "site",
+           "recipients",
+           "content"
+          ],
+          "properties": {
+           "capability": {
+            "type": "string"
+           },
+           "identity": {
+            "type": "string",
+            "enum": [
+             "owner",
+             "ferb"
+            ]
+           },
+           "account": {
+            "type": [
+             "string",
+             "null"
+            ]
+           },
+           "site": {
+            "type": [
+             "string",
+             "null"
+            ]
+           },
+           "recipients": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            }
+           },
+           "content": {
+            "type": [
+             "string",
+             "null"
+            ]
+           }
+          },
+          "description": "One exact send scope. Posting from the owner's browser (a campaign): capability browser.act, site the page's host (x.com), recipients [] for public posts, content null unless the owner gave the exact text, account the account the posts go out from."
+         }
+        },
+        "watch": {
+         "type": "string",
+         "enum": [
+          "none",
+          "until_met",
+          "standing"
+         ]
+        },
+        "until": {
+         "anyOf": [
+          {
+           "type": "null"
+          },
+          {
+           "type": "object",
+           "additionalProperties": false,
+           "required": [
+            "quote",
+            "day",
+            "date",
+            "in_days",
+            "time",
+            "in_minutes"
+           ],
+           "properties": {
+            "quote": {
+             "type": "string"
+            },
+            "day": {
+             "type": "string",
+             "enum": [
+              "",
+              "today",
+              "tomorrow",
+              "day_after_tomorrow",
+              "end_of_month",
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday",
+              "saturday",
+              "sunday",
+              "next_monday",
+              "next_tuesday",
+              "next_wednesday",
+              "next_thursday",
+              "next_friday",
+              "next_saturday",
+              "next_sunday"
+             ]
+            },
+            "date": {
+             "type": "string"
+            },
+            "in_days": {
+             "type": "integer"
+            },
+            "time": {
+             "type": "string"
+            },
+            "in_minutes": {
+             "type": "number"
+            }
+           }
+          }
+         ]
+        },
+        "when_active": {
+         "type": "boolean",
+         "description": "true when the owner's words want it when they're at their Mac (\"whenever I'm on my Mac\", \"when I'm back at my Mac\"): it comes due as `when` and `repeat` say and FERB holds it until they're active at the Mac. `when` may then leave the time out (all null: from today; a day alone: from that day). false otherwise."
+        },
+        "folders": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "identity": {
+         "type": "string",
+         "enum": [
+          "owner",
+          "ferb"
+         ]
+        },
+        "worker_type": {
+         "type": "string"
+        },
+        "profile": {
+         "type": "string"
+        },
+        "account": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "schedule_changes": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "id",
+        "action",
+        "quote",
+        "request",
+        "timing",
+        "until",
+        "name"
+       ],
+       "properties": {
+        "id": {
+         "type": "string"
+        },
+        "action": {
+         "type": "string",
+         "enum": [
+          "cancel",
+          "pause",
+          "resume",
+          "set_end",
+          "edit"
+         ]
+        },
+        "quote": {
+         "type": "string"
+        },
+        "request": {
+         "type": "string"
+        },
+        "timing": {
+         "type": "object",
+         "additionalProperties": false,
+         "required": [
+          "repeat",
+          "times",
+          "every_minutes",
+          "weekday",
+          "random"
+         ],
+         "properties": {
+          "repeat": {
+           "type": "string",
+           "enum": [
+            "",
+            "none",
+            "daily",
+            "weekdays",
+            "weekly",
+            "every"
+           ]
+          },
+          "times": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          },
+          "every_minutes": {
+           "type": "integer"
+          },
+          "weekday": {
+           "type": "string"
+          },
+          "random": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+             "count",
+             "start",
+             "end"
+            ],
+            "properties": {
+             "count": {
+              "type": "integer"
+             },
+             "start": {
+              "type": "string"
+             },
+             "end": {
+              "type": "string"
+             }
+            }
+           }
+          }
+         }
+        },
+        "until": {
+         "anyOf": [
+          {
+           "type": "null"
+          },
+          {
+           "type": "object",
+           "additionalProperties": false,
+           "required": [
+            "quote",
+            "day",
+            "date",
+            "in_days",
+            "time",
+            "in_minutes"
+           ],
+           "properties": {
+            "quote": {
+             "type": "string"
+            },
+            "day": {
+             "type": "string",
+             "enum": [
+              "",
+              "today",
+              "tomorrow",
+              "day_after_tomorrow",
+              "end_of_month",
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday",
+              "saturday",
+              "sunday",
+              "next_monday",
+              "next_tuesday",
+              "next_wednesday",
+              "next_thursday",
+              "next_friday",
+              "next_saturday",
+              "next_sunday"
+             ]
+            },
+            "date": {
+             "type": "string"
+            },
+            "in_days": {
+             "type": "integer"
+            },
+            "time": {
+             "type": "string"
+            },
+            "in_minutes": {
+             "type": "number"
+            }
+           }
+          }
+         ]
+        },
+        "name": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "show_schedules": {
+      "type": "boolean"
+     },
+     "answers_question": {
+      "type": "boolean"
+     },
+     "why": {
+      "type": "string",
+      "description": "Optional short explanation of what this action does toward the owner's request."
+     }
+    },
+    "title": "Input",
+    "type": "object"
+   },
+   "added_by_gateway": [
+    "why"
+   ],
+   "acts": false,
+   "scopes": [
+    "chat:act"
+   ],
+   "identities": [
+    "owner"
+   ],
+   "facts": {
+    "risk": 1,
+    "reversible": true,
+    "observation": false,
+    "origin": "ferb",
+    "named_only": true
+   }
+  },
+  {
+   "decision": "ORCH-736",
+   "after": "chat.history",
+   "name": "chat.set_reminder",
+   "description": "Set or cancel reminders and timers. Pass only what the owner said about when; FERB works out the time and tells the owner.",
+   "input_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "timers": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "when",
+        "message",
+        "quote",
+        "when_active",
+        "name",
+        "kind"
+       ],
+       "properties": {
+        "when": {
+         "type": "object",
+         "additionalProperties": false,
+         "required": [
+          "in_minutes",
+          "in_days",
+          "day",
+          "date",
+          "time"
+         ],
+         "properties": {
+          "in_minutes": {
+           "anyOf": [
+            {
+             "type": "number"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "in_days": {
+           "anyOf": [
+            {
+             "type": "integer"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "day": {
+           "anyOf": [
+            {
+             "type": "string",
+             "enum": [
+              "today",
+              "tomorrow",
+              "day_after_tomorrow",
+              "end_of_month",
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday",
+              "saturday",
+              "sunday",
+              "next_monday",
+              "next_tuesday",
+              "next_wednesday",
+              "next_thursday",
+              "next_friday",
+              "next_saturday",
+              "next_sunday"
+             ]
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "date": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "time": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          }
+         }
+        },
+        "message": {
+         "type": "string"
+        },
+        "quote": {
+         "type": "string"
+        },
+        "when_active": {
+         "type": "boolean",
+         "description": "true when the owner's words want it when they're at their Mac (\"whenever I'm on my Mac\", \"when I'm back at my Mac\"): it comes due as `when` and `repeat` say and FERB holds it until they're active at the Mac. `when` may then leave the time out (all null: from today; a day alone: from that day). false otherwise."
+        },
+        "name": {
+         "type": "string"
+        },
+        "kind": {
+         "type": "string",
+         "enum": [
+          "reminder",
+          "timer"
+         ]
+        }
+       }
+      }
+     },
+     "reminder_cancels": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "id",
+        "quote"
+       ],
+       "properties": {
+        "id": {
+         "type": "string"
+        },
+        "quote": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "answers_question": {
+      "type": "boolean"
+     },
+     "why": {
+      "type": "string",
+      "description": "Optional short explanation of what this action does toward the owner's request."
+     }
+    },
+    "title": "Input",
+    "type": "object"
+   },
+   "added_by_gateway": [
+    "why"
+   ],
+   "acts": false,
+   "scopes": [
+    "chat:act"
+   ],
+   "identities": [
+    "owner"
+   ],
+   "facts": {
+    "risk": 1,
+    "reversible": true,
+    "observation": false,
+    "origin": "ferb",
+    "named_only": true
+   }
   }
  ]
 }

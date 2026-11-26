@@ -24,6 +24,11 @@
 //!   problem in the report). Unlike a recorded call, a cancelled one ends there, as a real model's run that FERB
 //!   cancelled does: no tool call or answer after the cancel.
 //!
+//! - `front_door` (a test's script only, ORCH-735): the supervisor's front door decides each chat turn; a planner
+//!   call's events may then hold `{"kind": "front_call", "name", "arguments"}`: the call is reported started, made
+//!   through the socket as the tool bridge makes it (ORCH-736), and reported completed with its error flag; each reply
+//!   is in the `script` report's `front_results`. A Python recording's script has neither.
+//!
 //! The scripted model makes its recorded tool calls as the tool bridge does: a connection to this daemon's socket as
 //! `mcp_shim` with its run token, then each `tools.call` line; each reply is compared with the recorded one.
 //!
@@ -81,6 +86,8 @@ pub struct ScriptState {
     pub watching: BTreeSet<String>,
     /// A read the recording didn't make.
     pub problems: Vec<String>,
+    /// ORCH-736: each front door call a test's script made through the socket: [call, tool, arguments, the reply].
+    pub front_results: Vec<Value>,
 }
 
 /// The scripted model, the recorded reads and their state.
@@ -330,7 +337,7 @@ impl Script {
                "tool_calls": st.tool_calls, "supervise_used": st.supervise_used,
                "systems_used": st.systems_used, "contexts_used": st.contexts_used,
                "spans_used": st.spans_used, "problems": st.problems,
-               "questions": self.asked.load(Ordering::SeqCst)})
+               "questions": self.asked.load(Ordering::SeqCst), "front_results": st.front_results})
     }
 }
 
@@ -394,6 +401,11 @@ impl Reads for ScriptReads {
     // decision: ORCH-731 (the Python recordings closed every program before the answer was used)
     fn answer_before_close(&self) -> bool {
         false
+    }
+    // decision: ORCH-735 (the Python recordings' planner answered with its form): only a test's script turns the front
+    // door on (`front_door`, tests/front_door_replay.rs)
+    fn front_door(&self) -> bool {
+        self.0.file["front_door"].as_bool().unwrap_or(false)
     }
     fn memory_blocks<'a>(
         &'a self,
@@ -693,6 +705,7 @@ impl ScriptRuntime {
                     n: self.n,
                     token: token.to_string(),
                     bridge: Some(self.bridge.clone()),
+                    front_pending: None,
                 }),
                 control: Arc::new(ScriptControl { cancelled, woken }),
             })
@@ -733,6 +746,8 @@ struct ScriptEvents {
     token: String,
     /// The tool calls still to make (before the first event: the scripted model calls its tools first).
     bridge: Option<Vec<Value>>,
+    /// ORCH-736: a test's `front_call` event reported as started, made through the socket when the next event is read.
+    front_pending: Option<Value>,
 }
 
 impl ScriptEvents {
@@ -818,6 +833,47 @@ impl ScriptEvents {
 }
 
 impl ScriptEvents {
+    /// ORCH-736: one call of a front door tool as the tool bridge makes it (`auth.hello` as `mcp_shim` with this run's
+    /// token, then `tools.call`): the reply's result, or `{"error": ...}` when it has none.
+    async fn front_call(&self, name: &str, arguments: &Value) -> Value {
+        let Some(socket) = self.script.socket.get() else {
+            return json!({"error": "no socket"});
+        };
+        let Ok(conn) = tokio::net::UnixStream::connect(socket).await else {
+            return json!({"error": "no socket"});
+        };
+        let (r, mut w) = conn.into_split();
+        let mut r = BufReader::new(r).lines();
+        let lines = [
+            json!({"jsonrpc": "2.0", "id": 1, "method": "auth.hello",
+                   "params": {"role": "mcp_shim", "token": self.token}}),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "tools.call",
+                   "params": {"name": name, "arguments": arguments}}),
+        ];
+        let mut got = Value::Null;
+        for msg in lines {
+            let line = format!("{}\n", ferb_py::json::dumps(&msg));
+            if w.write_all(line.as_bytes()).await.is_err() {
+                return json!({"error": "the socket closed"});
+            }
+            got = loop {
+                match r.next_line().await {
+                    Ok(Some(l)) => {
+                        let v: Value = serde_json::from_str(&l).unwrap_or(Value::Null);
+                        if v["id"] == msg["id"] {
+                            break v;
+                        }
+                    }
+                    _ => return json!({"error": "the socket closed"}),
+                }
+            };
+        }
+        match got.get("result") {
+            Some(v) => v.clone(),
+            None => json!({"error": got["error"]["message"]}),
+        }
+    }
+
     /// The end of a cancelled call: at once, or once its `cancel_hold` is released.
     async fn cancel_end(&self) {
         let Some(name) = &self.cancel_hold else {
@@ -876,6 +932,25 @@ impl EventSource for ScriptEvents {
                     return None;
                 }
             }
+            if let Some(ev) = self.front_pending.take() {
+                // a test's own script: the front door call reported started, made now as the tool bridge makes it,
+                // then reported completed with its error flag (as a real runtime reports a tool's end, RUN-480)
+                let name = s(&ev["name"]);
+                let got = self.front_call(&name, &ev["arguments"]).await;
+                let error = got["is_error"] != json!(false);
+                lock(&self.script.state).front_results.push(json!([
+                    self.n,
+                    name,
+                    ev["arguments"],
+                    got
+                ]));
+                let data = json!({"tool": name.replace('.', "_"), "name": name, "phase": "completed",
+                                  "arguments": ev["arguments"], "error": error, "result": got["content"]});
+                return Some(Ok(RuntimeEvent {
+                    kind: RuntimeEventKind::ToolCall,
+                    data: data.as_object().cloned().unwrap_or_default(),
+                }));
+            }
             if self.at + 1 == self.events.len() {
                 lock(&self.script.state).answered.push(self.n);
                 let first_check = self
@@ -890,6 +965,17 @@ impl EventSource for ScriptEvents {
             let ev = self.script.with_tree(self.events.get(self.at)?);
             self.at += 1;
             let kind = s(&ev["kind"]);
+            if kind == "front_call" {
+                // a test's own script (never a recording): a call of the front door's tools, started now
+                let name = s(&ev["name"]);
+                let data = json!({"tool": name.replace('.', "_"), "name": name, "phase": "started",
+                                  "arguments": ev["arguments"]});
+                self.front_pending = Some(ev);
+                return Some(Ok(RuntimeEvent {
+                    kind: RuntimeEventKind::ToolCall,
+                    data: data.as_object().cloned().unwrap_or_default(),
+                }));
+            }
             let Some(kind) = RuntimeEventKind::ALL
                 .iter()
                 .copied()

@@ -49,6 +49,10 @@ pub struct Run {
     pub stand: PathBuf,
     /// More of the program's environment (a test's own TMPDIR).
     pub env: Vec<(String, String)>,
+    /// Where the program's stderr goes (`<root>/<nn>-stderr.log`, written afresh by each start): a file, never a pipe
+    /// the test doesn't read, whose buffer the system may cut to 512 bytes when its pipe memory runs short (seen
+    /// 2026-11-27: every start then blocked on its fifth line of stderr).
+    pub err_log: PathBuf,
 }
 
 impl Run {
@@ -80,6 +84,7 @@ impl Run {
             child: None,
             stand,
             env,
+            err_log: root.join(format!("{nn}-stderr.log")),
         };
         run.spawn();
         run
@@ -97,7 +102,7 @@ impl Run {
             .envs(self.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::piped())
+            .stderr(std::fs::File::create(&self.err_log).expect("the stderr file"))
             .spawn()
             .expect("ferbd starts");
         self.child = Some(child);
@@ -146,19 +151,7 @@ impl Run {
             // SAFETY: a plain signal to the child this test started.
             libc::kill(child.id() as i32, libc::SIGKILL);
         }
-        let fd = child.stderr.as_ref().map(|e| {
-            use std::os::fd::AsRawFd;
-            e.as_raw_fd()
-        });
-        let Some(fd) = fd else {
-            return String::new();
-        };
-        use std::os::fd::FromRawFd;
-        // SAFETY: the descriptor stays owned by the child handle; ManuallyDrop never closes it here.
-        let file = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(fd) });
-        let mut out = String::new();
-        let _ = std::io::Read::read_to_string(&mut &*file, &mut out);
-        out
+        std::fs::read_to_string(&self.err_log).unwrap_or_default()
     }
 
     /// One request on the control socket.
@@ -200,11 +193,7 @@ impl Run {
         let until = Instant::now() + Duration::from_secs(30);
         loop {
             if let Some(status) = child.try_wait().unwrap() {
-                let mut err = String::new();
-                if let Some(mut e) = child.stderr.take() {
-                    use std::io::Read;
-                    let _ = e.read_to_string(&mut err);
-                }
+                let err = std::fs::read_to_string(&self.err_log).unwrap_or_default();
                 return (status, err);
             }
             assert!(Instant::now() < until, "the daemon didn't stop");

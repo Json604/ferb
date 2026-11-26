@@ -14405,3 +14405,91 @@ Coordinator's review (verified against the code): a call with `answers_question`
 before its checks run, so a refused call has already used the question up; a retry in the same run still sees the
 joined words, and a run that abandons the call loses the question. Accepted for now (the model repairs in the run);
 ferbd's `seams-off.txt` names `Daemon::front_door`.
+
+## 2026-11-27 · 263 · The front door's six tools, the recorded chats replayed through it, and the switch on
+
+**Why (T-1342, ORCH-726 step 5, second half).** Journal 262 built the front door in ferb-supervisor behind a switch;
+its tools in the gateway's catalog, their composition in ferbd and the plan's replay of the recorded chats were left.
+
+**What.**
+- ORCH-736, ferb-gateway `catalog_additions.json`: `chat.ask`, `chat.control_task`, `chat.dispatch_task`,
+  `chat.remember`, `chat.schedule`, `chat.set_reminder`, each `after` chat.history in that order, identity owner,
+  scope `chat:act`, `acts` false, facts risk 1, reversible, observation false, origin ferb, `named_only`; descriptions
+  the owner-approved draft's words (.local/front-door-probes/tool-descriptions-draft.md, backticks removed, checked
+  by script); each `input_schema` the matching part of `ferb_context::schemas::supervisor_schema()` as it is now
+  (`ack` and `question` are the form's `text`, a string; the form has no `$defs`) plus the gateway's `why`.
+  `Catalog::load` keeps the file's order for several additions after one tool (before, each new one went first).
+- ferbd `compose/tools/context.rs` `front_door(p, name)` (registered after chat.history, misc.rs): the call's
+  validated arguments, with the fields the argument model filled as null left out, go to
+  `p.supervisor().inner().front_call(<the call's task>, name, args)`; Ok is `{"result": text}`, Err is
+  `{"error": text}` with `is_error`. Describe kind `read`.
+- The switch: `Reads::front_door()` (true) and `SupDaemon::front_door` forwards it; `ScriptReads` returns the script's
+  `front_door` (absent: false), so the Python recordings' replays (chat_replay, tests/life, follow_up_grid) keep the
+  planner. seams-off.txt: `default Daemon::front_door` became `default Reads::front_door`.
+- `SupDaemon::all_scopes` leaves out the scopes of tools offered only by name: with the six registered, every task
+  would otherwise have been given `chat:act` (chat_replay caught it in every task scenario).
+- standins_chat.rs: a test script's `front_call` event (reported started, made through the socket as the tool bridge
+  makes it with the run's token, reported completed with its error flag; each reply in the report's `front_results`).
+- tests/support/mod.rs: the daemon's stderr goes to `<root>/<nn>-stderr.log`, not an unread pipe. Found on
+  2026-11-27: the Mac's pipe memory ran short (a desktop app held 718 pipes), new pipes got 512 bytes, and every test
+  daemon blocked on its fifth stderr line before its start ended ("the daemon didn't start"), chat_replay included.
+
+**Evidence.** ferb-gateway: `tests/front_door_tools.rs` (3: each schema derived from `supervisor_schema()` byte for
+byte, so the two can't drift; offered and admitted only to a grant naming them with `chat:act`, never a worker's, the
+checker's or the planner's; a recorded hand-off passes the argument model); `cargo test -p ferb-gateway`: 19 test
+binaries, 184 passed, 0 failed.
+ferbd: `tests/front_door_replay.rs` (8 batch tests and 2 checks, 115 s in parallel): 57 recorded scenarios (27 of
+chat_replay's 28 and 30 of its 33 newer recordings) each run twice side by side, the planner's run and the front
+door's with every planner answer converted to its calls (a repair call merged into the same run, its recorded reads
+dropped); tables (ids renumbered per table, hashes and volatile keys out), journal, later model calls, ports, recorded
+tool replies, front call verdicts and frame kinds compared; 47 named (area, scenarios, reason) entries, every one
+found and nothing unnamed; the same differences in the last three full runs. Skipped, with why: second_message_merged,
+last_call_empty, front_window (a planner call with no answer form), preview_attention (no chat turn).
+`every_tool_through_the_program` has the six (each reaches `front_call`, which refuses outside a chat turn).
+`cargo test -p ferbd`: 41 test binaries, 202 passed, 0 failed, 6 ignored (chat_replay's two scenario tests replay
+fully); clippy `--tests -D warnings` clean for both crates; ferb-supervisor's suite (unchanged, it reads the
+additions file) passes: 43 binaries, 263 passed.
+
+**Differences, front door against planner (all named in the test).**
+- FERB's own, expected: reply text streams as `reply_delta` (16 scenarios) and an accepted hand-off's ack as
+  `plan_delta`/`plan_end` (45): the recordings gave the answer whole. A refused hand-off shows nothing (the planner's
+  run showed then withdrew it, `plan_abort`: plan_repair, unbacked_part, inventory_walk) and is repaired in the run.
+  Episodes count the front calls as tools (`tools_json`, `tool_origins` + ferb) and one usage record fewer: a run
+  ended on its call never reads the scripted usage event after it.
+- Found, not fixed (outside this brief's crates), for review:
+  1. The episode's (and `ferb trace`'s) Planner line reads "decided" instead of "task — <goal>": ferb-trace
+     `compose.rs` `planner_text` reads the model.turn span's text as the form; the front door's span holds plain text
+     and `calls` (47 scenarios).
+  2. An accepted call's reply ("Accepted: the task starts as this message ends.") is recorded on the task as a planner
+     lookup read (a `context.exposure` "a lookup by this request's planner"): `lookups_read` counts the front tools.
+  3. conversation_change: the recorded answer pauses the chat in the owner's words and closes it quoting words he
+     never wrote, and its repair repeats them. The planner applied the pause and refused the close; the front door
+     refuses the whole call (twice), so nothing is paused while the streamed reply says "Pausing the chat with Robin."
+     A refused call applies none of its parts; a model that fails to repair leaves text claiming an effect.
+- The replay's, not FERB's (id shift): the front door's turn writes records the planner's didn't (each call's
+  tool.call span, finding 2's exposure, a model.close span after a run that ended on its call) and none for a merged
+  repair, so later ids differ from the recording and recorded content naming one misses: the stand-in's desktop
+  observer rows (8 scenarios' `problems`); the scripted checker's evidence ids (confirm_yes, pause_steer_resume: the
+  check is refused, asked again, and the task never ends here; one_step_with_tools' task.evidence reply); an earlier
+  result's id (earlier_result: hand-off refused, turn failed); a timer's id in the recorded `timers.repeat`
+  (timer_set_and_fired); a memory item's id in a forget (remember_then_forget, displaced_question: no forget question,
+  so displaced_question's "yes" answers FERB's question with no which-one question). Their downstream effects are
+  not compared in those scenarios.
+
+**Deviations (agent rulings, for review).** Only `ack` and `question` are required (the form's other fields as the
+form has them; dispatch's `task` nullable); ferbd drops the argument model's null fields (absent `answers_question`
+is false, as journal 262 rules); describe kind `read` with origin `ferb` (a reading kind without an origin labels
+the result `external:unlabeled` and would taint the run's sink checks); the Ok/Err shapes `{"result"}`/`{"error"}`;
+the converter's open question is the previous message's planner answer being a clarify; the replay compares with the
+old path run beside it (chat_replay shows that run is the recording's), not with the recorded tables; the test
+support's stderr change touches every ferbd test.
+
+**Unverified.** No real model or runtime has called the six tools: whether Codex, Claude and the API providers accept
+the strict nested task form as a tool input schema, and what they do with the descriptions, is unseen. The switch is
+on for every real daemon from this build (no live run). The id-shifted scenarios' downstream effects. Usage reporting
+of a run that ended on its call (RUN-477's close) with a real runtime.
+Coordinator's review of 263 (verified against the code): the all_scopes fix is kept (without it every worker task was
+granted chat:act). The switch is NOT on: `Reads::front_door` defaults to false until the open issues are fixed
+(the trace's planner line, accepted calls stored as lookups, a side call losing its good entries: journal 264) and the
+id-shifted scenarios are compared for real (265). Under ferb-test-guard the replay's eight parallel daemons went over
+the 4096 MB cap (TEST-511); 265 bounds them.

@@ -233,11 +233,21 @@ impl Catalog {
                 name: t["name"].as_str().unwrap_or_default().to_string(),
                 row: t.clone(),
             };
-            let at = entries
+            let mut at = entries
                 .iter()
                 .position(|e| e.name == a.after)
-                .expect("an addition follows a catalog tool");
-            entries.insert(at + 1, entry_of(t));
+                .expect("an addition follows a catalog tool")
+                + 1;
+            // ORCH-736: several additions following one tool (the front door's six after chat.history) keep the
+            // file's order
+            while entries.get(at).is_some_and(|e| {
+                additions
+                    .iter()
+                    .any(|b: &Addition| b.name == e.name && b.after == a.after)
+            }) {
+                at += 1;
+            }
+            entries.insert(at, entry_of(t));
             additions.push(a);
         }
         let constants = raw["constants"].as_object().cloned().unwrap_or_default();

@@ -50,7 +50,10 @@ const STRUCTURAL: [&str; 7] = [
 /// ferb-mac-hands' tests, and the owner's live runs drove most of them (the audit's matrix says which).
 const READS_THE_MAC: &str = "reads this Mac's own apps even in a test daemon (TEST-508)";
 
-/// One well-formed call per tool, its expected reply, and Python's describe kind for it.
+/// The supervisor's refusal of a front door call made outside a chat message's run (ORCH-736).
+const NO_TURN: &str = "No chat message is being answered for this call.";
+
+/// One well-formed call per tool, its expected reply, and Python's describe kind for it (a Rust addition's own).
 fn calls() -> Vec<(&'static str, Value, Expect, &'static str)> {
     let no_tab = "no tab t1 open for this task";
     vec![
@@ -129,6 +132,21 @@ fn calls() -> Vec<(&'static str, Value, Expect, &'static str)> {
         ("wait.for", json!({"any_of": [{"kind": "file", "path": "a.txt", "state": "exists"}]}), Works, "read"),
         ("skills.read", json!({"skill": "packing"}), Works, "read"),
         ("chat.history", json!({}), Works, "read"),
+        // ORCH-736: the front door's tools, handed to the supervisor's front_call; task-1 is no chat message's run, so
+        // the supervisor itself refuses each one (a well-formed call that reached the tool)
+        ("chat.ask", json!({"question": "Which file?"}), Reaches(NO_TURN), "read"),
+        ("chat.control_task", json!({"control": {"task_id": "task-1", "action": "stop", "new_goal": false,
+            "standing_sends": "unchanged", "supersedes": []}}), Reaches(NO_TURN), "read"),
+        ("chat.dispatch_task", json!({"ack": "On it.", "task": {"goal": "Write hello into a.txt",
+            "name": "Write hello", "identity": "owner", "worker_type": "default",
+            "targets": {"apps": [], "sites": [], "paths": ["a.txt"], "recipients": []},
+            "success_conditions": [{"text": "a.txt says hello", "owner_text": "a.txt says hello", "layer": "outcome",
+                "check": null}],
+            "plan": null, "folders": [], "keep_tabs_open": false, "parts": [], "earlier_results": [],
+            "profiles": []}}), Reaches(NO_TURN), "read"),
+        ("chat.remember", json!({"forget": [{"item_id": "m-1", "quote": "forget that"}]}), Reaches(NO_TURN), "read"),
+        ("chat.schedule", json!({"show_schedules": true}), Reaches(NO_TURN), "read"),
+        ("chat.set_reminder", json!({"reminder_cancels": [{"id": "r-1", "quote": "cancel it"}]}), Reaches(NO_TURN), "read"),
         ("memory.read", json!({}), Works, "read"),
         ("secrets.list", json!({"place": "https://example.com/"}), Works, "read"),
         ("about.read", json!({}), Works, "read"),
@@ -240,9 +258,10 @@ fn scopes(listing: &str) -> Value {
     fixture("catalog/tools.json")["listings"][listing]["grant"]["scopes"].clone()
 }
 
-/// A daemon with task-1 live, FERB's own profile's tools attached, an owner and a FERB token with every scope, and a
-/// planner token naming task.trace (ORCH-663); the workspace holds a.txt and the owner's skills folder one skill.
-fn daemon(tmp: &std::path::Path) -> (Run, Shim, Shim, Shim) {
+/// A daemon with task-1 live, FERB's own profile's tools attached, an owner and a FERB token with every scope, a
+/// planner token naming task.trace (ORCH-663) and a front door token naming its six tools (ORCH-736); the workspace
+/// holds a.txt and the owner's skills folder one skill.
+fn daemon(tmp: &std::path::Path) -> (Run, Shim, Shim, Shim, Shim) {
     let run = Run::start(tmp, "01", json!({"ids": "id"}));
     run.control(json!({"do": "attach_identity"}));
     let owner = run.control(
@@ -257,6 +276,11 @@ fn daemon(tmp: &std::path::Path) -> (Run, Shim, Shim, Shim) {
         json!({"do": "issue", "task_id": "task-1", "worker_id": "planner-1",
         "identity": "owner", "scopes": ["task:read"], "tools": ["task.trace"]}),
     );
+    let front = run.control(
+        json!({"do": "issue", "task_id": "task-1", "worker_id": "front-1",
+        "identity": "owner", "scopes": ferb_orchestrator::lookups::FRONT_SCOPES,
+        "tools": ferb_orchestrator::lookups::FRONT_TOOLS}),
+    );
     run.control(json!({"do": "hold_task", "task_id": "task-1"}));
     let ws = run.home.join("workspace");
     std::fs::create_dir_all(&ws).unwrap();
@@ -270,7 +294,8 @@ fn daemon(tmp: &std::path::Path) -> (Run, Shim, Shim, Shim) {
     let o = Shim::open(&run, owner.as_str().unwrap());
     let f = Shim::open(&run, ferb.as_str().unwrap());
     let p = Shim::open(&run, planner.as_str().unwrap());
-    (run, o, f, p)
+    let d = Shim::open(&run, front.as_str().unwrap());
+    (run, o, f, p, d)
 }
 
 /// A line of the audit's report, printed as it comes when FERB_AUDIT_REPORT is set.
@@ -312,7 +337,7 @@ fn method(facts: &Value, m: &str) -> bool {
 /// The whole check on one daemon, `before` run on it first; every problem found.
 fn audit(before: impl Fn(&Run)) -> Vec<String> {
     let tmp = root();
-    let (run, mut owner, mut ferb, mut planner) = daemon(tmp.path());
+    let (run, mut owner, mut ferb, mut planner, mut front) = daemon(tmp.path());
     before(&run);
     let table: BTreeMap<&str, (Value, Expect, &str)> = calls()
         .into_iter()
@@ -409,6 +434,8 @@ fn audit(before: impl Fn(&Run)) -> Vec<String> {
             &mut ferb
         } else if name == "task.trace" {
             &mut planner
+        } else if ferb_orchestrator::lookups::FRONT_TOOLS.contains(&name) {
+            &mut front
         } else {
             &mut owner
         };

@@ -860,6 +860,44 @@ pub fn tool_named(p: &Parts, name: &'static str) -> Arc<dyn Tool> {
     tool(name, run)
 }
 
+/// The front door's six tools (kb/plans/front-door.md, step 5; ferb-orchestrator `FRONT_TOOLS`): each call is handed
+/// to the supervisor's `front_call` with the run grant's task (`{request}.lookups`), which parses its arguments as the
+/// matching part of today's answer form and runs today's checks on it. Ok: the line the model reads; Err: the tool's
+/// error the model sees (the owner sees nothing) and repairs inside the same run.
+// decision: ORCH-736
+pub fn front_door(p: &Parts, name: &'static str) -> Arc<dyn Tool> {
+    let parts = p.clone();
+    tool(
+        name,
+        Arc::new(move |a, c| {
+            let p = parts.clone();
+            let (args, task) = (front_arguments(a), c.task_id.clone());
+            Box::pin(async move {
+                let Some(inner) = p.supervisor().map(|s| s.inner().clone()) else {
+                    return Ok(error("FERB's chat isn't running yet.").into());
+                };
+                Ok(match inner.front_call(&task, name, &args).await {
+                    Ok(text) => answer(json!({"result": text}), false, Vec::new()),
+                    Err(text) => error(&text),
+                }
+                .into())
+            })
+        }),
+    )
+}
+
+/// A front call's arguments as the model gave them: the gateway's argument model hands over every field of the schema,
+/// one not given as null (a nullable part, or `answers_question`, whose absence means false); those are left out, so
+/// the answer form's part reads only what the call carries.
+fn front_arguments(a: &Args) -> Value {
+    Value::Object(
+        a.iter()
+            .filter(|(_, v)| !v.is_null())
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+    )
+}
+
 fn trail_run(p: &Parts, name: &str, a: &Args) -> Result<ferb_gateway::tool::ToolOutput, ToolError> {
     let db = ferb_store::Db::open(p.home().join("ferb.db")).map_err(failed)?;
     let ids = super::IdsRef(p.ids());

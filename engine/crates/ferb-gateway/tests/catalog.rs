@@ -188,7 +188,13 @@ fn the_rust_additions_are_listed_as_written() {
             ("HAND-623", "project.publish"),
             ("HAND-642", "project.fetch"),
             ("SENSE-422", "device.facts"),
-            ("MEM-448", "memory.import")
+            ("MEM-448", "memory.import"),
+            ("ORCH-736", "chat.ask"),
+            ("ORCH-736", "chat.control_task"),
+            ("ORCH-736", "chat.dispatch_task"),
+            ("ORCH-736", "chat.remember"),
+            ("ORCH-736", "chat.schedule"),
+            ("ORCH-736", "chat.set_reminder")
         ]
     );
     for a in a {
@@ -211,9 +217,10 @@ fn the_rust_additions_are_listed_as_written() {
         let f = tool.facts();
         // the read-only additions observe; project.publish (HAND-623) acts and can't be undone; memory.import
         // (MEM-448) neither acts on the world nor only observes: it fills FERB's own memory, reversibly, as
-        // time.remind_at sets FERB's own timer
+        // time.remind_at sets FERB's own timer; so do the front door's six (ORCH-736): each hands a part of the
+        // chat turn's answer to the supervisor, which applies it as today's answer form
         let acting = a.row["acts"].as_bool().unwrap();
-        let internal = a.name == "memory.import";
+        let internal = a.name == "memory.import" || a.name.starts_with("chat.");
         assert!(
             (f.observation != acting || internal) && f.reversible != acting && !f.generic_input,
             "{}",
