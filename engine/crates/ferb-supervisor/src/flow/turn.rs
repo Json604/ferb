@@ -33,6 +33,11 @@ use crate::seams::JournalRow;
 use crate::words::*;
 use crate::NotPorted;
 
+/// The line `side_quote_problems` ends its quote problems with.
+const QUOTE_ADVICE: &str =
+    "Quote the owner's exact words for each of these, or leave it out; your text says only what will actually \
+     happen, never that something was set, saved, changed or restored.";
+
 // the front door (kb/plans/front-door.md, step 5): a child of this module, so it uses the planner's own steps
 pub mod front_door;
 
@@ -1299,6 +1304,17 @@ impl Inner {
         turn: &Arc<Mutex<Turn>>,
         out: &SupervisorOutcome,
     ) -> Flow<Vec<String>> {
+        self.side_quote_problems_at(turn, out, 0).await
+    }
+
+    /// [`Self::side_quote_problems`] with `out`'s schedules named from index `first` on (the front door checks a
+    /// call's entries one at a time and names each by its place in the call).
+    async fn side_quote_problems_at(
+        &self,
+        turn: &Arc<Mutex<Turn>>,
+        out: &SupervisorOutcome,
+        first: usize,
+    ) -> Flow<Vec<String>> {
         let mut problems = self.memory_quote_problems(turn, out);
         problems.extend(self.timer_quote_problems(turn, out));
         let tell = |what: &str, quote: &str| {
@@ -1309,6 +1325,7 @@ impl Inner {
             )
         };
         for (i, sched) in out.schedules.iter().enumerate() {
+            let i = first + i;
             let (_, refused) = self.schedule_words(turn, sched);
             if refused == "quote" {
                 problems.push(tell(&format!("schedules[{i}]"), &sched.quote));
@@ -1355,11 +1372,7 @@ impl Inner {
             }
         }
         if !problems.is_empty() {
-            problems.push(
-                "Quote the owner's exact words for each of these, or leave it out; your text says only what will \
-                 actually happen, never that something was set, saved, changed or restored."
-                    .into(),
-            );
+            problems.push(QUOTE_ADVICE.into());
         }
         // T-1066: each new or edited schedule's timing works and its request names only times it runs at
         let entries: Vec<super::schedules_chat::Entry> = out
@@ -2212,10 +2225,11 @@ impl Inner {
         self.live().lent.remove(&task_id);
     }
 
-    /// supervisor.py:3717 `_lookups_read`.
+    /// supervisor.py:3717 `_lookups_read`. Only the lookups' outputs (PLANNER_TOOLS): the front door's calls run under
+    /// the same grant, and their outputs are FERB's own words, never a source.
     fn lookups_read(&self, turn: &Arc<Mutex<Turn>>) {
         let rid = turn.lock().unwrap().request_id.clone();
-        let rows = self.tool_outputs(&format!("{rid}{LOOKUPS}"));
+        let rows = self.tool_outputs_of(&format!("{rid}{LOOKUPS}"), &PLANNER_TOOLS);
         let mut t = turn.lock().unwrap();
         for (_, made, _) in &rows {
             t.turn_origins.extend(made.iter().cloned());

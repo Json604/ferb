@@ -78,7 +78,13 @@ fn planner_text(n: &Value) -> String {
     let rstrip = |s: String| s.trim_end_matches([' ', '—']).to_owned();
     match kind {
         "model.turn" => {
-            let d = json_obj(g(out, "text"));
+            // the front door's run (ORCH-735) holds its raw answer in `text` and what it decided, in the planner's
+            // answer form, in `decided`; the planner's holds its answer in `text`
+            let answer = match out.get("decided") {
+                Some(decided) => decided,
+                None => g(out, "text"),
+            };
+            let d = json_obj(answer);
             let task = g(&d, "task");
             let spec = if task.is_object() { task } else { &EMPTY };
             if g(&d, "kind").as_str() == Some("task") && truthy(g(spec, "goal")) {

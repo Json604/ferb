@@ -326,6 +326,41 @@ impl Inner {
         self.with_spans(|s| s.tool_outputs(task_id, 0, false).unwrap_or_default())
     }
 
+    /// [`Self::tool_outputs`] of the calls to one of `tools` only (each `tool.call` span's input `tool`, the name the
+    /// gateway recorded): a request's lookups, never the front door's own calls, whose outputs are FERB's words.
+    pub fn tool_outputs_of(
+        &self,
+        task_id: &str,
+        tools: &[&str],
+    ) -> Vec<(i64, BTreeSet<String>, String)> {
+        let rows = self.tool_outputs(task_id);
+        if rows.is_empty() || tools.is_empty() {
+            return Vec::new();
+        }
+        let (tree, p) = ferb_store::spans::tree_where(task_id);
+        let marks = vec!["?"; tools.len()].join(",");
+        let mut params: Vec<Sql> = p.into_iter().map(Sql::Text).collect();
+        params.extend(tools.iter().map(|t| Sql::Text((*t).into())));
+        let named: BTreeSet<i64> = {
+            let db = self.db();
+            ferb_orchestrator::sql::rows(
+                db.conn(),
+                &format!(
+                    "SELECT rowid AS row FROM spans WHERE kind = 'tool.call' AND {tree} AND \
+                     json_extract(input_json, '$.tool') IN ({marks})"
+                ),
+                &params,
+            )
+            .expect("a span read")
+            .iter()
+            .filter_map(|r| r.get("row").and_then(Value::as_i64))
+            .collect()
+        };
+        rows.into_iter()
+            .filter(|(rowid, _, _)| named.contains(rowid))
+            .collect()
+    }
+
     /// `spans.payload_outputs(root)` as carried.py reads them.
     pub fn payload_outputs(&self, root: &str) -> Vec<ferb_policy::carried::Output> {
         self.with_spans(|s| s.payload_outputs(root, 0, None).unwrap_or_default())

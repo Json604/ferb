@@ -482,3 +482,224 @@ fn a_reminder_and_a_memory_in_one_message_both_take_effect() {
     let text = reply.last().unwrap()["text"].as_str().unwrap();
     assert!(text.contains("Saved: I bake on Sundays"), "{text}");
 }
+
+/// The plain_reply scenario's message, its words replaced by `said`, through the front door with `events` as its run.
+fn said_through(said: &str, events: Value) -> (World, Report) {
+    let mut w = world_with("plain_reply", |calls| {
+        let c = calls.iter_mut().find(|c| c["key"] == "supervisor").unwrap();
+        c["events"] = events;
+    });
+    w.daemon.bounded.store(true, Ordering::SeqCst);
+    w.daemon.front.store(true, Ordering::SeqCst);
+    let report = run_with(&mut w, "plain_reply", |steps| {
+        for st in steps.iter_mut() {
+            if st["do"] == "stream" {
+                let mut sent: Value =
+                    serde_json::from_str(st["lines"][0]["send"].as_str().unwrap()).unwrap();
+                sent["params"]["text"] = json!(said);
+                st["lines"][0]["send"] = json!(sent.to_string());
+            }
+        }
+    });
+    (w, report)
+}
+
+/// The Planner line of the episode recorded for each task (`ferb trace`'s and the episode's story).
+fn planner_lines(w: &World) -> Vec<String> {
+    rows(w, "SELECT steps_json FROM episodes ORDER BY task_id")
+        .into_iter()
+        .flat_map(|r| {
+            let steps: Vec<Value> = serde_json::from_str(r[0].as_str().unwrap()).unwrap();
+            steps
+                .into_iter()
+                .filter(|s| s["role"] == "Planner")
+                .map(|s| s["text"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+// decision: ORCH-735 (the trace's and the episode's Planner line reads what the front door decided)
+#[test]
+fn a_hand_off_reads_in_the_trace_as_the_task_it_started() {
+    let (old, _) = run("one_step_task", false, None);
+    let (w, _) = run("one_step_task", true, None);
+    let (a, b) = (planner_lines(&old), planner_lines(&w));
+    assert!(!b.is_empty(), "an episode with its Planner line");
+    assert!(b.iter().all(|l| l.starts_with("task — ")), "{b:?}");
+    assert_eq!(a, b, "the same line as the planner's");
+    // the span keeps the run's own answer and its calls beside what it decided
+    let out = rows(
+        &w,
+        "SELECT output_json FROM spans WHERE kind = 'model.turn' AND input_json LIKE '%\"front_door\": true%'",
+    );
+    assert_eq!(out.len(), 1, "{out:?}");
+    let out: Value = serde_json::from_str(out[0][0].as_str().unwrap()).unwrap();
+    let keys: Vec<&str> = out
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys, ["text", "calls", "decided", "usage", "timing"]);
+    let decided: Value = serde_json::from_str(out["decided"].as_str().unwrap()).unwrap();
+    assert_eq!(decided["kind"], "task");
+}
+
+// decision: ORCH-736 (an accepted call's reply is FERB's own words: never a lookup the turn read)
+#[test]
+fn an_accepted_calls_reply_is_never_stored_as_a_lookup() {
+    let recorded = support_control::scenario("one_step_task").1["model_calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["key"] == "supervisor")
+        .cloned()
+        .unwrap();
+    let (calls, _) = convert(&recorded_answer(&recorded));
+    let events = json!([
+        {"kind": "record_call", "name": "memory.read", "arguments": {"query": "bread"},
+         "output": {"text": "The owner buys rye bread."}, "origin": "private"},
+        {"kind": "front_call", "name": "chat.dispatch_task", "arguments": calls[0].1, "recorded": true},
+        {"kind": "final", "data": {"text": ""}}
+    ]);
+    let (w, _) = run("one_step_task", true, Some(vec![events]));
+    assert!(results(&w)[0].1.is_ok(), "{:?}", results(&w));
+    // both calls are recorded under the run's grant, as the gateway records them
+    let made = rows(
+        &w,
+        "SELECT json_extract(input_json, '$.tool') FROM spans WHERE kind = 'tool.call' AND task_id LIKE '%.lookups'",
+    );
+    assert_eq!(made.len(), 2, "{made:?}");
+    let lookups: Vec<String> = rows(
+        &w,
+        "SELECT output_json FROM spans WHERE kind = 'context.exposure' \
+         AND input_json LIKE '%a lookup by this request''s planner%'",
+    )
+    .into_iter()
+    .map(|r| r[0].as_str().unwrap().to_string())
+    .collect();
+    assert_eq!(lookups.len(), 1, "only the lookup is a read: {lookups:?}");
+    assert!(lookups[0].contains("rye bread"), "{lookups:?}");
+    assert!(
+        lookups.iter().all(|l| !l.contains("Accepted")),
+        "{lookups:?}"
+    );
+}
+
+// decision: ORCH-739 (a side call's entries are checked one at a time: the good one is kept, the bad one refused to
+// the model by name, and a resent whole call never doubles the one already kept)
+#[test]
+fn a_reminder_call_keeps_its_good_entry_and_refuses_only_the_bad_one() {
+    let said = "set a timer for 2 minutes to take the bread out, and a timer for 5 minutes to check the oven";
+    let timer = |minutes: i64, message: &str, quote: &str| {
+        json!({"when": {"in_minutes": minutes, "in_days": null, "day": null, "date": null, "time": null},
+               "message": message, "quote": quote, "when_active": false, "name": message, "kind": "timer"})
+    };
+    let good = timer(2, "Take the bread out", "a timer for 2 minutes");
+    let bad = timer(5, "Check the oven", "a timer for an hour");
+    let fixed = timer(5, "Check the oven", "a timer for 5 minutes");
+    let call = |timers: Vec<&Value>| {
+        (
+            "chat.set_reminder".to_string(),
+            json!({"timers": timers, "answers_question": false}),
+        )
+    };
+    let events = script(
+        &[
+            call(vec![&bad]),
+            call(vec![&good, &bad]),
+            call(vec![&good, &bad]),
+            call(vec![&good, &fixed]),
+        ],
+        "",
+    );
+    let (w, report) = said_through(said, events);
+    let got = results(&w);
+    assert_eq!(got.len(), 4, "{got:?}");
+    // a call whose only entry is refused: an error as before, nothing kept
+    let only = got[0].1.clone().unwrap_err();
+    assert!(only.contains("'Check the oven'"), "{only}");
+    assert!(!only.contains("Accepted"), "{only}");
+    // one good and one bad: still an error, so the model sees it, naming what was taken and what was refused
+    for (_, said) in &got[1..3] {
+        let told = said.clone().unwrap_err();
+        assert!(
+            told.starts_with("Accepted, and already taken (don't send these again): timers[0]."),
+            "{told}"
+        );
+        assert!(told.contains("Refused"), "{told}");
+        assert!(told.contains("timers[1]:"), "{told}");
+        assert!(told.contains("'Check the oven'"), "{told}");
+        assert!(!told.contains("'Take the bread out'"), "{told}");
+    }
+    assert!(got[3].1.is_ok(), "{got:?}");
+    let repairs = journal(&w, "task.repair");
+    assert_eq!(repairs.len(), 3, "{repairs:?}");
+    assert_eq!(repairs[1]["accepted"], json!(["timers[0]"]));
+    // the good timer once, though it was sent three times, and the corrected one
+    let timers = rows(&w, "SELECT message FROM timers ORDER BY seq");
+    assert_eq!(
+        timers,
+        vec![
+            vec![json!("Take the bread out")],
+            vec![json!("Check the oven")]
+        ]
+    );
+    let frames = frames(&report);
+    let shown = serde_json::to_string(&frames).unwrap();
+    assert!(
+        !shown.contains("an hour"),
+        "the refusals never reach the owner"
+    );
+}
+
+// decision: ORCH-739 (memory: a resent whole call keeps one copy of the entry already taken; the apply path has no
+// twin check of its own here, as the timers' "already set in this turn" is)
+#[test]
+fn a_memory_call_resent_whole_saves_its_good_entry_once() {
+    let said = "remember that I bake on Sundays and that the oven runs hot";
+    let item = |key: &str, content: &str, quote: &str| {
+        json!({"kind": "fact", "subject": "owner", "key": key, "content": content, "quote": quote,
+               "login_origin": null, "until": null, "replaces": [], "review_in_days": 0})
+    };
+    let good = item("baking day", "I bake on Sundays", "I bake on Sundays");
+    let bad = item("oven", "The oven runs cold", "the oven runs cold");
+    let call = || {
+        (
+            "chat.remember".to_string(),
+            json!({"remember": [&good, &bad], "answers_question": false}),
+        )
+    };
+    let events = script(&[call(), call()], "");
+    let mut w = world_with("plain_reply", |calls| {
+        let c = calls.iter_mut().find(|c| c["key"] == "supervisor").unwrap();
+        c["events"] = events;
+    });
+    w.daemon.bounded.store(true, Ordering::SeqCst);
+    w.daemon.front.store(true, Ordering::SeqCst);
+    *w.daemon.memory_port.lock().unwrap() = Some(Vec::new());
+    run_with(&mut w, "plain_reply", |steps| {
+        for st in steps.iter_mut() {
+            if st["do"] == "stream" {
+                let mut sent: Value =
+                    serde_json::from_str(st["lines"][0]["send"].as_str().unwrap()).unwrap();
+                sent["params"]["text"] = json!(said);
+                st["lines"][0]["send"] = json!(sent.to_string());
+            }
+        }
+    });
+    let got = results(&w);
+    assert_eq!(got.len(), 2, "{got:?}");
+    for (_, r) in &got {
+        let told = r.clone().unwrap_err();
+        assert!(
+            told.contains("remember[0]") && told.contains("remember[1]:"),
+            "{told}"
+        );
+        assert!(told.contains("'oven'"), "{told}");
+    }
+    let saved = w.daemon.memory_port.lock().unwrap().clone().unwrap();
+    assert_eq!(saved.len(), 1, "{saved:?}");
+    assert_eq!(saved[0]["content"], "I bake on Sundays");
+}

@@ -2700,7 +2700,7 @@ title = "The front door decides a chat turn in one plain run, behind a switch"
 by = "agent"
 date = 2026-11-27
 status = "active"
-rule = "For ORCH-726 (step 5). With Daemon::front_door() on (off until ferbd's replay passes; Python replays off), decide runs one plain run instead of the planner and its repair: the planner's blocks, the shared rules with concierge.md, the lookups and FRONT_TOOLS on a grant with chat:act, text through PlainReply, a lookup's start as the planning line, ended on an accepted chat.dispatch_task or chat.ask. Accepted parts are joined in call order, checked whole again and routed by today's code at the turn's end. A failed run keeps accepted parts; a cancelled one none."
+rule = "For ORCH-726 (step 5). With Daemon::front_door() on (off until ferbd's replay passes; Python replays off), decide runs one plain run instead of the planner and its repair: the planner's blocks, the shared rules with concierge.md, the lookups and FRONT_TOOLS on a grant with chat:act, text through PlainReply, a lookup's start as the planning line, ended on an accepted chat.dispatch_task or chat.ask. Accepted parts are joined in call order, given the cross-part check (unbacked_parts) and routed by today's code at the turn's end. A failed run keeps accepted parts; a cancelled one none."
 why = "The front door is the plan's step 5; one apply path keeps every effect's checks and records as today."
 paths = ["engine/crates/ferb-supervisor/src/flow/turn/front_door.rs", "engine/crates/ferb-supervisor/src/flow/turn.rs", "engine/crates/ferb-supervisor/src/flow/mod.rs"]
 
@@ -2732,3 +2732,12 @@ words_source = "Owner 2026-11-27, on a done-unverified research answer ending wi
 rule = "Supersedes ORCH-607. A done answer with something unconfirmed ends with \"I couldn't confirm part of this\" followed by a short bracket naming what wasn't confirmed, written by a model from the check's record; code keeps the fixed opening words. Built after the front door (T-1348)."
 supersedes = ["ORCH-607"]
 paths = ["engine/crates/ferb-supervisor/src/words.rs"]
+
+[ORCH-739]
+title = "A front-door side call with a bad entry keeps its good entries; a resent entry never doubles"
+by = "agent"
+date = 2026-11-27
+status = "active"
+rule = "For ORCH-736. A side call (reminders, schedules, memory, a task's control or card answer, conversation changes) that fails its checks is checked again entry by entry with today's checks. Some pass: they are kept and the call's error names them as taken and each refused entry with its problems. All refused, or one entry: today's error, nothing kept. Joining the parts drops an entry equal to one already joined; a control or card answer equal to the one taken is not a second one."
+why = "The replay's conversation_change: the planner's path applied the owner's pause and refused only a made-up close; the front door refused the whole call."
+paths = ["engine/crates/ferb-supervisor/src/flow/turn/front_door.rs"]

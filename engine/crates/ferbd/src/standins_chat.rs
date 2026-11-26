@@ -29,6 +29,10 @@
 //!   through the socket as the tool bridge makes it (ORCH-736), and reported completed with its error flag; each reply
 //!   is in the `script` report's `front_results`. A Python recording's script has neither.
 //!
+//! - `recorded_ids` and `db` (tests/front_door_replay.rs's front door run only, journal 265): the recording's ids, so
+//!   the ids this run made in their place are written into whatever recorded content names them (see [`Translation`]).
+//!   A Python recording's replay has neither, and nothing is translated.
+//!
 //! The scripted model makes its recorded tool calls as the tool bridge does: a connection to this daemon's socket as
 //! `mcp_shim` with its run token, then each `tools.call` line; each reply is compared with the recorded one.
 //!
@@ -113,6 +117,314 @@ pub struct Script {
     pub socket: OnceLock<PathBuf>,
     root: String,
     resolved: String,
+    /// `recorded_ids`: the recording's ids and this run's in their place (None: nothing translated).
+    translation: Option<Translation>,
+}
+
+/// The ids in a text, as tests/front_door_replay.rs's `Renumber` finds them: a run of letters and digits (not inside a
+/// longer word) ending in "-" and six digits, an id counter's (`id-000021`, also inside `tm-id-000021` and
+/// `id-000021.worker`). Each as its byte range.
+fn id_spans(t: &str) -> Vec<(usize, usize)> {
+    let b = t.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if (i == 0 || !b[i - 1].is_ascii_alphanumeric()) && b[i].is_ascii_alphanumeric() {
+            let mut j = i;
+            while j < b.len() && b[j].is_ascii_alphanumeric() {
+                j += 1;
+            }
+            if j + 7 <= b.len()
+                && b[j] == b'-'
+                && b[j + 1..j + 7].iter().all(u8::is_ascii_digit)
+                && (j + 7 == b.len() || !b[j + 7].is_ascii_alphanumeric())
+            {
+                out.push((i, j + 7));
+                i = j + 7;
+            } else {
+                i = j;
+            }
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
+/// A text with each id the map names written as its pair.
+fn with_ids(text: &str, map: &std::collections::BTreeMap<String, String>) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    for (a, b) in id_spans(text) {
+        out.push_str(&text[at..a]);
+        out.push_str(map.get(&text[a..b]).map_or(&text[a..b], String::as_str));
+        at = b;
+    }
+    out.push_str(&text[at..]);
+    out
+}
+
+/// A text with its ids taken out (each one `\u{1}`), and the ids in order.
+fn skeleton(t: &str) -> (String, Vec<&str>) {
+    let (mut out, mut ids, mut at) = (String::with_capacity(t.len()), Vec::new(), 0);
+    for (a, b) in id_spans(t) {
+        out.push_str(&t[at..a]);
+        out.push('\u{1}');
+        ids.push(&t[a..b]);
+        at = b;
+    }
+    out.push_str(&t[at..]);
+    (out, ids)
+}
+
+/// The ids of two texts paired where the texts are the same but for their ids, line by line: the lines matched in
+/// order (the longest common run of lines that are equal with their ids taken out), each matched line's ids paired by
+/// position. (recorded, this run's).
+fn paired_ids(recorded: &str, actual: &str) -> Vec<(String, String)> {
+    let a: Vec<(String, Vec<&str>)> = recorded.split('\n').map(skeleton).collect();
+    let b: Vec<(String, Vec<&str>)> = actual.split('\n').map(skeleton).collect();
+    let mut matched: Vec<(usize, usize)> = Vec::new();
+    // the lines equal at the start and at the end, then the longest common run of the rest
+    let mut start = 0;
+    while start < a.len() && start < b.len() && a[start].0 == b[start].0 {
+        matched.push((start, start));
+        start += 1;
+    }
+    let mut end = 0;
+    while end < a.len() - start
+        && end < b.len() - start
+        && a[a.len() - 1 - end].0 == b[b.len() - 1 - end].0
+    {
+        end += 1;
+    }
+    let (am, bm) = (&a[start..a.len() - end], &b[start..b.len() - end]);
+    let (n, m) = (am.len(), bm.len());
+    // a middle too large to align line by line is left unpaired (the prompts are a few hundred lines)
+    if n > 0 && m > 0 && n * m <= 4_000_000 {
+        let mut lcs = vec![0u32; (n + 1) * (m + 1)];
+        let at = |i: usize, j: usize| i * (m + 1) + j;
+        for i in (0..n).rev() {
+            for j in (0..m).rev() {
+                lcs[at(i, j)] = if am[i].0 == bm[j].0 {
+                    lcs[at(i + 1, j + 1)] + 1
+                } else {
+                    lcs[at(i + 1, j)].max(lcs[at(i, j + 1)])
+                };
+            }
+        }
+        let (mut i, mut j) = (0, 0);
+        while i < n && j < m {
+            if am[i].0 == bm[j].0 {
+                matched.push((start + i, start + j));
+                i += 1;
+                j += 1;
+            } else if lcs[at(i + 1, j)] >= lcs[at(i, j + 1)] {
+                i += 1;
+            } else {
+                j += 1;
+            }
+        }
+    }
+    for k in 0..end {
+        matched.push((a.len() - end + k, b.len() - end + k));
+    }
+    matched
+        .into_iter()
+        .flat_map(|(i, j)| {
+            a[i].1
+                .iter()
+                .zip(&b[j].1)
+                .map(|(x, y)| (x.to_string(), y.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// (recorded id, this run's id) pairs.
+type Pairs = Vec<(String, String)>;
+
+/// Journal 265, the front door replay only: the front door's turn writes records the planner's didn't (each call's
+/// span, ...), so the store hands out later ids that differ from the recording's, and recorded content naming one (a
+/// scripted tool call's arguments, a checker's evidence, the owner's later call, a recorded read) would name an id
+/// this run never made. Each such id is written as the one this run made in its place. The pairs come only from what
+/// this run made, matched to the recording by order and kind, never guessed from text:
+///
+/// - the store's rows: each recorded table's ids (`id`) in row order against this run's rows of that table, and each
+///   journal record against this run's record of the same kind and number, their ids paired where the two records are
+///   the same but for their ids;
+/// - what the scripted model was shown: each call's instructions and input against the recorded call's, and each tool
+///   reply against the recorded one, line by line where they are the same but for their ids.
+///
+/// A recorded id paired with two different ids of this run is a problem in the report (a pairing gone wrong).
+struct Translation {
+    /// Each recorded table's ids in row order.
+    tables: Vec<(String, Vec<String>)>,
+    /// The recorded journal: each kind's records' data in order.
+    journal: std::collections::BTreeMap<String, Vec<String>>,
+    /// The recorded spans of a task: (id, task_id, kind) in order.
+    spans: Vec<(String, String, String)>,
+    db_path: String,
+    db: Mutex<Option<rusqlite::Connection>>,
+    /// The store's pairs as last worked out, with the store's row counts then.
+    cache: Mutex<Option<(String, Pairs)>>,
+    /// The pairs from what the scripted model was shown.
+    shown: Mutex<std::collections::BTreeMap<String, String>>,
+    /// The conflicts already reported.
+    reported: Mutex<BTreeSet<String>>,
+}
+
+impl Translation {
+    fn load(file: &Value) -> Option<Translation> {
+        let ids = file.get("recorded_ids").filter(|v| v.is_object())?;
+        let tables = ids["tables"]
+            .as_object()
+            .map(|m| {
+                m.iter()
+                    .map(|(t, v)| {
+                        let ids = v
+                            .as_array()
+                            .map(|a| a.iter().map(s).collect())
+                            .unwrap_or_default();
+                        (t.clone(), ids)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut journal: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+        for r in ids["journal"].as_array().into_iter().flatten() {
+            journal.entry(s(&r[0])).or_default().push(s(&r[1]));
+        }
+        let cols: Vec<String> = file["spans"]["columns"]
+            .as_array()
+            .map(|a| a.iter().map(s).collect())
+            .unwrap_or_default();
+        let at = |name: &str| cols.iter().position(|c| c == name);
+        let spans = match (at("id"), at("task_id"), at("kind")) {
+            (Some(i), Some(t), Some(k)) => file["spans"]["rows"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|r| !r[t].is_null())
+                .map(|r| (s(&r[i]), s(&r[t]), s(&r[k])))
+                .collect(),
+            _ => Vec::new(),
+        };
+        Some(Translation {
+            tables,
+            journal,
+            spans,
+            db_path: s(&file["db"]),
+            db: Mutex::new(None),
+            cache: Mutex::new(None),
+            shown: Mutex::new(Default::default()),
+            reported: Mutex::new(BTreeSet::new()),
+        })
+    }
+
+    /// The store's pairs: this run's rows read through a connection of its own (never the daemon's, which a caller
+    /// may hold), as committed.
+    fn store_pairs(&self, mask: impl Fn(&str) -> String) -> Vec<(String, String)> {
+        let mut db = lock(&self.db);
+        if db.is_none() {
+            *db = rusqlite::Connection::open_with_flags(
+                &self.db_path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .ok();
+            if let Some(c) = db.as_ref() {
+                let _ = c.busy_timeout(std::time::Duration::from_secs(2));
+            }
+        }
+        let Some(conn) = db.as_ref() else {
+            return Vec::new();
+        };
+        let column = |sql: &str| -> Vec<Vec<String>> {
+            let Ok(mut st) = conn.prepare(sql) else {
+                return Vec::new();
+            };
+            let n = st.column_count();
+            st.query_map([], |r| {
+                (0..n)
+                    .map(|i| r.get::<_, Option<String>>(i).map(|v| v.unwrap_or_default()))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .map(|rows| rows.filter_map(Result::ok).collect())
+            .unwrap_or_default()
+        };
+        // the pairs are worked out again only once a row was added (a row's id never changes)
+        let mut mark = String::new();
+        for table in self
+            .tables
+            .iter()
+            .map(|(t, _)| t.as_str())
+            .chain(["journal", "spans"])
+        {
+            let got = column(&format!(
+                "SELECT COUNT(*) || ':' || COALESCE(MAX(rowid), 0) FROM \"{table}\""
+            ));
+            mark.push_str(
+                got.first()
+                    .and_then(|r| r.first())
+                    .map_or("-", String::as_str),
+            );
+            mark.push(' ');
+        }
+        if let Some((had, pairs)) = lock(&self.cache).as_ref() {
+            if *had == mark {
+                return pairs.clone();
+            }
+        }
+        let mut out = Vec::new();
+        for (table, recorded) in &self.tables {
+            let rows = column(&format!("SELECT id FROM \"{table}\" ORDER BY rowid"));
+            for (want, got) in recorded.iter().zip(&rows) {
+                out.extend(paired_ids(want, &got[0]));
+            }
+        }
+        let rows = column("SELECT kind, data_json FROM journal ORDER BY seq");
+        let mut nth: std::collections::BTreeMap<&str, usize> = Default::default();
+        for r in &rows {
+            let k = nth.entry(r[0].as_str()).or_insert(0);
+            let want = self.journal.get(&r[0]).and_then(|all| all.get(*k));
+            *k += 1;
+            if let Some(data) = want {
+                let got = mask(&r[1]);
+                let (a, b) = (skeleton(data), skeleton(&got));
+                if a.0 == b.0 {
+                    out.extend(
+                        a.1.iter()
+                            .zip(&b.1)
+                            .map(|(x, y)| (x.to_string(), y.to_string())),
+                    );
+                }
+            }
+        }
+        // the spans of a task: each kind's in order against this run's of the same kind and task (the task's id
+        // written as this run's by the pairs above); a span of no task (the planner's, the front door's own calls) is
+        // left unpaired
+        let mut base: std::collections::BTreeMap<String, String> = Default::default();
+        for (a, b) in &out {
+            base.entry(a.clone()).or_insert_with(|| b.clone());
+        }
+        let rows =
+            column("SELECT id, task_id, kind FROM spans WHERE task_id IS NOT NULL ORDER BY rowid");
+        let mut nth: std::collections::BTreeMap<(String, String), usize> = Default::default();
+        for r in &rows {
+            let key = (r[2].clone(), r[1].clone());
+            let k = nth.entry(key.clone()).or_insert(0);
+            let want = self
+                .spans
+                .iter()
+                .filter(|(_, task, kind)| *kind == key.0 && with_ids(task, &base) == key.1)
+                .nth(*k);
+            *k += 1;
+            if let Some((id, _, _)) = want {
+                out.extend(paired_ids(id, &r[0]));
+            }
+        }
+        *lock(&self.cache) = Some((mark, out.clone()));
+        out
+    }
 }
 
 impl Script {
@@ -174,8 +486,87 @@ impl Script {
             socket: OnceLock::new(),
             root: s(&file["root"]),
             resolved: s(&file["root_resolved"]),
+            translation: Translation::load(&file),
             file,
         }))
+    }
+
+    /// Journal 265: each recorded id paired so far with the one this run made in its place (the store's pairs, then
+    /// what the model was shown; a recorded id paired two ways is a problem, and what the model was shown wins).
+    fn id_map(&self) -> std::collections::BTreeMap<String, String> {
+        let Some(t) = &self.translation else {
+            return Default::default();
+        };
+        let mut map: std::collections::BTreeMap<String, String> = Default::default();
+        let mut conflicts = Vec::new();
+        let shown: Vec<(String, String)> = lock(&t.shown)
+            .iter()
+            .map(|(a, b)| (a.clone(), b.clone()))
+            .collect();
+        for (want, got) in t.store_pairs(|x| self.mask(x)).into_iter().chain(shown) {
+            match map.get(&want) {
+                Some(had) if *had != got => conflicts.push(format!(
+                    "the recorded id {want} paired with both {had} and {got}"
+                )),
+                _ => {}
+            }
+            map.insert(want, got);
+        }
+        for c in conflicts {
+            if lock(&t.reported).insert(c.clone()) {
+                self.problem(c);
+            }
+        }
+        map
+    }
+
+    /// Journal 265: recorded content with each recorded id written as the one this run made in its place.
+    pub fn to_run(&self, v: &Value) -> Value {
+        if self.translation.is_none() {
+            return v.clone();
+        }
+        let map = self.id_map();
+        fn walk(v: &Value, map: &std::collections::BTreeMap<String, String>) -> Value {
+            match v {
+                Value::String(t) => json!(with_ids(t, map)),
+                Value::Array(a) => Value::Array(a.iter().map(|x| walk(x, map)).collect()),
+                Value::Object(m) => Value::Object(
+                    m.iter()
+                        .map(|(k, x)| (with_ids(k, map), walk(x, map)))
+                        .collect(),
+                ),
+                other => other.clone(),
+            }
+        }
+        walk(v, &map)
+    }
+
+    /// Journal 265: what the scripted model was shown (`actual`, `/FX` written) against what the recorded model was
+    /// (`recorded`): their ids paired where the two are the same but for them.
+    fn learn(&self, recorded: &str, actual: &str) {
+        let Some(t) = &self.translation else {
+            return;
+        };
+        let pairs = paired_ids(recorded, actual);
+        let mut conflicts = Vec::new();
+        {
+            let mut shown = lock(&t.shown);
+            for (want, got) in pairs {
+                match shown.get(&want) {
+                    Some(had) if *had != got => conflicts.push(format!(
+                        "the recorded id {want} shown as both {had} and {got}"
+                    )),
+                    _ => {
+                        shown.insert(want, got);
+                    }
+                }
+            }
+        }
+        for c in conflicts {
+            if lock(&t.reported).insert(c.clone()) {
+                self.problem(c);
+            }
+        }
     }
 
     /// The run's folder written `/FX`, its resolved spelling first.
@@ -281,7 +672,9 @@ impl Script {
         let (Some(kc), Some(tc), Some(ic)) = (at("kind"), at("task_id"), at("id")) else {
             return;
         };
-        let rows = self.file["spans"]["rows"]
+        // journal 265: the recorded rows name the recorded tree (this run's in the front door replay)
+        let rows = self
+            .to_run(&self.file["spans"]["rows"])
             .as_array()
             .cloned()
             .unwrap_or_default();
@@ -346,8 +739,10 @@ pub struct ScriptReads(pub Arc<Script>);
 
 impl ScriptReads {
     fn pop(&self, q: &Mutex<VecDeque<Value>>, what: &str) -> Value {
-        match lock(q).pop_front() {
-            Some(v) => v,
+        let next = lock(q).pop_front();
+        match next {
+            // journal 265: a recorded read names this run's ids (in the front door replay)
+            Some(v) => self.0.to_run(&v),
             None => {
                 self.0.problem(format!(
                     "the supervisor read {what} more often than the recording did"
@@ -371,6 +766,7 @@ impl ScriptReads {
                 .problem(format!("port {name}: not called in the recording"));
             return Value::Null;
         };
+        let rec = self.0.to_run(&rec);
         let want = json!({"args": rec["args"], "kwargs": rec["kwargs"]});
         if want != got {
             self.0.problem(format!(
@@ -446,7 +842,9 @@ impl Reads for ScriptReads {
         &'a self,
         request_id: &'a str,
     ) -> Option<BoxFuture<'a, Result<Option<ferb_supervisor::flow::FrontCapture>, String>>> {
-        let stalled = self.0.file["captures"]
+        // journal 265: the recorded captures name this run's requests (in the front door replay)
+        let captures = self.0.to_run(&self.0.file["captures"]);
+        let stalled = captures
             .as_array()
             .and_then(|a| a.iter().find(|c| c["request_id"] == request_id))
             .is_some_and(|c| c["stalled"] == json!(true));
@@ -454,7 +852,7 @@ impl Reads for ScriptReads {
             // the recorder's capture hung (make_more.py `mm_capture_timeout`): the planner's limit ends the wait
             return Some(Box::pin(std::future::pending()));
         }
-        let got = self.0.file["captures"]
+        let got = captures
             .as_array()
             .and_then(|a| a.iter().find(|c| c["request_id"] == request_id))
             .map(|c| {
@@ -476,7 +874,7 @@ impl Reads for ScriptReads {
         Some(Box::pin(async move { Ok(got) }))
     }
     fn environment<'a>(&'a self, _words: &'a str) -> BoxFuture<'a, Environment> {
-        let next = lock(&self.0.supervise).front().cloned();
+        let next = lock(&self.0.supervise).front().map(|v| self.0.to_run(v));
         Box::pin(async move {
             let next = next.unwrap_or(Value::Null);
             Environment {
@@ -507,7 +905,7 @@ impl Reads for ScriptReads {
         s(&self.0.file["availability"])
     }
     fn relevant_context(&self, _words: &str) -> Activity {
-        let next = lock(&self.0.contexts).front().cloned();
+        let next = lock(&self.0.contexts).front().map(|v| self.0.to_run(v));
         let Some(next) = next else {
             self.0
                 .problem("a context read the recording didn't make".into());
@@ -548,8 +946,8 @@ impl Reads for ScriptReads {
         _targets: &'a str,
     ) -> BoxFuture<'a, Vec<ferb_context::assemble::ContextBlock>> {
         // what memory gave this context's worker, as recorded (make_more.py keeps it)
-        let blocks: Vec<ferb_context::assemble::ContextBlock> = lock(&self.0.contexts)
-            .front()
+        let front = lock(&self.0.contexts).front().map(|v| self.0.to_run(v));
+        let blocks: Vec<ferb_context::assemble::ContextBlock> = front
             .and_then(|r| r["memory"].as_array().cloned())
             .unwrap_or_default()
             .iter()
@@ -626,6 +1024,7 @@ impl Reads for ScriptReads {
                 .as_array()
                 .cloned()
                 .unwrap_or_default(),
+            shown: json!({"system": call["system"], "parts": call["parts"]}),
         }))
     }
 }
@@ -638,6 +1037,8 @@ struct ScriptRuntime {
     cancel_hold: Option<String>,
     events: Vec<Value>,
     bridge: Vec<Value>,
+    /// What the recorded call was shown (its instructions and input), for journal 265's pairs.
+    shown: Value,
 }
 
 impl ModelRuntime for ScriptRuntime {
@@ -679,6 +1080,19 @@ impl ScriptRuntime {
     ) -> BoxFuture<'a, Result<StartedRun, ferb_worker::Error>> {
         Box::pin(async move {
             let parts: Vec<String> = request.parts.iter().map(|p| self.script.mask(p)).collect();
+            // journal 265: the ids this call is shown against the recorded call's (the front door replay only)
+            if self.script.translation.is_some() {
+                let recorded = self.shown["parts"]
+                    .as_array()
+                    .map(|a| a.iter().map(s).collect::<Vec<_>>());
+                if let Some(recorded) = recorded {
+                    self.script.learn(&recorded.join("\n"), &parts.join("\n"));
+                }
+                if let Some(system) = self.shown["system"].as_str() {
+                    self.script
+                        .learn(system, &self.script.mask(&request.system));
+                }
+            }
             lock(&self.script.state)
                 .started
                 .push(json!({"n": self.n, "task_id": task.id,
@@ -779,7 +1193,8 @@ impl ScriptEvents {
         let (r, mut w) = conn.into_split();
         let mut r = BufReader::new(r).lines();
         for msg in sent {
-            let mut msg = msg;
+            // journal 265: the recorded call names this run's ids (in the front door replay)
+            let mut msg = self.script.to_run(&msg);
             if msg["method"] == "auth.hello" {
                 msg["params"]["token"] = json!(self.token);
             }
@@ -819,6 +1234,14 @@ impl ScriptEvents {
             };
             let got: Value = serde_json::from_str(&self.script.mask(&ferb_py::json::dumps(&got)))
                 .unwrap_or(Value::Null);
+            // journal 265: the reply's ids against the recorded reply's, then the recorded reply as this run's ids
+            let want = if self.script.translation.is_some() {
+                self.script
+                    .learn(&ferb_py::json::dumps(&want), &ferb_py::json::dumps(&got));
+                self.script.to_run(&want)
+            } else {
+                want
+            };
             if got != want {
                 lock(&self.script.state).tool_diffs.push(format!(
                     "call {} {}\n    python: {}\n    rust:   {}",
@@ -962,7 +1385,10 @@ impl EventSource for ScriptEvents {
                     self.script.apply_note();
                 }
             }
-            let ev = self.script.with_tree(self.events.get(self.at)?);
+            // journal 265: a recorded answer or front call names this run's ids (in the front door replay)
+            let ev = self
+                .script
+                .to_run(&self.script.with_tree(self.events.get(self.at)?));
             self.at += 1;
             let kind = s(&ev["kind"]);
             if kind == "front_call" {
@@ -1081,6 +1507,11 @@ pub fn control(
     Some(match what {
         "script" => match script {
             Some(s) => Ok(s.report()),
+            None => Err("no script".into()),
+        },
+        // journal 265: recorded content (the owner's next call) with this run's ids
+        "translate" => match script {
+            Some(s) => Ok(s.to_run(&req["value"])),
             None => Err("no script".into()),
         },
         "release" => match script {

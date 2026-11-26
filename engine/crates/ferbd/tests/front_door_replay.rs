@@ -12,6 +12,13 @@
 //! started), the memory and browser ports' calls, the recorded tool calls' replies, every front call's verdict, and the
 //! kinds of the frames each chat stream carried.
 //!
+//! The front door's turn writes records the planner's didn't (each call's span, ...), so the store hands out later ids
+//! that differ from the recording's. In the front door's run the stand-in writes each recorded id that recorded
+//! content names (a scripted tool call's arguments, a checker's evidence, a front call, a recorded read, a desktop
+//! observer row) as the id this run made in its place, paired from what the run made (journal 265: the store's rows and
+//! what the scripted model was shown, by order and kind; src/standins_chat.rs `Translation`), and the owner's recorded
+//! lines are sent so too (`translate`), so every later effect is compared.
+//!
 //! Every difference is named in [`EXPECTED`] with its reason; a difference not named there fails the test, and so does
 //! a named one that no longer happens. The scenarios run in [`BATCHES`] tests. `FRONT_REPLAY=<name>` runs one scenario;
 //! `FRONT_REPLAY_DEBUG=1` prints the differences in full and each run's model calls and front calls;
@@ -433,6 +440,39 @@ struct Script {
     captures: Value,
     ports: Vec<Value>,
     front_door: bool,
+    /// The front door's run only (journal 265): the recording's ids, so the stand-in writes the ids this run made in
+    /// their place into recorded content (src/standins_chat.rs `Translation`); and the run's store, where it reads them.
+    recorded_ids: Value,
+    db: String,
+}
+
+/// The recording's ids for the stand-in's pairs (journal 265): each compared table's `id` column in row order, and the
+/// journal's records (kind, data) in order.
+fn recorded_ids(sc: &Value) -> Value {
+    let mut tables = Map::new();
+    for (t, v) in sc["tables"].as_object().into_iter().flatten() {
+        let cols = strs(&v["columns"]);
+        let Some(at) = cols.iter().position(|c| c == "id") else {
+            continue;
+        };
+        if !compared(t) {
+            continue;
+        }
+        let ids: Vec<Value> = v["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|r| r[at].clone())
+            .collect();
+        tables.insert(t.clone(), json!(ids));
+    }
+    let journal: Vec<Value> = sc["tables"]["journal"]["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|r| json!([cell(&r[3]), cell(&r[4])]))
+        .collect();
+    json!({"tables": tables, "journal": journal})
 }
 
 /// The planner calls (by their order among the planner calls) that repair the one before them: a second call for the
@@ -470,7 +510,8 @@ fn without_repairs(recs: &[Value], repaired: &BTreeSet<usize>) -> Vec<Value> {
     out
 }
 
-fn script_of(r: &Recorded, workspace: &str, front: bool) -> Script {
+fn script_of(r: &Recorded, home: &Path, front: bool) -> Script {
+    let workspace = &home.join("workspace").to_string_lossy().to_string();
     let (sc, catalogs) = (&r.sc, &r.catalogs);
     let repaired = if front {
         repairs(sc["model_calls"].as_array().unwrap())
@@ -554,6 +595,8 @@ fn script_of(r: &Recorded, workspace: &str, front: bool) -> Script {
         captures: sc["captures"].clone(),
         ports: of("port"),
         front_door: front,
+        recorded_ids: if front { recorded_ids(sc) } else { Value::Null },
+        db: home.join("ferb.db").to_string_lossy().to_string(),
     }
 }
 
@@ -611,7 +654,7 @@ fn write_script(path: &Path, sc: &Script, used: &Used, run: &RunRoot) {
         "availability": sc.availability, "spans": spans, "root": run.root, "root_resolved": run.resolved,
         "note": sc.note, "questions_from": used.questions, "captures": sc.captures, "ports": sc.ports,
         "state_out": path.with_extension("state.json").to_string_lossy(),
-        "front_door": sc.front_door,
+        "front_door": sc.front_door, "recorded_ids": sc.recorded_ids, "db": sc.db,
     });
     std::fs::write(path, file.to_string()).unwrap();
 }
@@ -803,7 +846,7 @@ fn run_scenario(r: &Recorded, run_root: &RunRoot, front: bool) -> Outcome {
     let workspace = home.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
     std::fs::create_dir_all(&user).unwrap();
-    let script = script_of(r, &workspace.to_string_lossy(), front);
+    let script = script_of(r, &home, front);
     let script_path = root.join(format!("{nn}-script.json"));
     let mut used = Used::default();
     write_script(&script_path, &script, &used, run_root);
@@ -844,6 +887,16 @@ fn run_scenario(r: &Recorded, run_root: &RunRoot, front: bool) -> Outcome {
     let mut stopped = None;
     let frame =
         |l: &str| -> Value { serde_json::from_str(&run_root.mask(l)).unwrap_or_else(|_| json!(l)) };
+    // the front door's run (journal 265): a recorded line the owner sends names the ids this run made in place of the
+    // recording's (a timer the app lists and then repeats, ...)
+    let sent_line = |run: &Run, l: &Value| -> String {
+        let line = line_of(l);
+        if !front {
+            return line;
+        }
+        let got = run.control(json!({"do": "translate", "value": line}));
+        got.as_str().map(str::to_string).unwrap_or(line)
+    };
     for st in sc["steps"].as_array().unwrap() {
         let conn = s(&st["conn"]);
         match st["do"].as_str().unwrap() {
@@ -870,7 +923,7 @@ fn run_scenario(r: &Recorded, run_root: &RunRoot, front: bool) -> Outcome {
                 let mut got = Vec::new();
                 for l in st["lines"].as_array().unwrap() {
                     if let Some(sent) = l.get("send") {
-                        c.send(&line_of(sent));
+                        c.send(&sent_line(&run, sent));
                     } else if l.get("recv").is_some() {
                         got.push(c.recv().map(|g| frame(&g)).unwrap_or(json!("(closed)")));
                     }
@@ -879,7 +932,7 @@ fn run_scenario(r: &Recorded, run_root: &RunRoot, front: bool) -> Outcome {
                 settle(&run);
             }
             "stream" => {
-                let sent = line_of(&st["lines"][0]["send"]);
+                let sent = sent_line(&run, &st["lines"][0]["send"]);
                 let v: Value = serde_json::from_str(&sent).unwrap();
                 ids.insert(conn.clone(), v["id"].clone());
                 conns
@@ -1243,27 +1296,10 @@ fn differences(old: &Outcome, front: &Outcome) -> Vec<(String, String)> {
             ),
         ));
     }
-    // a recorded tool call's reply that differs from the recording only in the ids it names (each side numbered by
-    // first appearance) is the same reply
-    let ids_only = |d: &String| -> bool {
-        let Some((_, rest)) = d.split_once("\n    python: ") else {
-            return false;
-        };
-        let Some((python, rust)) = rest.split_once("\n    rust:   ") else {
-            return false;
-        };
-        Renumber(BTreeMap::new()).text(python) == Renumber(BTreeMap::new()).text(rust)
-    };
-    let front_tool_diffs: Vec<String> = front
-        .used
-        .tool_diffs
-        .iter()
-        .filter(|d| !ids_only(d))
-        .cloned()
-        .collect();
+    // a recorded tool call's reply is compared as the stand-in wrote it, with the ids this run made (journal 265)
     for (what, a, b) in [
         ("problems", &old.used.problems, &front.used.problems),
-        ("tool calls", &old.used.tool_diffs, &front_tool_diffs),
+        ("tool calls", &old.used.tool_diffs, &front.used.tool_diffs),
     ] {
         if a != b {
             out.push((
@@ -1411,21 +1447,6 @@ fn differences(old: &Outcome, front: &Outcome) -> Vec<(String, String)> {
 // the expected differences, each with its reason
 // ---------------------------------------------------------------------------------------------------------------
 
-/// The replay's id shift, the cause of several differences below, and what it made miss.
-macro_rules! id_shift {
-    ($what:literal) => {
-        concat!(
-            "Id shift, the replay's and not FERB's: the front door's turn writes records the planner's didn't (each call's tool.call span, the accepted call's line recorded on the task as a lookup read, a model.close span after a run that ended on its call) and none for a repair call, so later ids are numbered differently from the recording, and recorded content naming such an id misses: ",
-            $what
-        )
-    };
-}
-const CHECKER: &str = id_shift!("the scripted checker cites its evidence by recorded span ids, is refused (verify.refused) and asked again; the recording has no second answer, so the task never ends in this replay.");
-const EARLIER: &str = id_shift!("the recorded hand-off names the earlier result by its recorded id: refused (\"isn't a result shown in this chat\"); the scripted model has no repair, so the turn fails (chat.failed) and the second task never runs.");
-const TIMER: &str = id_shift!("the recorded timers.repeat call names the timer by its recorded id: refused (an error reply), so no repeat.");
-const FORGET: &str = id_shift!("the recorded forget names the remembered item by its recorded id: no such item, so no forget question.");
-const DISPLACED: &str = id_shift!("with no forget question waiting (above), the owner's \"yes\" answers FERB's own question alone, so code asks no which-one question.");
-
 /// Every difference the front door makes on the recorded scenarios: (the difference's area, the scenarios it is found
 /// in, why). A difference found in another scenario fails the test; so does one named here that a scenario run no longer
 /// shows.
@@ -1436,154 +1457,29 @@ const EXPECTED: &[(&str, &[&str], &str)] = &[
         "The front door streams its plain reply as written (RUN-480, ORCH-734): reply_delta frames before the reply. The recorded planner gave its whole answer at once, so the planner's replay streams none (a real model's form streams through ReplyDraft).",
     ),
     (
-        "problems",
-        &["clarify_then_answer", "confirm_yes", "pause_steer_resume", "stop_plus_new_task", "schedule_created_and_fired", "plan_repair", "unbacked_part", "conversation_resume"],
-        id_shift!("the stand-in's recorded desktop-observer rows are keyed by the recorded tree ids (\"no recorded disturbance span for …\", a failing foreign key); in confirm_yes and pause_steer_resume the checker asked again (below) reads one more role instruction than recorded."),
-    ),
-    (
-        "episodes.steps_json",
-        &["clarify_then_answer", "one_step_task", "one_step_with_tools", "checker_skips_change_records", "multi_step_plan", "confirm_no", "confirm_stop_pending", "steer_running_task", "stop_by_task_stop", "stop_by_chat", "stop_plus_new_task", "global_stop", "schedule_created_and_fired", "wait_for_time", "tool_failure_then_retry", "plan_repair", "checker_rejects", "checker_findings_fix", "worker_question_answered", "check_in_after_five", "restart_mid_task", "restart_with_open_question", "attachment_and_bad_params", "several_asks", "plan_parts_checklist", "answer_in_chat", "checklist_single", "ask_step", "wait_step", "route_question", "checker_runtime_down", "unbacked_part", "correct_pending_check", "loop_steer_finish", "loop_pause_stop", "mention_paused", "owner_closed_tab", "reason_findings", "runtime_switch_tap", "event_wait", "conversation_handover", "conversation_change", "stated_scope", "browse_as_corrected", "probe_watch", "login_sites", "conversation_resume"],
-        "The episode's Planner line reads the model.turn span's text as the answer form (ferb-trace compose.rs planner_text: \"task — <goal>\"); the front door's span holds its plain text and `calls`, so the line reads \"decided\". Found here, not fixed: outside ferb-gateway and ferbd.",
-    ),
-    (
         "episodes.tools_json",
-        &["clarify_then_answer", "one_step_task", "one_step_with_tools", "checker_skips_change_records", "multi_step_plan", "confirm_no", "confirm_stop_pending", "steer_running_task", "stop_by_task_stop", "stop_by_chat", "stop_plus_new_task", "global_stop", "schedule_created_and_fired", "wait_for_time", "tool_failure_then_retry", "plan_repair", "checker_rejects", "checker_findings_fix", "worker_question_answered", "check_in_after_five", "restart_mid_task", "restart_with_open_question", "attachment_and_bad_params", "several_asks", "plan_parts_checklist", "answer_in_chat", "checklist_single", "ask_step", "wait_step", "route_question", "checker_runtime_down", "unbacked_part", "correct_pending_check", "loop_steer_finish", "loop_pause_stop", "mention_paused", "owner_closed_tab", "reason_findings", "runtime_switch_tap", "event_wait", "conversation_handover", "conversation_change", "stated_scope", "browse_as_corrected", "probe_watch", "login_sites", "conversation_resume"],
+        &["clarify_then_answer", "one_step_task", "one_step_with_tools", "checker_skips_change_records", "multi_step_plan", "confirm_no", "confirm_stop_pending", "steer_running_task", "stop_by_task_stop", "stop_by_chat", "stop_plus_new_task", "global_stop", "schedule_created_and_fired", "wait_for_time", "tool_failure_then_retry", "plan_repair", "checker_rejects", "checker_findings_fix", "worker_question_answered", "check_in_after_five", "restart_mid_task", "restart_with_open_question", "attachment_and_bad_params", "several_asks", "plan_parts_checklist", "answer_in_chat", "checklist_single", "ask_step", "wait_step", "route_question", "checker_runtime_down", "unbacked_part", "correct_pending_check", "loop_steer_finish", "loop_pause_stop", "mention_paused", "owner_closed_tab", "reason_findings", "runtime_switch_tap", "event_wait", "conversation_handover", "conversation_change", "stated_scope", "browse_as_corrected", "probe_watch", "login_sites", "conversation_resume", "confirm_yes", "pause_steer_resume", "earlier_result"],
         "The front door's calls are gateway tool calls, so the episode counts them ({\"chat.dispatch_task\": {\"calls\": 1, ...}}); the planner's form was no tool call.",
     ),
     (
         "episodes.tool_origins",
-        &["clarify_then_answer", "one_step_task", "multi_step_plan", "confirm_no", "steer_running_task", "stop_by_task_stop", "stop_by_chat", "stop_plus_new_task", "global_stop", "schedule_created_and_fired", "tool_failure_then_retry", "plan_repair", "checker_rejects", "checker_findings_fix", "worker_question_answered", "check_in_after_five", "restart_mid_task", "restart_with_open_question", "attachment_and_bad_params", "several_asks", "plan_parts_checklist", "answer_in_chat", "checklist_single", "ask_step", "wait_step", "route_question", "checker_runtime_down", "unbacked_part", "loop_steer_finish", "loop_pause_stop", "mention_paused", "owner_closed_tab", "reason_findings", "runtime_switch_tap", "event_wait", "conversation_handover", "conversation_change", "stated_scope", "browse_as_corrected", "probe_watch", "login_sites", "conversation_resume"],
+        &["clarify_then_answer", "one_step_task", "multi_step_plan", "confirm_no", "steer_running_task", "stop_by_task_stop", "stop_by_chat", "stop_plus_new_task", "global_stop", "schedule_created_and_fired", "tool_failure_then_retry", "plan_repair", "checker_rejects", "checker_findings_fix", "worker_question_answered", "check_in_after_five", "restart_mid_task", "restart_with_open_question", "attachment_and_bad_params", "several_asks", "plan_parts_checklist", "answer_in_chat", "checklist_single", "ask_step", "wait_step", "route_question", "checker_runtime_down", "unbacked_part", "loop_steer_finish", "loop_pause_stop", "mention_paused", "owner_closed_tab", "reason_findings", "runtime_switch_tap", "event_wait", "conversation_handover", "conversation_change", "stated_scope", "browse_as_corrected", "probe_watch", "login_sites", "conversation_resume", "earlier_result"],
         "The front door's call results are FERB's own words (origin ferb), which join the episode's tool origins.",
     ),
     (
         "episodes.usage_json",
-        &["clarify_then_answer", "one_step_task", "one_step_with_tools", "checker_skips_change_records", "multi_step_plan", "confirm_no", "confirm_stop_pending", "steer_running_task", "stop_by_task_stop", "stop_by_chat", "stop_plus_new_task", "global_stop", "schedule_created_and_fired", "wait_for_time", "tool_failure_then_retry", "plan_repair", "checker_rejects", "checker_findings_fix", "worker_question_answered", "check_in_after_five", "restart_mid_task", "restart_with_open_question", "attachment_and_bad_params", "several_asks", "plan_parts_checklist", "answer_in_chat", "checklist_single", "ask_step", "wait_step", "route_question", "checker_runtime_down", "unbacked_part", "correct_pending_check", "loop_steer_finish", "loop_pause_stop", "mention_paused", "owner_closed_tab", "reason_findings", "runtime_switch_tap", "event_wait", "conversation_handover", "conversation_change", "stated_scope", "browse_as_corrected", "probe_watch", "login_sites", "conversation_resume"],
+        &["clarify_then_answer", "one_step_task", "one_step_with_tools", "checker_skips_change_records", "multi_step_plan", "confirm_no", "confirm_stop_pending", "steer_running_task", "stop_by_task_stop", "stop_by_chat", "stop_plus_new_task", "global_stop", "schedule_created_and_fired", "wait_for_time", "tool_failure_then_retry", "plan_repair", "checker_rejects", "checker_findings_fix", "worker_question_answered", "check_in_after_five", "restart_mid_task", "restart_with_open_question", "attachment_and_bad_params", "several_asks", "plan_parts_checklist", "answer_in_chat", "checklist_single", "ask_step", "wait_step", "route_question", "checker_runtime_down", "unbacked_part", "correct_pending_check", "loop_steer_finish", "loop_pause_stop", "mention_paused", "owner_closed_tab", "reason_findings", "runtime_switch_tap", "event_wait", "conversation_handover", "conversation_change", "stated_scope", "browse_as_corrected", "probe_watch", "login_sites", "conversation_resume", "confirm_yes", "pause_steer_resume", "earlier_result"],
         "A run ended on its hand-off or question (ORCH-733) reads no further event, so the scripted usage event after its calls is never read: one usage record fewer. Whether a real runtime's usage reaches the record at its close (RUN-477) is unverified here.",
     ),
     (
         "frames +plan_delta +plan_end",
-        &["clarify_then_answer", "one_step_task", "one_step_with_tools", "checker_skips_change_records", "multi_step_plan", "confirm_no", "confirm_stop_pending", "steer_running_task", "stop_by_task_stop", "stop_by_chat", "stop_plus_new_task", "global_stop", "wait_for_time", "tool_failure_then_retry", "checker_rejects", "checker_findings_fix", "worker_question_answered", "check_in_after_five", "restart_mid_task", "restart_with_open_question", "attachment_and_bad_params", "several_asks", "plan_parts_checklist", "answer_in_chat", "checklist_single", "ask_step", "wait_step", "route_question", "checker_runtime_down", "correct_pending_check", "earlier_result", "loop_steer_finish", "loop_pause_stop", "mention_paused", "owner_closed_tab", "reason_findings", "runtime_switch_tap", "event_wait", "conversation_handover", "conversation_change", "stated_scope", "browse_as_corrected", "probe_watch", "login_sites", "conversation_resume"],
+        &["clarify_then_answer", "one_step_task", "one_step_with_tools", "checker_skips_change_records", "multi_step_plan", "confirm_no", "confirm_stop_pending", "steer_running_task", "stop_by_task_stop", "stop_by_chat", "stop_plus_new_task", "global_stop", "wait_for_time", "tool_failure_then_retry", "checker_rejects", "checker_findings_fix", "worker_question_answered", "check_in_after_five", "restart_mid_task", "restart_with_open_question", "attachment_and_bad_params", "several_asks", "plan_parts_checklist", "answer_in_chat", "checklist_single", "ask_step", "wait_step", "route_question", "checker_runtime_down", "correct_pending_check", "earlier_result", "loop_steer_finish", "loop_pause_stop", "mention_paused", "owner_closed_tab", "reason_findings", "runtime_switch_tap", "event_wait", "conversation_handover", "conversation_change", "stated_scope", "browse_as_corrected", "probe_watch", "login_sites", "conversation_resume", "confirm_yes", "pause_steer_resume"],
         "An accepted hand-off's ack is shown on the plan channel (ack, ack_end) before its plan frame (ORCH-735); the recorded planner's whole answer streamed nothing first.",
     ),
     (
-        "tool calls",
-        &["one_step_with_tools", "confirm_yes", "pause_steer_resume"],
-        id_shift!("the scripted checker's task.evidence names a span by its recorded id (\"no authorized recorded fact with that id\")."),
-    ),
-    (
-        "episodes rows",
-        &["confirm_yes", "pause_steer_resume"],
-        CHECKER,
-    ),
-    (
-        "episodes rows",
-        &["earlier_result"],
-        EARLIER,
-    ),
-    (
-        "plan_steps.status",
-        &["confirm_yes", "pause_steer_resume"],
-        CHECKER,
-    ),
-    (
-        "plan_steps.output",
-        &["confirm_yes", "pause_steer_resume"],
-        CHECKER,
-    ),
-    (
-        "task_plans.status",
-        &["confirm_yes", "pause_steer_resume"],
-        CHECKER,
-    ),
-    (
-        "task_result_cards rows",
-        &["confirm_yes"],
-        CHECKER,
-    ),
-    (
-        "task_result_names rows",
-        &["confirm_yes", "pause_steer_resume"],
-        CHECKER,
-    ),
-    (
-        "task_result_names rows",
-        &["earlier_result"],
-        EARLIER,
-    ),
-    (
-        "task_results rows",
-        &["confirm_yes", "pause_steer_resume"],
-        CHECKER,
-    ),
-    (
-        "task_results rows",
-        &["earlier_result"],
-        EARLIER,
-    ),
-    (
-        "tasks.status",
-        &["confirm_yes", "pause_steer_resume"],
-        CHECKER,
-    ),
-    (
-        "tasks.outcome_json",
-        &["confirm_yes", "pause_steer_resume"],
-        CHECKER,
-    ),
-    (
-        "journal kinds",
-        &["confirm_yes", "pause_steer_resume"],
-        CHECKER,
-    ),
-    (
-        "journal kinds",
-        &["timer_set_and_fired"],
-        TIMER,
-    ),
-    (
-        "journal kinds",
-        &["remember_then_forget", "displaced_question"],
-        FORGET,
-    ),
-    (
-        "journal kinds",
-        &["earlier_result"],
-        EARLIER,
-    ),
-    (
-        "later model calls",
-        &["confirm_yes", "pause_steer_resume"],
-        CHECKER,
-    ),
-    (
-        "later model calls",
-        &["earlier_result"],
-        EARLIER,
-    ),
-    (
-        "frames +plan_delta +plan_end -verification -outcome -(end)",
-        &["confirm_yes", "pause_steer_resume"],
-        CHECKER,
-    ),
-    (
-        "timer_names rows",
-        &["timer_set_and_fired"],
-        TIMER,
-    ),
-    (
-        "timer_repeats rows",
-        &["timer_set_and_fired"],
-        TIMER,
-    ),
-    (
-        "timers rows",
-        &["timer_set_and_fired"],
-        TIMER,
-    ),
-    (
-        "frames +(other) -(end)",
-        &["timer_set_and_fired"],
-        TIMER,
+        "episodes.steps_json",
+        &["plan_repair", "unbacked_part"],
+        "The planner's run made two planner calls (the refused answer, then its repair), so its episode has two Planner lines; the front door repairs inside its one run (the refused call above), so its episode has one.",
     ),
     (
         "refused chat.dispatch_task",
@@ -1591,74 +1487,14 @@ const EXPECTED: &[(&str, &[&str], &str)] = &[
         "The recorded first answer, which code refused in the planner's run too before a second call repaired it, is refused as the call and repaired by the next call in the same run (kb/plans/front-door.md: no repair round).",
     ),
     (
-        "refused chat.dispatch_task",
-        &["earlier_result"],
-        EARLIER,
-    ),
-    (
         "frames +plan_delta +plan_end -plan_abort",
         &["plan_repair", "unbacked_part"],
         "The planner's run showed the refused plan and withdrew it (plan_abort) before the repaired one; the front door shows a hand-off only once code accepted it (ack, ack_end).",
     ),
     (
-        "memory_questions rows",
-        &["remember_then_forget", "displaced_question"],
-        FORGET,
-    ),
-    (
-        "plan_steps rows",
-        &["earlier_result"],
-        EARLIER,
-    ),
-    (
-        "task_context rows",
-        &["earlier_result"],
-        EARLIER,
-    ),
-    (
-        "task_plans rows",
-        &["earlier_result"],
-        EARLIER,
-    ),
-    (
-        "tasks rows",
-        &["earlier_result"],
-        EARLIER,
-    ),
-    (
-        "frames +reply -plan -subtask -step -subtask -verification -outcome",
-        &["earlier_result"],
-        EARLIER,
-    ),
-    (
         "refused chat.control_task",
         &["conversation_change"],
-        "A finding, not fixed here: the recorded answer pauses the chat in the owner's words and closes it quoting words he never wrote, and its repair repeats them. The planner's run applied the pause and refused the close; the front door refuses the whole call (twice), so nothing is paused, while the streamed reply says \"Pausing the chat with Robin.\".",
-    ),
-    (
-        "conversation_owner_changes rows",
-        &["conversation_change"],
-        "The pause that the planner's run applied: the front door refused the whole call that held it (above).",
-    ),
-    (
-        "conversations.pending",
-        &["displaced_question"],
-        DISPLACED,
-    ),
-    (
-        "conversations.asked",
-        &["displaced_question"],
-        DISPLACED,
-    ),
-    (
-        "conversations.pending_payload",
-        &["displaced_question"],
-        DISPLACED,
-    ),
-    (
-        "frames +reply -clarify",
-        &["displaced_question"],
-        DISPLACED,
+        "The recorded answer pauses the chat in the owner's words and closes it quoting words he never wrote, and its repair repeats them. As in the planner's run, the pause is applied and the close refused (ORCH-739: the call keeps its good entry and its error names the refused one), so the call shows as refused in the trace.",
     ),
     (
         "frames +reply_delta -plan_abort",
@@ -1670,20 +1506,58 @@ const EXPECTED: &[(&str, &[&str], &str)] = &[
 /// How many tests the scenarios are split into (each one under the test guard's 300 s, TEST-511).
 const BATCHES: usize = 8;
 
-/// The scenarios run through the front door, in the recordings' order, and the ones not run, each with why.
-fn eligible() -> (Vec<Recorded>, Vec<String>) {
-    let (mut run, mut skips) = (Vec::new(), Vec::new());
-    for r in recorded() {
-        match not_today_s_form(&r.sc) {
-            Some(why) => skips.push(format!("{}: {why}", s(&r.sc["name"]))),
-            None => run.push(r),
+/// The scenarios run through the front door, in the recordings' order, and the ones not run, each with why (read once
+/// for every batch: one copy of the recordings in this process).
+fn eligible() -> &'static (Vec<Recorded>, Vec<String>) {
+    static E: OnceLock<(Vec<Recorded>, Vec<String>)> = OnceLock::new();
+    E.get_or_init(|| {
+        let (mut run, mut skips) = (Vec::new(), Vec::new());
+        for r in recorded() {
+            match not_today_s_form(&r.sc) {
+                Some(why) => skips.push(format!("{}: {why}", s(&r.sc["name"]))),
+                None => run.push(r),
+            }
         }
+        (run, skips)
+    })
+}
+
+/// How many scenarios run at once across the batch tests, each as two daemons side by side. Under ferb-test-guard
+/// (TEST-511) the binary's processes together stay under 4096 MB: measured 2026-11-27, a scenario's two daemons and
+/// their share of this process take about 260 MB each, so eight scenarios at once (all batches) peaked at 4225 MB.
+const AT_ONCE: usize = 5;
+
+/// A place among the [`AT_ONCE`] scenarios running, held until dropped.
+struct Place;
+
+fn places() -> &'static (std::sync::Mutex<usize>, std::sync::Condvar) {
+    static P: OnceLock<(std::sync::Mutex<usize>, std::sync::Condvar)> = OnceLock::new();
+    P.get_or_init(|| (std::sync::Mutex::new(0), std::sync::Condvar::new()))
+}
+
+impl Place {
+    fn take() -> Place {
+        let (n, freed) = places();
+        let mut n = n.lock().unwrap_or_else(|e| e.into_inner());
+        while *n >= AT_ONCE {
+            n = freed.wait(n).unwrap_or_else(|e| e.into_inner());
+        }
+        *n += 1;
+        Place
     }
-    (run, skips)
+}
+
+impl Drop for Place {
+    fn drop(&mut self) {
+        let (n, freed) = places();
+        *n.lock().unwrap_or_else(|e| e.into_inner()) -= 1;
+        freed.notify_one();
+    }
 }
 
 /// One scenario through both paths: each difference (area, detail).
 fn compare(r: &Recorded, len: usize, debug: bool) -> Vec<(String, String)> {
+    let _place = Place::take();
     let (a, old_root) = RunRoot::new(len);
     let (b, front_root) = RunRoot::new(len);
     // FRONT_REPLAY_KEEP: both runs' folders stay, for a look at what the daemon left

@@ -1504,6 +1504,27 @@ impl ScriptEvents {
     }
 }
 
+/// A tool call's record as the gateway writes it: a finished `tool.call` span under the run's grant (`task`), the
+/// tool's name and arguments as its input, `output` and its origin.
+fn record_call(
+    sup: &Supervisor,
+    task: &str,
+    name: &str,
+    arguments: &Value,
+    output: Value,
+    origin: &str,
+) {
+    let inner = sup.inner();
+    let span = inner.span_start(
+        "tool.call",
+        Some(task),
+        None,
+        None,
+        json!({"tool": name, "args": arguments}),
+    );
+    inner.span_finish(&span, Some(output), None, Some(origin), None);
+}
+
 impl EventSource for ScriptEvents {
     fn next(&mut self) -> BoxFuture<'_, Option<Result<RuntimeEvent, ferb_worker::Error>>> {
         Box::pin(async move {
@@ -1527,6 +1548,16 @@ impl EventSource for ScriptEvents {
                 let result = match &said {
                     Ok(t) | Err(t) => t.clone(),
                 };
+                if ev["recorded"] == json!(true) {
+                    // ORCH-739: the call's record as the gateway writes it (a `tool.call` span under the run's grant,
+                    // the tool's name in its input, ferbd's `{"result"}`/`{"error"}` as its output)
+                    let out = if error {
+                        json!({"error": result})
+                    } else {
+                        json!({"result": result})
+                    };
+                    record_call(&sup, &self.grant_task, &name, &ev["arguments"], out, "ferb");
+                }
                 self.daemon
                     .front_results
                     .lock()
@@ -1569,8 +1600,25 @@ impl EventSource for ScriptEvents {
             let mut ev = self.events.get(self.at)?.clone();
             self.at += 1;
             // a test's own script: the model takes this long before its next event (the injected clock moves on)
-            while ev["kind"] == "advance" {
-                if let Some(clock) = &self.clock {
+            // a test's own script: a lookup's record as the gateway writes it (`record_call`), the run going on
+            while ev["kind"] == "advance" || ev["kind"] == "record_call" {
+                if ev["kind"] == "record_call" {
+                    let sup = self
+                        .daemon
+                        .sup
+                        .lock()
+                        .unwrap()
+                        .clone()
+                        .expect("the supervisor");
+                    record_call(
+                        &sup,
+                        &self.grant_task,
+                        &s(&ev["name"]),
+                        &ev["arguments"],
+                        ev["output"].clone(),
+                        &s(&ev["origin"]),
+                    );
+                } else if let Some(clock) = &self.clock {
                     clock.advance(ev["seconds"].as_f64().unwrap_or(0.0));
                 }
                 ev = self.events.get(self.at)?.clone();

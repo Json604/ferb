@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use ferb_core::types::{Identity, Task, TaskRole};
 use ferb_orchestrator::models::SupervisorOutcome;
 use ferb_orchestrator::reply_stream::PlainReply;
-use ferb_orchestrator::validate::supervisor_outcome_validate_json;
+use ferb_orchestrator::validate::{dump_json_supervisor_outcome, supervisor_outcome_validate_json};
 use ferb_worker::{Call, CallHooks};
 use serde_json::{json, Map, Value};
 
@@ -174,7 +174,16 @@ fn empty_outcome() -> SupervisorOutcome {
 }
 
 /// `into` with `part`'s side entries added after its own (call order), its control or card answer if it holds one.
+/// An entry identical to one already in `into` is dropped (ORCH-739): a model that resends a whole call after part of
+/// it was accepted never doubles a reminder, a schedule or a memory.
 fn add(into: &mut SupervisorOutcome, part: &SupervisorOutcome) {
+    fn new_ones<T: Clone + PartialEq>(into: &mut Vec<T>, from: &[T]) {
+        for e in from {
+            if !into.contains(e) {
+                into.push(e.clone());
+            }
+        }
+    }
     into.answers_question |= part.answers_question;
     if part.control.is_some() {
         into.control = part.control.clone();
@@ -182,17 +191,71 @@ fn add(into: &mut SupervisorOutcome, part: &SupervisorOutcome) {
     if part.answer_question.is_some() {
         into.answer_question = part.answer_question.clone();
     }
-    into.remember.extend(part.remember.iter().cloned());
-    into.forget.extend(part.forget.iter().cloned());
-    into.timers.extend(part.timers.iter().cloned());
-    into.schedules.extend(part.schedules.iter().cloned());
-    into.schedule_changes
-        .extend(part.schedule_changes.iter().cloned());
+    new_ones(&mut into.remember, &part.remember);
+    new_ones(&mut into.forget, &part.forget);
+    new_ones(&mut into.timers, &part.timers);
+    new_ones(&mut into.schedules, &part.schedules);
+    new_ones(&mut into.schedule_changes, &part.schedule_changes);
     into.show_schedules |= part.show_schedules;
-    into.reminder_cancels
-        .extend(part.reminder_cancels.iter().cloned());
-    into.conversation_changes
-        .extend(part.conversation_changes.iter().cloned());
+    new_ones(&mut into.reminder_cancels, &part.reminder_cancels);
+    new_ones(&mut into.conversation_changes, &part.conversation_changes);
+}
+
+/// A side call's entries, each alone (ORCH-739): (its name in the call, the index its schedule is named by, a part
+/// holding only it, with the call's `answers_question`). A control and a card answer are one entry each;
+/// `show_schedules` is no entry (it rides on whatever of the call is accepted). Empty for a hand-off or a question,
+/// which are checked whole.
+fn entries(tool: &str, part: &SupervisorOutcome) -> Vec<(String, usize, SupervisorOutcome)> {
+    if !matches!(tool, CONTROL | SET_REMINDER | SCHEDULE | REMEMBER) {
+        return Vec::new();
+    }
+    let base = || SupervisorOutcome {
+        answers_question: part.answers_question,
+        ..empty_outcome()
+    };
+    let mut out = Vec::new();
+    if let Some(c) = &part.control {
+        out.push((
+            "control".to_string(),
+            0,
+            SupervisorOutcome {
+                control: Some(c.clone()),
+                ..base()
+            },
+        ));
+    }
+    if let Some(a) = &part.answer_question {
+        out.push((
+            "answer_question".to_string(),
+            0,
+            SupervisorOutcome {
+                answer_question: Some(a.clone()),
+                ..base()
+            },
+        ));
+    }
+    macro_rules! each {
+        ($field:ident) => {
+            for (i, e) in part.$field.iter().enumerate() {
+                out.push((
+                    format!("{}[{i}]", stringify!($field)),
+                    i,
+                    SupervisorOutcome {
+                        $field: vec![e.clone()],
+                        ..base()
+                    },
+                ));
+            }
+        };
+    }
+    each!(remember);
+    each!(forget);
+    each!(timers);
+    each!(schedules);
+    each!(schedule_changes);
+    each!(reminder_cancels);
+    each!(conversation_changes);
+    out
 }
 
 /// The accepted parts joined in call order into one answer (kb/plans/front-door.md, "After the run"): kind `task`
@@ -233,7 +296,9 @@ impl Inner {
     /// the arguments are parsed as today's answer form's part; today's checks run on it (`problems` with the side
     /// entries already accepted in this message beside a hand-off, so a part an entry answers is backed;
     /// `side_quote_problems` on the part alone). Err: the problems, one a line, for the model as the tool's error (the
-    /// owner sees nothing). Ok: the part is kept on the turn and the model reads a short line.
+    /// owner sees nothing). Ok: the part is kept on the turn and the model reads a short line. ORCH-739: a side call
+    /// (reminders, schedules, memory, a task's control) that fails is checked again entry by entry; when some entries
+    /// pass, they are kept and the error names what was taken and what was refused, so the model resends only those.
     pub async fn front_call(
         &self,
         task_id: &str,
@@ -258,13 +323,21 @@ impl Inner {
                 "One task per message: a task was already handed off for this message.".into(),
             );
         }
-        if part.control.is_some() && accepted.iter().any(|(_, p)| p.control.is_some()) {
+        // the same control or card answer sent again (a whole call resent after part of it was refused, ORCH-739) is
+        // the one already taken, not a second one
+        if part.control.is_some()
+            && accepted
+                .iter()
+                .any(|(_, p)| p.control.is_some() && p.control != part.control)
+        {
             return Err(
                 "One control per message: a task was already controlled for this message.".into(),
             );
         }
         if part.answer_question.is_some()
-            && accepted.iter().any(|(_, p)| p.answer_question.is_some())
+            && accepted.iter().any(|(_, p)| {
+                p.answer_question.is_some() && p.answer_question != part.answer_question
+            })
         {
             return Err(
                 "One card answer per message: a question was already answered for this message."
@@ -273,6 +346,7 @@ impl Inner {
         }
         // decision: ORCH-737 — the earlier question joins the message before its words are checked
         self.join_question(&turn, &part);
+        let given = part.clone();
         let mut problems = if tool == DISPATCH {
             let mut backed = part.clone();
             for (_, p) in &accepted {
@@ -292,32 +366,103 @@ impl Inner {
                 .await
                 .map_err(|f| f.message())?,
         );
+        let rid = turn.lock().unwrap().request_id.clone();
+        let mut answer = Ok(match tool {
+            DISPATCH => ACCEPTED_TASK,
+            ASK => ACCEPTED_QUESTION,
+            _ => ACCEPTED,
+        }
+        .to_string());
         if !problems.is_empty() {
-            let rid = turn.lock().unwrap().request_id.clone();
+            // decision: ORCH-739 — a side call's entries are checked one at a time: the ones that pass are kept, the
+            // model is told which were refused and why, and resends only those
+            let Some((kept, taken, refused)) = self.entries_apart(&turn, tool, &given).await?
+            else {
+                self.journal(
+                    "task.repair",
+                    json!({"request_id": rid, "tool": tool, "problems": problems}),
+                    None,
+                );
+                return Err(problems.join("\n"));
+            };
             self.journal(
                 "task.repair",
-                json!({"request_id": rid, "tool": tool, "problems": problems}),
+                json!({"request_id": rid, "tool": tool, "problems": refused, "accepted": taken}),
                 None,
             );
-            return Err(problems.join("\n"));
+            part = kept;
+            answer = Err(format!(
+                "Accepted, and already taken (don't send these again): {}. They take effect as this message ends.\n\
+                 Refused (send only these again, corrected, or leave them out):\n{}",
+                taken.join(", "),
+                refused.join("\n")
+            ));
         }
         let mut t = turn.lock().unwrap();
         let Some(front) = t.front.as_mut() else {
             return Err("No chat message is being answered for this call.".into());
         };
         front.parts.push((tool.to_string(), part));
-        Ok(match tool {
-            DISPATCH => ACCEPTED_TASK,
-            ASK => ACCEPTED_QUESTION,
-            _ => ACCEPTED,
+        answer
+    }
+
+    /// ORCH-739: a side call that failed its checks, its entries checked one at a time (each alone, as the whole call
+    /// was). Some((the call with only the entries that passed, their names, the refused ones' lines: each name, then
+    /// its problems)) when some passed and some didn't; None when the call is checked whole (a hand-off, a question,
+    /// one entry), when no entry passed, or when every entry passed alone (the whole call's problems stand, as
+    /// before).
+    async fn entries_apart(
+        &self,
+        turn: &Arc<Mutex<Turn>>,
+        tool: &str,
+        given: &SupervisorOutcome,
+    ) -> Result<Option<(SupervisorOutcome, Vec<String>, Vec<String>)>, String> {
+        let each = entries(tool, given);
+        if each.len() < 2 {
+            return Ok(None);
         }
-        .to_string())
+        let mut kept = SupervisorOutcome {
+            answers_question: given.answers_question,
+            show_schedules: given.show_schedules,
+            ..empty_outcome()
+        };
+        let (mut accepted, mut refused, mut advised) = (Vec::new(), Vec::new(), false);
+        for (name, first, mut one) in each {
+            let mut found = self
+                .problems(turn, &mut one, None)
+                .map_err(|f| f.message())?;
+            found.extend(
+                self.side_quote_problems_at(turn, &one, first)
+                    .await
+                    .map_err(|f| f.message())?,
+            );
+            if found.is_empty() {
+                add(&mut kept, &one);
+                accepted.push(name);
+                continue;
+            }
+            refused.push(format!("{name}:"));
+            for line in found {
+                if line == super::QUOTE_ADVICE {
+                    advised = true;
+                } else {
+                    refused.push(line);
+                }
+            }
+        }
+        if accepted.is_empty() || refused.is_empty() {
+            return Ok(None);
+        }
+        if advised {
+            refused.push(super::QUOTE_ADVICE.into());
+        }
+        Ok(Some((kept, accepted, refused)))
     }
 
     /// ORCH-735: the front door's run of a turn, in place of `supervise` and its repair: the planner's blocks, the
     /// shared rules with `concierge.md`, no answer form, the lookups and the front tools on a grant that may act,
     /// text through `PlainReply`, a lookup's start shown as the turn's `progress` line, and the run ended on an
-    /// accepted hand-off or question. The accepted parts joined, checked whole once more.
+    /// accepted hand-off or question. The accepted parts joined; the one cross-part check (`unbacked_parts`) runs on the whole.
     pub(super) async fn front_decide(
         &self,
         turn: &Arc<Mutex<Turn>>,
@@ -597,24 +742,33 @@ impl Inner {
             }
         }
         let error = failure.map(|f| format!("{}: {}", f.class(), f.message()));
+        let decided = joined(&parts, &text);
+        let mut output = Map::new();
+        output.insert("text".into(), json!(final_));
+        output.insert("calls".into(), json!(calls));
+        if let Some(d) = &decided {
+            // what the run decided, in the planner's answer form as its span holds it (`ferb trace`, episodes)
+            output.insert("decided".into(), json!(dump_json_supervisor_outcome(d)));
+        }
+        output.insert("usage".into(), Value::Object(kept));
+        output.insert("timing".into(), timing(&clocked));
         self.span_finish(
             &span,
-            Some(
-                json!({"text": final_, "calls": calls, "usage": kept, "timing": timing(&clocked)}),
-            ),
+            Some(Value::Object(output)),
             error.as_deref(),
             None,
             None,
         );
         self.lookups_end(&rid, &looker);
-        let Some(mut out) = joined(&parts, &text) else {
+        let Some(out) = decided else {
             // nothing accepted and nothing said: today's empty answer
             return Err(Failure::Worker(ferb_worker::Error::value(
                 "runtime finished without an answer",
             )));
         };
-        // the checks that look across parts (a part an entry of this message answers)
-        let problems = self.problems(turn, &mut out, None)?;
+        // the one check that looks across parts (a task part an entry of this message answers, ORCH-736): every other
+        // check already ran on its own call, so a hand-off's folders, inputs and earlier results aren't read twice
+        let problems = self.unbacked_parts(turn, &out);
         if !problems.is_empty() {
             self.journal(
                 "chat.failed",

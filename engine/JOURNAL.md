@@ -14493,3 +14493,134 @@ granted chat:act). The switch is NOT on: `Reads::front_door` defaults to false u
 (the trace's planner line, accepted calls stored as lookups, a side call losing its good entries: journal 264) and the
 id-shifted scenarios are compared for real (265). Under ferb-test-guard the replay's eight parallel daemons went over
 the 4096 MB cap (TEST-511); 265 bounds them.
+
+## 2026-11-27 · 264 · The front door's planner line, its calls never read as lookups, a side call keeps its good entries
+
+**Why (T-1342, ORCH-726 step 5; the three findings of journal 263).** The replay of the recorded chats through the
+front door found that `ferb trace` and episodes read its turn as "decided", that an accepted call's reply was stored
+as a lookup the turn had read, and that a side call with one bad entry lost its good ones.
+
+**What.**
+- The planner line: `front_decide` joins the accepted parts before it finishes the turn's `model.turn` span and records
+  the joined answer in the span's output as `decided` (`dump_json_supervisor_outcome`, a JSON string, as the planner's
+  span holds its answer in `text`); the output keys are `text`, `calls`, `decided` (absent when nothing was decided),
+  `usage`, `timing`. ferb-trace `compose.rs` `planner_text` reads a `model.turn` span's `decided` when present, else
+  `text` as before, so one fix serves `ferb trace` and episodes. The planner's spans are unchanged (no `decided`).
+- Lookups only: `lookups_read` (turn.rs) reads `Inner::tool_outputs_of(task, &PLANNER_TOOLS)` (store.rs): the
+  `tool.call` rows under the grant whose recorded input `tool` is a lookup (`json_extract(input_json, '$.tool')`),
+  so the front tools' "Accepted: ..." lines never join `turn_origins` or the exposures. The planner-only ORCH-557/558
+  `found` read (turn.rs, last call) is unchanged: no front tool runs there.
+- ORCH-739 (decision text for the coordinator, agent ruling): "In the front door, a side call that fails its checks
+  (chat.set_reminder: timers, reminder_cancels; chat.schedule: schedules, schedule_changes; chat.remember: remember,
+  forget; chat.control_task: control, answer_question, conversation_changes) is checked again entry by entry, each
+  alone with today's checks (`problems`, `side_quote_problems`). When some entries pass and some don't, the passing ones
+  are kept on the turn and the call still returns an error naming the accepted entries (already taken, not to be sent
+  again) and each refused one with its problems, so the model resends only those. When every entry is refused, or the
+  call holds one entry, the error is today's, and nothing is kept. When the accepted parts are joined, an entry equal to
+  one already joined is dropped, so a model that resends the whole call never doubles a reminder, a schedule or a
+  memory; a control or card answer equal to the one already taken is not refused as a second one. A hand-off and a
+  question are checked whole as today."
+  Code: `front_door.rs` `entries` (the units, named `timers[1]`, `control`, ...), `Inner::entries_apart`, `add`
+  (dedup by equality of the validated entry, i.e. same JSON), the one-control/one-card-answer checks compare with the
+  accepted one. `side_quote_problems_at(turn, out, first)` names a schedule by its index in the call (the old
+  `side_quote_problems` calls it with 0); its closing advice line is the constant `QUOTE_ADVICE`, said once after the
+  last refused entry. `show_schedules` and `answers_question` ride on whatever is accepted. Journal `task.repair` of a
+  partial call: `problems` = the refused lines (each entry's name, then its problems), plus `accepted` (the names).
+
+**Evidence.** `cargo test -p ferb-supervisor -p ferb-trace` under ferb-test-guard: 47 test binaries, 275 passed, 0
+failed (ferb-supervisor 267 = 263 + 4 new, ferb-trace 8 = 5 + 3 new); every existing test passes unchanged; clippy
+`--tests -D warnings` and fmt clean. New, ferb-supervisor `tests/front_door.rs` (4): the episode's Planner line of a
+front-door hand-off is "task — <goal>" and equal to the planner path's, the span keys in order; a recorded lookup and
+an accepted hand-off under the run's grant give one lookup exposure (the lookup's), never the "Accepted" line; a
+reminder call [good, bad] twice then [good, fixed]: the good timer set once, the bad one refused by name, the
+all-refused one-entry call as today, three `task.repair` rows, the owner's frames show no refusal; a memory call
+[good, bad] sent twice saves one memory. ferb-trace `tests/front_door.rs` (3): `decided` read for a hand-off and a
+reply, a planner span's `text` read as before. Shown failing with each fix taken out: unfiltered `lookups_read` (2
+exposures), `planner_text` without `decided` (both trace tests and the episode test), `add` without the equality check
+(two memories; the timers' own "already set in this turn" twin check already kept the reminder test passing).
+Test support: a script's `record_call` event (a lookup's `tool.call` span as the gateway writes it) and a `front_call`
+event's `recorded: true` (the call's span with ferbd's `{"result"}`/`{"error"}` output, origin ferb).
+
+**Deviations (agent rulings, for review).** `control` and `answer_question` in a `chat.control_task` call are entries
+of their own beside `conversation_changes` (a bad control no longer drops a good conversation change, and vice versa),
+each checked as today. A call whose entries each pass alone but fail together keeps today's whole refusal (no such
+cross-entry check exists now for side entries). A partial call journals `task.repair` with the added `accepted` key.
+The partial error's wording (model-facing only) is new: "Accepted, and already taken (don't send these again): ...
+They take effect as this message ends. Refused (send only these again, corrected, or leave them out): ...".
+
+**Unverified.** No real model has read the partial error or resent a call. ferbd's `front_door_replay` was not rerun
+here (not this brief's crate): the 47 scenarios' planner lines and the lookup exposures there should now match the
+planner's; the conversation_change scenario (finding 3) now keeps the pause and refuses only the close, unrun.
+The reminder test's no-double is also guaranteed by the timers' own twin check; only the memory test proves the join's.
+
+## 2026-11-27 · 265 · The front door replay compares every effect: recorded ids written as the run's, its daemons bounded
+
+**Why (T-1342, ORCH-726 step 5; journal 263's open item).** The front door's turn writes records the planner's didn't
+(each call's tool.call span, the accepted call's lookup read, a model.close span) and none for a merged repair, so the
+store's counter hands out later ids that differ from the recording's. Recorded content naming such an id missed, and
+journal 263 named eleven scenarios whose later effects were therefore not compared (the desktop observer rows in 8,
+confirm_yes, pause_steer_resume, one_step_with_tools, earlier_result, timer_set_and_fired, remember_then_forget,
+displaced_question). Under ferb-test-guard the binary's sixteen daemons also went over the 4096 MB cap (TEST-511).
+
+**What (ferbd only: src/standins_chat.rs and tests/front_door_replay.rs).**
+- The stand-in's `Translation`, active only when the script carries `recorded_ids` (front_door_replay's front door run;
+  chat_replay, its own planner run, tests/life and follow_up_grid have none, and every path returns the recorded
+  value unchanged): each recorded id (the `<word>-<6 digits>` counter form, also inside `tm-id-…` and
+  `id-….worker`) that recorded content names is written as the id this run made in its place. The pairs come only
+  from what the run made, matched by order and kind:
+  - the store's rows, read through a read-only connection of its own (never the daemon's lock): each compared table's
+    `id` in row order against the recording's; each journal record against the recorded one of the same kind and
+    number, where the two are equal with their ids taken out; each span of a task against the recorded one of the
+    same kind and task (the task translated by the pairs before), spans of no task left out (the front door's own
+    calls are such); recomputed only when a row was added;
+  - what the scripted model was shown: each call's instructions and input against the recorded call's, and each tool
+    reply against the recorded reply, line by line (the longest common run of lines equal with their ids taken out).
+  A recorded id paired two ways is a problem in the report (none in the last runs).
+- Applied to: every scripted event (a checker's answer, a front call's arguments), every recorded tool call line
+  sent, the recorded reply it is compared with (after its pairs are learnt), the recorded reads (live facts and
+  environment, role instructions, worker contexts, memory blocks, ports, front captures), the desktop observer rows
+  (found by the run's tree id, written with its ids), and the owner's recorded lines (`translate` on the control
+  socket; the test sends each `call` and `stream` line through it in the front door run).
+- The test: `recorded_ids` (each compared table's ids, the journal's kind and data) and `db` in the front door run's
+  script; the old "a reply that differs only in ids is the same" filter removed (replies are compared strictly);
+  every id-shift entry removed from EXPECTED (the observer `problems`, the checker's, the earlier result's, the timer's,
+  the forget's, displaced_question's: 36 of the 47 entries), confirm_yes, pause_steer_resume and earlier_result added
+  where every hand-off scenario differs (episodes' planner line, tools, origins, usage; the ack frames), and two new
+  entries for the one remaining cause below (13 entries now).
+- Memory (TEST-511): at most `AT_ONCE` = 5 scenarios (ten daemons) at once across the eight batch tests (a shared
+  counter and condvar), and the recordings read once for all batches (`eligible` in a OnceLock). Measured with
+  FERB_TEST_GUARD_PEAK: before, 4225 MB peak, 170 s; now 2960-2981 MB peak, 163-253 s wall at load averages 10-88
+  (other agents building); one scenario's two daemons reach about 580 MB together, this process about 140 MB.
+
+**Remaining difference found (not the id shift), named in EXPECTED, for the coordinator.** earlier_result: `problems`
+("the supervisor read a role's instructions more often than the recording did") and `later model call system`. The
+front door checks an accepted hand-off's parts twice, at its call (front_door.rs:282/287, `problems()`) and with the
+whole answer after the run (front_door.rs:617); the earlier results' room check (flow/results.rs:294 `worker_room`)
+reads the worker's instructions through `system_inputs` each time, where the planner's one check read them once. The
+recorded role instructions then come one early, and the second task's checker gets none. FERB's effect: one extra
+live-facts read per hand-off naming earlier results; the owner sees nothing different (inferred from the code, not a
+trace). Fixing it is ferb-supervisor's (e.g. the whole check reusing the call's verdict for an unchanged part).
+
+**Evidence.** front_door_replay through ferb-test-guard: 10 passed (57 scenarios, 4 skipped as before), every
+difference named and found, 140-253 s across five runs, peak 2960-3002 MB; the planner's run in it and chat_replay
+unchanged (chat_replay: 10 passed, 2 ignored, 391 s, peak 2720 MB; seams_wired 3 passed). `cargo test -p ferbd`
+through the guard: 41 test binaries, 202 passed, 0 failed, 6 ignored (front_door_replay 164 s in it); clippy
+`--tests -D warnings` and fmt clean. Shown failing first: with the translation in place and the old entries kept, the
+timer's, the forget's, displaced_question's and plan_repair's observer entries were reported "named, no longer found"
+(the checker's and the earlier result's batches stopped first on their now-equal rows); before the spans' pairs, four scenarios' observer rows failed
+their parent's foreign key (clarify_then_answer, stop_plus_new_task, schedule_created_and_fired, conversation_resume).
+
+**Unverified.** The translation is the replay's, so nothing here changes FERB. The pairs rely on the recorded tables'
+rows being in row order and on no recorded row being deleted before the recording ended (true for these 57; a
+deletion would show as a conflict or a difference). The wall time under the push check's load is not measured; at
+load average 88 it was 253 s, under the guard's 300 s per test (all eight batch tests start together, so each runs
+about as long as the binary). The id-shift differences that journal 264 changes (conversation_change, the accepted
+calls stored as lookups) are left named as they were.
+Coordinator, merging 264 and 265 (verified by running them): the front door's last check after the run is now only
+`unbacked_parts`, the one check that looks across parts; every other check already ran on its own call. That ends
+the doubled read 265 found in earlier_result (a hand-off's earlier-results room check read the worker's instructions
+twice) and the plan inventory walked twice (262). The replay's expected differences lose the five that no longer
+occur (the planner line in 48 scenarios; earlier_result's two; conversation_change's lost pause) and gain one: the
+planner's runs in plan_repair and unbacked_part made two planner calls, so two Planner lines, the front door one.
+front_door_replay: 10 passed in 134 s under ferb-test-guard; ferb-supervisor and ferb-trace: 275 passed. The switch
+stays off until a real call on each runtime has taken the six tools (the runtimes check, next).
