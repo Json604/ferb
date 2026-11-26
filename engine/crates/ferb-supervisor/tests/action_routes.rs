@@ -408,8 +408,8 @@ fn a_script_button_confirmed_on_the_page_ends_done_with_the_answer() {
 /// ORCH-671's rule as the Python recordings' path still runs it (ORCH-694's named difference; the owner's check, with
 /// no rerun, is tests/lean_check.rs): the same task, but the check never looks at the tab after the last click: FERB
 /// refuses its pass once with the reason, and when the second check doesn't look either, the condition is can't tell, never false: done but
-/// unconfirmed, with ORCH-607's line and the worker's answer.
-// decision: ORCH-694, ORCH-607, PRM-360
+/// unconfirmed, with today's unconfirmed line (ORCH-738 adds what wasn't confirmed, T-1348) and the worker's answer.
+// decision: ORCH-694, PRM-360
 #[test]
 fn a_pass_without_a_fresh_look_is_cant_tell_not_false() {
     let name = "one_step_task";
