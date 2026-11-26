@@ -313,6 +313,53 @@ passes, then is removed (one path, no two planners kept). Test: the recorded cha
 door with stand-ins, compared effect by effect (task fields, reminders, memory entries, stops) with what the old
 planner produced; differences listed by name. Number: the targets table.
 
+*Step 5 in detail (agent, 2026-11-26, read from the code at 9496ebcf).*
+
+- **Switch.** `Daemon::front_door()` beside `bounded_planner()` (`flow/mod.rs:165`), default false; ferbd turns it
+  on once the replay below passes; a Python recording's replay keeps it off. `Inner::decide` (`turn.rs:1004`) calls
+  the front door instead of `supervise` when it is on. Everything after `decide` (`route`, `side_entries`, `start`,
+  `control`, `exit`) is today's code, unchanged.
+- **The run.** Plain mode (no answer form, RUN-480), system = the shared rules + `concierge.md`, the same planner
+  blocks (`planner_blocks`, `turn.rs:1832`), `ends_on = [chat.dispatch_task, chat.ask]` (ORCH-733), text through
+  `PlainReply` (ORCH-734). A lookup's start shows today's `progress` line with `planning: true`.
+- **The tools** (gateway tools composed in ferbd, `named_only` like `task.trace` (ORCH-663, `listing.rs:39`), so no
+  worker is ever offered them; not observation tools, so the front door's grant is `observe_only: false` with
+  `tools` = the lookups + these; scope `chat:act`). Each one's arguments are the matching part of today's answer
+  form, same field names and types, so every check stays byte-for-byte today's:
+
+  | Tool | Arguments (today's form) | Outcome it makes |
+  |---|---|---|
+  | `chat.dispatch_task` | `ack` first, `task` (today's task form, plan included until step 7), `answers_question` | kind `task`, text = ack |
+  | `chat.control_task` | `control`, or `answer_question`, or `conversation_changes`; `answers_question` | today's control / card answer |
+  | `chat.ask` | `question` | kind `clarify`: pending input carried, `question.asked` journaled, the app's question as today |
+  | `chat.set_reminder` | `timers`, `reminder_cancels`, `answers_question` | today's side entries |
+  | `chat.schedule` | `schedules`, `schedule_changes`, `show_schedules`, `answers_question` | today's side entries |
+  | `chat.remember` | `remember`, `forget`, `answers_question` | today's side entries |
+
+  `chat.ask` is new against the draft prompt (which said "ask in plain text"): a question must stay a question
+  entry, because the next message joins its attachments and words through `join_question` (`turn.rs:901`) and
+  `save_pending` (`turn.rs:2924`), and code may not decide from the text that it is a question (rule 4).
+- **A call.** The gateway hands the call to `Inner::front_call(task_id, tool, arguments)`: the turn is found from the
+  grant's task (`{request}.lookups`, `lookup_grant`, `turn.rs:2120`); `answers_question` true joins the earlier
+  question first (`join_question`); the arguments are parsed as today's form parts (a parse error is the tool's
+  error); `problems()` and `side_quote_problems()` run on that part alone; problems go back to the model as the
+  tool's error, the owner seeing nothing; an accepted part is kept on the turn. A second `chat.dispatch_task` in one
+  message is refused (one task per message, as today's form).
+- **After the run.** The accepted parts are joined in call order into one `SupervisorOutcome`; its text is the
+  streamed text (an ack or a question is the text when there is no other); the whole outcome passes `problems()`
+  once more (the checks that look across parts, e.g. `unbacked_parts`); then `route` as today. Effects take place
+  at the turn's end in today's one apply path, not at each call (agent: one apply path; the turn ends within
+  seconds of the last call). No accepted call and no text: today's empty-answer failure. A run cut short keeps the
+  parts already accepted.
+- **Not moved in step 5:** the plan half of the task form (step 7 takes it to the architect), the lookups, the
+  checker. The repair round (`decide`'s second `supervise`) is not used by the front door: a refusal is repaired
+  inside the run.
+- **Test.** Every recorded chat scenario (`ferbd/tests/chat_replay.rs`) whose stand-in planner answers with today's
+  form is converted mechanically (each part of the answer → its tool call) and run through the front door; the
+  effects (task row fields, reminders, schedules, memory rows, stops, cards answered, replies' kinds) are compared
+  with the old path's. Every difference is listed by name in the test and the journal.
+- **Shown to the owner before it lands:** `concierge.md` and each tool's description (both reach the model).
+
 **6. The ready runtime and preparing while typing.** The design points above settled and recorded first; then the
 kept program, then the typing RPC (daemon), then the app's side (the owner's, with Codex). Number: first word on a
 second message within 2 s on Codex.
