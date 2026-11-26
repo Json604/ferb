@@ -114,6 +114,8 @@ pub struct RunOptions {
 pub type OnRecord = Arc<dyn Fn(Map<String, Value>) + Send + Sync>;
 /// A callback told a streamed piece of text.
 pub type OnText = Arc<dyn Fn(&str) + Send + Sync>;
+/// A callback told one runtime event's data (a tool event).
+pub type OnEvent = Arc<dyn Fn(&Value) + Send + Sync>;
 
 /// What a non-worker call tells its caller as it goes (`_run`'s callbacks).
 #[derive(Clone, Default)]
@@ -124,8 +126,14 @@ pub struct CallHooks {
     pub on_usage: Option<OnRecord>,
     /// Where a chat turn's live line goes (its stream).
     pub notify: Option<Tell>,
-    /// The model called a tool, or its answer tool's call began (ORCH-516, RUN-447).
+    /// The model called a tool, or its answer tool's call began (ORCH-516, RUN-447): once per tool event, so twice
+    /// for a call a plain-mode run reports as started and completed.
     pub on_tool: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// ORCH-733 (front door step 4): each tool event's data as the runtime reported it, in order: in plain mode
+    /// (no answer form) `{"tool", "name", "phase": "started", "arguments"}` as the call starts and
+    /// `{"tool", "name", "phase": "completed", "arguments", "error"}` once its result is known; elsewhere today's
+    /// events, with no `phase`. The caller's live status line reads the start.
+    pub on_tool_event: Option<OnEvent>,
     /// The call's timing when it ends, however it ends (ORCH-526).
     pub on_timing: Option<OnRecord>,
 }
@@ -145,6 +153,25 @@ pub struct Call<'a> {
     pub hooks: CallHooks,
     /// False for the planner's turn (ORCH-528): a silence is not tried again.
     pub retry_silent: bool,
+    /// ORCH-733 (front door step 4): FERB capability names whose accepted call is the run's answer. When a run with
+    /// no answer form reports one of them `completed` with `error: false`, the call returns at once with
+    /// [`ended_on`]'s text and the run closes after, as ORCH-731's early close does. Empty: today's behaviour.
+    pub ends_on: Vec<String>,
+}
+
+/// ORCH-733: the final text of a run that ended on an accepted call of `Call::ends_on`: which call, its arguments as
+/// the runtime reported them (an object, or null), and the plain text the run streamed before it, joined.
+pub fn ended_on(name: &str, arguments: &Value, text: &str) -> String {
+    json!({"ended_on": name, "arguments": arguments, "text": text}).to_string()
+}
+
+/// No answer form (`check_final`'s `if not schema`): the runtime runs in plain mode.
+fn no_schema(schema: Option<&Value>) -> bool {
+    match schema {
+        None | Some(Value::Null) => true,
+        Some(Value::Object(m)) => m.is_empty(),
+        Some(_) => false,
+    }
 }
 
 /// The worker: `WorkerRuns`, on its host.
@@ -656,6 +683,7 @@ impl Worker {
                     ..CallHooks::default()
                 },
                 retry_silent: true,
+                ends_on: Vec::new(),
             };
             let text = self.run_call(&rt, call).await?;
             match pyvalue::loads(&text) {
@@ -1232,6 +1260,14 @@ impl Worker {
         });
         let mut made_up: u64 = 0; // RUN-445: calls to tools this run wasn't offered
         let mut progressed = false;
+        // ORCH-733: a plain-mode run may end on an accepted call of `ends_on`; the text it streamed before it
+        let ends_on = if no_schema(output_schema.as_ref()) {
+            call.ends_on.as_slice()
+        } else {
+            &[]
+        };
+        let mut streamed = String::new();
+        let mut ended = false;
         let body = async {
             if let Some(t) = tree {
                 if !t.stop().is_empty() {
@@ -1286,6 +1322,9 @@ impl Worker {
                                 on_tool(); // the answer tool's call begins (RUN-447)
                             }
                         }
+                        if !ends_on.is_empty() {
+                            streamed.push_str(&get_str(data, "text", Some("")));
+                        }
                         if let Some(on_delta) = &hooks.on_delta {
                             on_delta(&get_str(data, "text", Some("")));
                         }
@@ -1305,11 +1344,28 @@ impl Worker {
                         }
                     }
                     RuntimeEventKind::ToolCall => {
-                        if data.get("offered") == Some(&Value::Bool(false)) {
+                        let phase = data.get("phase").and_then(Value::as_str);
+                        // a plain-mode call is reported twice (started, completed): it is counted once
+                        if data.get("offered") == Some(&Value::Bool(false)) && phase != Some("completed") {
                             made_up += 1;
                         }
                         if let Some(on_tool) = &hooks.on_tool {
                             on_tool();
+                        }
+                        if let Some(on_tool_event) = &hooks.on_tool_event {
+                            on_tool_event(&Value::Object(data.clone()));
+                        }
+                        // ORCH-733: an accepted call of `ends_on` is the answer: the stream is read no further. A
+                        // call the gateway refused (`error: true`) goes back to the model as its tool's error.
+                        let accepted = phase == Some("completed") && data.get("error") == Some(&Value::Bool(false));
+                        if let Some(called) = data.get("name").and_then(Value::as_str) {
+                            if accepted && ends_on.iter().any(|n| n == called) {
+                                let arguments = data.get("arguments").cloned().unwrap_or(Value::Null);
+                                final_text = ended_on(called, &arguments, &streamed);
+                                ended = true;
+                                host.runtime_account(&name, ""); // it answered, as a final answer does
+                                break;
+                            }
                         }
                     }
                     RuntimeEventKind::Usage => {
@@ -1507,7 +1563,9 @@ impl Worker {
         }
         // ORCH-731: a tree-less call's good answer goes back now; its run leaves the running calls at once (nothing
         // sees it as running) and its program closes after. A failure, a stall or a call of a tree closes first.
-        let early = if tree.is_none() && self.config.answer_before_close && body.is_ok() {
+        // ORCH-733: a run that ended on an accepted call closes after whatever the switch says: the call is the answer
+        let early = if tree.is_none() && (self.config.answer_before_close || ended) && body.is_ok()
+        {
             if self.runs.is_stalled(&watch_id) || final_text.is_empty() {
                 None
             } else {

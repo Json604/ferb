@@ -233,6 +233,8 @@ pub struct ClaudeRuntime {
     pub host: Host,
     /// RUN-470: a worker's requests compacted through the relay; None sends every result again on every call.
     pub compaction: Option<crate::compact::Policy>,
+    /// FERB's capability names the run was given (a plain-mode tool event names its call's, RUN-480).
+    pub tool_names: Vec<String>,
 }
 
 impl ClaudeRuntime {
@@ -296,7 +298,14 @@ impl ClaudeRuntime {
             allowed,
             host,
             compaction: None,
+            tool_names: tool_names.to_vec(),
         }
+    }
+
+    /// RUN-480: a supervisor run with no answer form. Its answer is plain text, streamed as written, and each tool
+    /// call is reported when it starts and when its result is known (kb/plans/front-door.md, step 4).
+    pub fn plain(&self) -> bool {
+        self.mode == Mode::Supervisor && self.output_schema.is_none()
     }
 
     pub fn limits(&self) -> Result<ModelLimits, FerbError> {
@@ -388,7 +397,9 @@ impl ClaudeRuntime {
             allowed_tools: allowed,
             model: self.model.clone(),
             mcp_servers: mcp,
-            include_partial_messages: self.mode == Mode::Supervisor && self.output_schema.is_some(),
+            // RUN-480: a plain-mode run streams its text too
+            include_partial_messages: self.mode == Mode::Supervisor
+                && (self.output_schema.is_some() || self.plain()),
             effort: self.effort.clone(),
             json_schema: match (&self.shape, stated_form) {
                 (Some(s), false) => Some(s.wire.clone()),
@@ -480,6 +491,8 @@ struct State {
     unreported: tally::Tally,
     /// T-1338: the relay's step records no result frame carried, kept with that usage.
     unreported_steps: steps::Steps,
+    /// RUN-480: the run was cancelled; a plain-mode run's events then end quietly.
+    cancelled: bool,
 }
 
 /// One live Claude run.
@@ -528,22 +541,31 @@ impl ClaudeRun {
         Ok(())
     }
 
-    /// claude_sdk.py `cancel`.
+    /// claude_sdk.py `cancel`. RUN-480: a plain-mode run is first asked to stop its turn (the SDK's interrupt,
+    /// waited for at most [`INTERRUPT_WAIT_S`]), so Claude Code doesn't go on to its next model request before stdin
+    /// closes; then the program is ended as always.
     pub async fn cancel(&self) {
-        // RUN-477: what the relay counted since the last result frame stays with the run once the relay forgets it
+        let client = {
+            let mut st = self.lock();
+            st.closed = true;
+            st.cancelled = true;
+            st.client.take()
+        };
+        if let Some(c) = &client {
+            if self.rt.plain() {
+                let _ = c.interrupt(INTERRUPT_WAIT_S).await;
+            }
+            c.disconnect().await;
+        }
+        // RUN-477: what the relay counted since the last result frame stays with the run once the relay forgets it;
+        // read after the program ended, so a request it finished on its way out is counted too
         if let Some(t) = self.rt.proxy.take_usage(&self.id) {
             self.lock().unreported.add(&t);
         }
         if let Some(s) = self.rt.proxy.take_steps(&self.id) {
             self.lock().unreported_steps.add(s);
         }
-        let client = {
-            let mut st = self.lock();
-            st.closed = true;
-            st.client.take()
-        };
-        if let Some(c) = client {
-            c.disconnect().await;
+        if client.is_some() {
             self.rt.proxy.forget(&self.id);
         }
         let token = self.lock().token_file.take();
@@ -580,6 +602,33 @@ impl ClaudeRun {
             .request_as_sent(&self.request, "stated_after_refusal");
         client.query(vec![first_frame(&request)]).await
     }
+}
+
+/// RUN-480: how long a plain-mode cancel waits for Claude Code to acknowledge the interrupt before it closes stdin
+/// (a clean-up wait, not a limit on the run).
+pub const INTERRUPT_WAIT_S: f64 = 2.0;
+
+/// The `mcp__ferb__` prefix Claude Code puts on FERB's tools.
+const FERB_PREFIX: &str = "mcp__ferb__";
+
+/// RUN-480: a plain-mode tool event for a call Claude Code named `tool`.
+fn plain_tool(
+    rt: &ClaudeRuntime,
+    tool: &Value,
+    phase: &str,
+    arguments: Value,
+    error: Option<bool>,
+) -> Value {
+    let name = tool
+        .as_str()
+        .and_then(|t| t.strip_prefix(FERB_PREFIX))
+        .and_then(|t| crate::run::capability(&rt.tool_names, t));
+    let mut data = crate::run::tool_phase(tool.clone(), name, phase, arguments, error);
+    let offered = tool.as_str().is_some_and(|n| rt.allowed.contains(n));
+    if phase == "started" && !offered {
+        data["offered"] = json!(false); // counted once per call, as a wrong call (RUN-445)
+    }
+    data
 }
 
 fn first_frame(request: &ModelRequest) -> Value {
@@ -685,6 +734,7 @@ pub async fn start(
             repaired: false,
             unreported: tally::Tally::default(),
             unreported_steps: steps::Steps::default(),
+            cancelled: false,
         }),
         input_lock: tokio::sync::Mutex::new(()),
     });
@@ -777,9 +827,16 @@ async fn inner_events(run: &Arc<ClaudeRun>, client: &Client, y: &mut Yielder) ->
     let rt = &run.rt;
     let mut structured_blocks: BTreeSet<String> = BTreeSet::new();
     let typed = run.lock().typed.clone();
+    // RUN-480: a plain-mode run's text blocks in the message being streamed, and its calls not yet answered (by
+    // tool_use id: the name Claude Code sent and the arguments once known)
+    let plain = rt.plain();
+    let mut text_blocks: BTreeSet<String> = BTreeSet::new();
+    let mut open: BTreeMap<String, (Value, Value)> = BTreeMap::new();
     loop {
         let raw = match client.next_raw().await {
             None => return Ok(()),
+            // a plain-mode run FERB cancelled ends quietly: nothing after the cancel is an error
+            Some(_) if plain && run.lock().cancelled => return Ok(()),
             Some(Err(e)) => return Err(Exit::Fail(e)),
             Some(Ok(v)) => v,
         };
@@ -791,10 +848,29 @@ async fn inner_events(run: &Arc<ClaudeRun>, client: &Client, y: &mut Yielder) ->
             Message::User { blocks, uuid } => {
                 if blocks
                     .as_ref()
-                    .is_some_and(|b| b.iter().any(|b| matches!(b, Block::ToolResult)))
+                    .is_some_and(|b| b.iter().any(|b| matches!(b, Block::ToolResult { .. })))
                 {
                     run.lock().timer.handed_back();
-                    y.emit(event(K::Progress, json!({}))).await?;
+                    if plain {
+                        // the results Claude Code handed back (`--replay-user-messages`): each call completed
+                        for b in blocks.iter().flatten() {
+                            let Block::ToolResult {
+                                tool_use_id,
+                                is_error,
+                            } = b
+                            else {
+                                continue;
+                            };
+                            let id = ferb_py::value::py_str(tool_use_id);
+                            if let Some((tool, arguments)) = open.remove(&id) {
+                                let data =
+                                    plain_tool(rt, &tool, "completed", arguments, Some(*is_error));
+                                y.emit(event(K::ToolCall, data)).await?;
+                            }
+                        }
+                    } else {
+                        y.emit(event(K::Progress, json!({}))).await?;
+                    }
                 }
                 if let Value::String(id) = &uuid {
                     run.lock().pending_updates.remove(id);
@@ -841,6 +917,11 @@ async fn inner_events(run: &Arc<ClaudeRun>, client: &Client, y: &mut Yielder) ->
                         None => Ok("null".into()),
                     }
                 };
+                if plain {
+                    if let Some(()) = plain_stream(rt, &ev, &mut text_blocks, &mut open, y).await? {
+                        continue;
+                    }
+                }
                 match kind.as_ref().and_then(Value::as_str) {
                     Some("message_start") => structured_blocks.clear(),
                     Some("content_block_start") => {
@@ -903,6 +984,16 @@ async fn inner_events(run: &Arc<ClaudeRun>, client: &Client, y: &mut Yielder) ->
                 for b in blocks {
                     run.lock().blocks.push(b.kind().into());
                     match b {
+                        Block::ToolUse { id, name, input } if plain => {
+                            // RUN-480: started when the stream showed it (else now), completed from its result
+                            run.lock().emitted = true;
+                            let id = ferb_py::value::py_str(&id);
+                            if !open.contains_key(&id) {
+                                let data = plain_tool(rt, &name, "started", input.clone(), None);
+                                y.emit(event(K::ToolCall, data)).await?;
+                            }
+                            open.insert(id, (name, input));
+                        }
                         Block::ToolUse { name, input, .. } => {
                             run.lock().emitted = true;
                             if name.as_str() == Some(STRUCTURED_OUTPUT) {
@@ -932,6 +1023,75 @@ async fn inner_events(run: &Arc<ClaudeRun>, client: &Client, y: &mut Yielder) ->
             Message::Other => {}
         }
     }
+}
+
+/// RUN-480: a plain-mode run's stream event: its answer text as written, a call as soon as it starts. `Some` when
+/// the event was told on (nothing more to do), `None` to treat it as any run would.
+async fn plain_stream(
+    rt: &ClaudeRuntime,
+    ev: &Value,
+    text_blocks: &mut BTreeSet<String>,
+    open: &mut BTreeMap<String, (Value, Value)>,
+    y: &mut Yielder,
+) -> Result<Option<()>, Exit> {
+    let get = |v: &Value, k: &str| -> Result<Option<Value>, Raised> {
+        Ok(crate::pyjson::get(v, k)?.cloned())
+    };
+    let index = || -> String {
+        ev.get("index")
+            .map(|i| ferb_py::json::dumps(&normalize_number(i)))
+            .unwrap_or_else(|| "null".into())
+    };
+    match get(ev, "type")?.as_ref().and_then(Value::as_str) {
+        Some("message_start") => text_blocks.clear(),
+        Some("content_block_start") => {
+            let block = match get(ev, "content_block")? {
+                Some(b) if ferb_py::value::truthy(&b) => b,
+                _ => json!({}),
+            };
+            match get(&block, "type")?.as_ref().and_then(Value::as_str) {
+                Some("text") => {
+                    text_blocks.insert(index());
+                    if let Some(Value::String(t)) = get(&block, "text")? {
+                        if !t.is_empty() {
+                            y.emit(event(K::TextDelta, json!({"text": t}))).await?;
+                            return Ok(Some(()));
+                        }
+                    }
+                }
+                Some("tool_use") => {
+                    let id = ferb_py::value::py_str(&get(&block, "id")?.unwrap_or(Value::Null));
+                    let name = get(&block, "name")?.unwrap_or(Value::Null);
+                    if let std::collections::btree_map::Entry::Vacant(slot) = open.entry(id) {
+                        let data = plain_tool(rt, &name, "started", Value::Null, None);
+                        slot.insert((name, Value::Null));
+                        y.emit(event(K::ToolCall, data)).await?;
+                        return Ok(Some(()));
+                    }
+                }
+                _ => {}
+            }
+        }
+        Some("content_block_delta") if text_blocks.contains(&index()) => {
+            let delta = match get(ev, "delta")? {
+                Some(d) if ferb_py::value::truthy(&d) => d,
+                _ => json!({}),
+            };
+            if get(&delta, "type")?.as_ref().and_then(Value::as_str) == Some("text_delta") {
+                if let Some(Value::String(t)) = get(&delta, "text")? {
+                    if !t.is_empty() {
+                        y.emit(event(K::TextDelta, json!({"text": t}))).await?;
+                        return Ok(Some(()));
+                    }
+                }
+            }
+        }
+        Some("content_block_stop") => {
+            text_blocks.remove(&index());
+        }
+        _ => {}
+    }
+    Ok(None)
 }
 
 fn normalize_number(v: &Value) -> Value {

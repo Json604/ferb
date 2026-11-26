@@ -408,6 +408,18 @@ impl ApiRuntime {
         self.provider.name()
     }
 
+    /// RUN-480: a supervisor run with no answer form. Its answer is plain text, streamed as written, and each tool
+    /// call is reported just before it runs and once its result is known (kb/plans/front-door.md, step 4).
+    pub fn plain(&self) -> bool {
+        self.supervisor && self.output_schema.is_none()
+    }
+
+    /// RUN-480: a plain-mode tool event for a call the model named `tool`.
+    fn plain_tool(&self, call: &ToolCall, phase: &str, error: Option<bool>) -> Value {
+        let name = crate::run::capability(&self.tool_names, &call.name);
+        crate::run::tool_phase(json!(call.name), name, phase, call.arguments.clone(), error)
+    }
+
     /// The provider's documented limits for its model (L28).
     pub fn limits(&self) -> Result<ModelLimits, FerbError> {
         self.provider.limits().ok_or_else(|| {
@@ -880,13 +892,17 @@ async fn event_loop(run: &Arc<ApiRun>, y: &mut Yielder) -> Result<(), Exit> {
                 });
                 continue;
             }
+            let plain = rt.plain();
             let Some(capability) = names.get(&c.name).cloned() else {
                 // a name this run was never offered: nothing runs, the shared run counts it (RUN-445)
-                y.emit(event(
-                    K::ToolCall,
-                    json!({"tool": c.name, "arguments": c.arguments, "offered": false}),
-                ))
-                .await?;
+                let data = if plain {
+                    let mut data = rt.plain_tool(c, "started", None);
+                    data["offered"] = json!(false);
+                    data
+                } else {
+                    json!({"tool": c.name, "arguments": c.arguments, "offered": false})
+                };
+                y.emit(event(K::ToolCall, data)).await?;
                 if run.lock().cancelled {
                     return Ok(());
                 }
@@ -899,14 +915,22 @@ async fn event_loop(run: &Arc<ApiRun>, y: &mut Yielder) -> Result<(), Exit> {
                     is_error: true,
                     image: None,
                 });
+                if plain {
+                    y.emit(event(
+                        K::ToolCall,
+                        rt.plain_tool(c, "completed", Some(true)),
+                    ))
+                    .await?;
+                }
                 continue;
             };
             if !has_updates {
-                y.emit(event(
-                    K::ToolCall,
-                    json!({"tool": c.name, "arguments": c.arguments}),
-                ))
-                .await?;
+                let data = if plain {
+                    rt.plain_tool(c, "started", None)
+                } else {
+                    json!({"tool": c.name, "arguments": c.arguments})
+                };
+                y.emit(event(K::ToolCall, data)).await?;
             }
             if run.lock().cancelled {
                 return Ok(());
@@ -918,6 +942,14 @@ async fn event_loop(run: &Arc<ApiRun>, y: &mut Yielder) -> Result<(), Exit> {
                     is_error: true,
                     image: None,
                 });
+                if plain && !has_updates {
+                    // told started a moment before the owner's update: it never ran
+                    y.emit(event(
+                        K::ToolCall,
+                        rt.plain_tool(c, "completed", Some(true)),
+                    ))
+                    .await?;
+                }
                 continue;
             }
             match execute(run, &capability, c).await {
@@ -926,8 +958,14 @@ async fn event_loop(run: &Arc<ApiRun>, y: &mut Yielder) -> Result<(), Exit> {
                     if run.lock().cancelled {
                         return Ok(());
                     }
+                    let error = outcome.is_error;
                     results.push(outcome);
-                    y.emit(event(K::Progress, json!({}))).await?;
+                    let ev = if plain {
+                        event(K::ToolCall, rt.plain_tool(c, "completed", Some(error)))
+                    } else {
+                        event(K::Progress, json!({}))
+                    };
+                    y.emit(ev).await?;
                 }
             }
         }
@@ -1153,7 +1191,8 @@ async fn send(
     tx: &mpsc::UnboundedSender<Fragment>,
 ) -> Result<Turn, RuntimeError> {
     let rt = &run.rt;
-    let streaming = rt.supervisor && rt.output_schema.is_some();
+    // RUN-480: a plain-mode run streams its text too
+    let streaming = rt.supervisor && (rt.output_schema.is_some() || rt.plain());
     let (state, key, answer_tool) = {
         let r = run.lock();
         (r.state.clone(), r.key.expose().to_string(), r.answer_tool)

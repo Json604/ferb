@@ -267,6 +267,13 @@ impl Client {
         }
     }
 
+    /// ClaudeSDKClient.interrupt: the program is asked to stop its turn now (the SDK's `interrupt` control request),
+    /// waiting at most `timeout_s` for its answer. RUN-480: a plain-mode run FERB ends on an accepted call.
+    pub async fn interrupt(&self, timeout_s: f64) -> Result<Value, RuntimeError> {
+        self.control_request(json!({"subtype": "interrupt"}), timeout_s)
+            .await
+    }
+
     /// ClaudeSDKClient.query with message frames: each gets `session_id` "default" when it has none.
     pub async fn query(&self, frames: Vec<Value>) -> Result<(), RuntimeError> {
         for mut frame in frames {
@@ -733,7 +740,11 @@ pub enum Block {
         name: Value,
         input: Value,
     },
-    ToolResult,
+    /// The call it answers and whether it is an error (RUN-480: a plain-mode run reports the call completed).
+    ToolResult {
+        tool_use_id: Value,
+        is_error: bool,
+    },
     ServerToolUse,
     ServerToolResult,
 }
@@ -745,7 +756,7 @@ impl Block {
             Block::Text(_) => "text",
             Block::Thinking => "thinking",
             Block::ToolUse { .. } => "tool_use",
-            Block::ToolResult => "tool_result",
+            Block::ToolResult { .. } => "tool_result",
             Block::ServerToolUse => "server_tool_use",
             Block::ServerToolResult => "server_tool_result",
         }
@@ -814,10 +825,10 @@ fn blocks_of(raw: &[Value], assistant: bool) -> Result<Vec<Block>, RuntimeError>
                 name: req(block, "name").map_err(missing)?.clone(),
                 input: req(block, "input").map_err(missing)?.clone(),
             },
-            Some("tool_result") => {
-                req(block, "tool_use_id").map_err(missing)?;
-                Block::ToolResult
-            }
+            Some("tool_result") => Block::ToolResult {
+                tool_use_id: req(block, "tool_use_id").map_err(missing)?.clone(),
+                is_error: block.get("is_error").is_some_and(ferb_py::value::truthy),
+            },
             Some("server_tool_use") if assistant => {
                 req(block, "id").map_err(missing)?;
                 req(block, "name").map_err(missing)?;

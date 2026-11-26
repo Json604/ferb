@@ -468,3 +468,281 @@ async fn a_worker_loops_earlier_looks_at_a_window_are_compacted_in_its_own_reque
     );
     srv.abort();
 }
+
+// ---- RUN-480 (kb/plans/front-door.md, step 4): a plain-mode run (a supervisor run with no answer form) streams its
+// text and reports each tool call just before it runs and once its result is known. Today's answer-form runs are the
+// recorded fixtures (`api_matches_python`, "anthropic: a supervisor's typed answer streams"), unchanged.
+
+fn sse(events: Vec<Value>) -> Value {
+    json!({ "sse": events })
+}
+
+fn a_text(index: u64, pieces: &[&str]) -> Vec<Value> {
+    let mut out = vec![
+        json!({"type": "content_block_start", "index": index, "content_block": {"type": "text", "text": ""}}),
+    ];
+    for p in pieces {
+        out.push(json!({"type": "content_block_delta", "index": index,
+            "delta": {"type": "text_delta", "text": p}}));
+    }
+    out.push(json!({"type": "content_block_stop", "index": index}));
+    out
+}
+
+fn a_reply(blocks: Vec<Value>, stop: &str) -> Value {
+    let mut events = vec![json!({"type": "message_start",
+        "message": {"role": "assistant", "content": [], "usage": {"input_tokens": 7}}})];
+    events.extend(blocks);
+    events.push(
+        json!({"type": "message_delta", "delta": {"stop_reason": stop}, "usage": {"output_tokens": 3}}),
+    );
+    events.push(json!({"type": "message_stop"}));
+    sse(events)
+}
+
+fn a_call(index: u64, id: &str, name: &str, args: &str) -> Vec<Value> {
+    vec![
+        json!({"type": "content_block_start", "index": index,
+            "content_block": {"type": "tool_use", "id": id, "name": name, "input": {}}}),
+        json!({"type": "content_block_delta", "index": index,
+            "delta": {"type": "input_json_delta", "partial_json": args}}),
+        json!({"type": "content_block_stop", "index": index}),
+    ]
+}
+
+struct PlainRun {
+    started: ferb_runtimes::run::Started,
+    requests: Arc<Mutex<Vec<Value>>>,
+    calls: Arc<Mutex<Vec<Value>>>,
+    srv: tokio::task::JoinHandle<()>,
+}
+
+async fn plain_start(
+    provider: Arc<dyn Provider>,
+    responses: Vec<Value>,
+    results: Vec<Value>,
+) -> PlainRun {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let srv = tokio::spawn(server(listener, responses, requests.clone(), "k".into()));
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let bridge = Arc::new(FakeBridge {
+        tools: vec![json!({"name": "memory.read", "description": "Read memory.",
+            "input_schema": {"type": "object"}})],
+        results: Mutex::new(results),
+        log: calls.clone(),
+    });
+    let mut rt = ApiRuntime::new(
+        provider,
+        true,
+        "orchestrator",
+        &["memory.read".to_string()],
+        None,
+        Some(bridge),
+        Arc::new(|_name: String| Box::pin(async { Some(Secret::from("k")) })),
+        Arc::new(ferb_runtimes::forms::ContextForms),
+        Arc::new(Refusals::new(Box::new(|| 0.0))),
+    )
+    .expect("a runtime");
+    rt.monotonic = Arc::new(|| 0.0);
+    rt.origin = Some(origin);
+    rt.token_hex = counter();
+    rt.today = Arc::new(|| "2026-11-26".into());
+    let request =
+        request_of(&json!({"system": "FERB", "parts": ["ok no worries"], "cacheable": 0}));
+    let started = rt.start(&task(), &request, "tok").await.expect("started");
+    PlainRun {
+        started,
+        requests,
+        calls,
+        srv,
+    }
+}
+
+/// The run's text, tool, usage, final and failure events until it ends (or `until` matched one).
+async fn plain_told(
+    started: &mut ferb_runtimes::run::Started,
+    until: Option<&dyn Fn(&Value) -> bool>,
+) -> Vec<Value> {
+    use ferb_core::types::RuntimeEventKind as K;
+    let mut out = Vec::new();
+    while let Some(item) = tokio::time::timeout(Duration::from_secs(5), started.events.next())
+        .await
+        .expect("an event within 5 s")
+    {
+        let ev = item.expect("no error raised");
+        if matches!(
+            ev.kind,
+            K::TextDelta | K::ToolCall | K::Final | K::Error | K::Violation | K::Usage
+        ) {
+            let mut data = Value::Object(ev.data);
+            if ev.kind == K::Usage {
+                data = json!({"input_tokens": data["input_tokens"]});
+            }
+            let v = json!({"kind": ev.kind.as_str(), "data": data});
+            let stop = until.is_some_and(|f| f(&v));
+            out.push(v);
+            if stop {
+                break;
+            }
+        }
+    }
+    out
+}
+
+fn plain_delta(t: &str) -> Value {
+    json!({"kind": "text_delta", "data": {"text": t}})
+}
+
+// decision: RUN-480
+#[tokio::test]
+async fn a_plain_reply_streams_its_pieces_and_ends_with_them_as_its_answer_on_every_provider() {
+    let anthropic = a_reply(a_text(0, &["Sure, ", "no worries."]), "end_turn");
+    let openai = sse(vec![
+        json!({"type": "response.output_text.delta", "delta": "Sure, "}),
+        json!({"type": "response.output_text.delta", "delta": "no worries."}),
+        json!({"type": "response.completed", "response": {"status": "completed", "usage": {"input_tokens": 7},
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": "Sure, no worries."}]}]}}),
+    ]);
+    let google = sse(vec![
+        json!({"candidates": [{"index": 0, "content": {"role": "model", "parts": [{"text": "Sure, "}]}}]}),
+        json!({"candidates": [{"index": 0, "content": {"role": "model", "parts": [{"text": "no worries."}]},
+            "finishReason": "STOP"}], "usageMetadata": {"promptTokenCount": 7}}),
+    ]);
+    let providers: Vec<(Arc<dyn Provider>, Value)> = vec![
+        (Arc::new(anthropic::AnthropicProvider::new(None)), anthropic),
+        (Arc::new(openai::OpenAIProvider::new(None)), openai),
+        (Arc::new(google::GoogleProvider::new(None)), google),
+    ];
+    for (provider, reply) in providers {
+        let name = provider.name().to_string();
+        let mut run = plain_start(provider, vec![reply], vec![]).await;
+        let got = plain_told(&mut run.started, None).await;
+        assert_eq!(
+            got,
+            vec![
+                plain_delta("Sure, "),
+                plain_delta("no worries."),
+                json!({"kind": "usage", "data": {"input_tokens": 7}}),
+                json!({"kind": "final", "data": {"text": "Sure, no worries."}}),
+            ],
+            "{name}"
+        );
+        run.srv.abort();
+    }
+}
+
+// decision: RUN-480
+#[tokio::test]
+async fn a_line_then_a_call_then_the_answer_tell_the_call_started_and_completed_in_order() {
+    let mut first = a_text(0, &["Let me ", "look."]);
+    first.extend(a_call(1, "tu1", "memory_read", "{\"query\": \"x\"}"));
+    let responses = vec![
+        a_reply(first, "tool_use"),
+        a_reply(a_text(0, &["It is ", "x."]), "end_turn"),
+    ];
+    let mut run = plain_start(
+        Arc::new(anthropic::AnthropicProvider::new(None)),
+        responses,
+        vec![],
+    )
+    .await;
+    let got = plain_told(&mut run.started, None).await;
+    assert_eq!(
+        got,
+        vec![
+            plain_delta("Let me "),
+            plain_delta("look."),
+            json!({"kind": "usage", "data": {"input_tokens": 7}}),
+            json!({"kind": "tool_call", "data": {"tool": "memory_read", "name": "memory.read",
+                "phase": "started", "arguments": {"query": "x"}}}),
+            json!({"kind": "tool_call", "data": {"tool": "memory_read", "name": "memory.read",
+                "phase": "completed", "arguments": {"query": "x"}, "error": false}}),
+            plain_delta("It is "),
+            plain_delta("x."),
+            json!({"kind": "usage", "data": {"input_tokens": 7}}),
+            json!({"kind": "final", "data": {"text": "It is x."}}),
+        ]
+    );
+    assert_eq!(run.calls.lock().unwrap().len(), 1);
+    run.srv.abort();
+}
+
+// decision: RUN-480, RUN-445
+#[tokio::test]
+async fn a_call_whose_result_is_an_error_or_that_was_never_offered_completes_with_its_error() {
+    let mut first = a_call(0, "tu1", "memory_read", "{}");
+    first.extend(a_call(1, "tu2", "made_up", "{}"));
+    let responses = vec![
+        a_reply(first, "tool_use"),
+        a_reply(a_text(0, &["Nothing."]), "end_turn"),
+    ];
+    let refused = vec![
+        json!({"content": {"error": "no such entry"}, "footer": "", "is_error": true, "image": null}),
+    ];
+    let mut run = plain_start(
+        Arc::new(anthropic::AnthropicProvider::new(None)),
+        responses,
+        refused,
+    )
+    .await;
+    let got = plain_told(&mut run.started, None).await;
+    let tools: Vec<Value> = got
+        .iter()
+        .filter(|v| v["kind"] == "tool_call")
+        .cloned()
+        .collect();
+    assert_eq!(
+        tools,
+        vec![
+            json!({"kind": "tool_call", "data": {"tool": "memory_read", "name": "memory.read",
+                "phase": "started", "arguments": {}}}),
+            json!({"kind": "tool_call", "data": {"tool": "memory_read", "name": "memory.read",
+                "phase": "completed", "arguments": {}, "error": true}}),
+            // a name the run was never offered: counted once as a wrong call, nothing runs
+            json!({"kind": "tool_call", "data": {"tool": "made_up", "phase": "started", "arguments": {},
+                "offered": false}}),
+            json!({"kind": "tool_call", "data": {"tool": "made_up", "phase": "completed", "arguments": {},
+                "error": true}}),
+        ]
+    );
+    assert_eq!(got.last().unwrap()["data"]["text"], "Nothing.");
+    run.srv.abort();
+}
+
+// decision: RUN-480
+#[tokio::test]
+async fn a_cancel_right_after_a_completed_call_asks_the_model_nothing_more_and_raises_nothing() {
+    let responses = vec![
+        a_reply(a_call(0, "tu1", "memory_read", "{}"), "tool_use"),
+        a_reply(a_text(0, &["never asked"]), "end_turn"),
+    ];
+    let mut run = plain_start(
+        Arc::new(anthropic::AnthropicProvider::new(None)),
+        responses,
+        vec![],
+    )
+    .await;
+    let completed = |v: &Value| v["data"]["phase"] == "completed";
+    let got = plain_told(&mut run.started, Some(&completed)).await;
+    // the call's usage was told before the call ran: nothing is left unreported
+    assert_eq!(
+        got[0],
+        json!({"kind": "usage", "data": {"input_tokens": 7}}),
+        "{got:?}"
+    );
+    assert_eq!(got.last().unwrap()["data"]["phase"], "completed");
+    run.started.control.cancel().await;
+    let after = tokio::time::timeout(Duration::from_secs(5), run.started.events.next())
+        .await
+        .expect("the stream ends");
+    assert!(after.is_none(), "{after:?}");
+    assert!(run.started.control.unreported_usage().is_empty());
+    assert_eq!(
+        run.requests.lock().unwrap().len(),
+        1,
+        "a second model request went out"
+    );
+    run.srv.abort();
+}

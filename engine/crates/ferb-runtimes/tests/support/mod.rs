@@ -331,6 +331,11 @@ impl FakeApp {
         self.end(-9);
     }
 
+    /// The program's exit status; None while it runs.
+    pub fn exited(&self) -> Option<i32> {
+        *self.status.borrow()
+    }
+
     pub fn terminate(&self) {
         self.end(-15);
     }

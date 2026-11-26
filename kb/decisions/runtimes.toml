@@ -740,3 +740,12 @@ status = "active"
 rule = "For ORCH-726 (step 1), beside RUN-477. Per model step the relay keeps the tools the answer called, each tool result's tool name and is_error, the stop reason, a non-success status and the times to first byte and end; names only in Anthropic's tool-name characters, else \"?\". It reaches the run's model.usage output as steps (the latest 64, the rest counted in steps_dropped). Compressed traffic or an unreadable body leaves no step."
 why = "Some Claude planner turns answer twice and nothing recorded why."
 paths = ["engine/crates/ferb-runtimes/src/claude/steps.rs", "engine/crates/ferb-runtimes/src/claude/proxy.rs", "engine/crates/ferb-runtimes/src/claude/tally.rs"]
+
+[RUN-480]
+title = "Plain-mode runs stream text and report each tool call started and completed, on every runtime"
+by = "agent"
+date = 2026-11-26
+status = "active"
+rule = "For ORCH-726 (step 4). A supervisor run with no answer form emits TextDelta for its answer text as written, then ToolCall {tool, name, phase: started, arguments or null} and {tool, name, phase: completed, arguments, error} on Claude Code, Codex and the API loop alike; its final text is its last message. Its cancel interrupts the turn first (Claude's interrupt, Codex's turn/interrupt, at most 2 s), ends the program, raises nothing and hands usage through unreported_usage. Runs with an answer form stay as recorded."
+why = "The front door must show its words and a lookup's status as they happen, the same way whatever AI runs it."
+paths = ["engine/crates/ferb-runtimes/src/run.rs", "engine/crates/ferb-runtimes/src/claude/mod.rs", "engine/crates/ferb-runtimes/src/codex/stream.rs", "engine/crates/ferb-runtimes/src/api/mod.rs"]

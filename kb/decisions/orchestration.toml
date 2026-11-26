@@ -2675,3 +2675,21 @@ status = "active"
 rule = "For ORCH-726 (step 1). With the bounded planner, the model.turn span whose call sent the turn's first reply or plan text frame has first_text_ms in its timing: ms from that pass's planner.prepare start. A turn whose text never streamed records none."
 why = "No record said how long the owner waited for the first word; the plan's targets are set in it."
 paths = ["engine/crates/ferb-supervisor/src/flow/turn.rs"]
+
+[ORCH-733]
+title = "A call can end on its own accepted tool call; every tool event reaches the caller"
+by = "agent"
+date = 2026-11-26
+status = "active"
+rule = "For ORCH-726 (step 4), with RUN-480. CallHooks::on_tool_event gets every ToolCall event. A call's ends_on names FERB capabilities: in a run with no answer form, a completed, error-free call of one of them stops the stream, the call returns {ended_on, arguments, text} and the run closes after (ORCH-731's path). A call the gateway refused goes back to the model. RUN-445 counts a plain-mode call once."
+why = "The hand-off's arguments are the answer once the gateway accepted them; measured, ending there saves a request and about 2 s."
+paths = ["engine/crates/ferb-worker/src/worker.rs"]
+
+[ORCH-734]
+title = "The front door's plain reply streams through the same redaction and line guard"
+by = "agent"
+date = 2026-11-26
+status = "active"
+rule = "For ORCH-726 (step 4), keeping GATE-581. reply_stream::PlainReply shows plain reply text through the RedactionStream and reply-mode LineGuard ReplyDraft applies to its text field, frame for frame, and a hand-off's ack on the plan channel in task mode. At a tool's start what is held is shown and the guard starts a fresh line; nothing shown is withdrawn. A final text other than what streamed withdraws it (reply_abort), a refused call its ack (plan_abort), an abort both. Only frames the apps already draw."
+why = "The front door answers in plain text; the line it writes before a lookup is meant for the owner."
+paths = ["engine/crates/ferb-orchestrator/src/reply_stream.rs"]

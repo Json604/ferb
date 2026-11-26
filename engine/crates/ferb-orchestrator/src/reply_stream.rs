@@ -1,6 +1,8 @@
 //! ferb/orchestrator/reply_stream.py: the planner's provisional public text, streamed only after every field before
 //! it validated. A pure reply streams on the reply channel, a task's plan line on the plan channel; a malformed draft
 //! is withdrawn. D33 and GATE-581 marks are applied before any prefix that could pass for FERB is shown.
+//! `PlainReply` is the front door's plain-text streamer beside it (ORCH-734): the same redaction and line guard, no
+//! answer form.
 //!
 //! decision: ORCH-638, ORCH-630, ORCH-729
 
@@ -424,5 +426,188 @@ impl ReplyDraft {
                                "reason": "The draft was interrupted; wait for the final reply."}));
         }
         self.closed = true;
+    }
+}
+
+/// What `abort` and `withdraw` give as the withdrawn draft's reason: `ReplyDraft::abort`'s words, so the apps see
+/// the frame they already draw.
+const INTERRUPTED: &str = "The draft was interrupted; wait for the final reply.";
+
+type Emit = dyn Fn(Value) + Send + Sync;
+
+/// One channel of a plain answer: the text as the model wrote it (`streamed`), shown through the redaction stream
+/// and then the line guard, as `ReplyDraft::emit_text` shows its `text`.
+struct Channel {
+    name: &'static str,
+    reply: bool,
+    redaction: RedactionStream<Arc<Redactor>>,
+    lines: LineGuard,
+    streamed: String,
+    visible: bool,
+}
+
+impl Channel {
+    fn new(name: &'static str, reply: bool, redactor: &Arc<Redactor>) -> Channel {
+        Channel {
+            name,
+            reply,
+            redaction: RedactionStream::new(redactor.clone()),
+            lines: LineGuard::new(reply),
+            streamed: String::new(),
+            visible: false,
+        }
+    }
+
+    fn show(&mut self, policy: &dyn Policy, emit: &Emit, text: &str, last: bool) {
+        let safe = self.redaction.feed(text.as_bytes(), last);
+        let safe = String::from_utf8_lossy(&safe).into_owned();
+        let guarded = self.lines.feed(policy, &safe, last);
+        if !guarded.is_empty() {
+            self.visible = true;
+            emit(json!({"type": format!("{}_delta", self.name), "text": guarded}));
+        }
+    }
+
+    /// Everything held is shown, then a fresh redaction stream and a guard at the start of a line.
+    fn flush(&mut self, policy: &dyn Policy, emit: &Emit, redactor: &Arc<Redactor>) {
+        self.show(policy, emit, "", true);
+        self.redaction = RedactionStream::new(redactor.clone());
+        self.lines = LineGuard::new(self.reply);
+    }
+
+    /// A shown draft is withdrawn, and the channel starts empty.
+    fn withdraw(&mut self, emit: &Emit, redactor: &Arc<Redactor>) {
+        if self.visible {
+            emit(json!({"type": format!("{}_abort", self.name), "reason": INTERRUPTED}));
+        }
+        *self = Channel::new(self.name, self.reply, redactor);
+    }
+}
+
+/// The front door's plain answer as it streams (kb/plans/front-door.md, "The front door's turn"): no answer form,
+/// no JSON, no unescaping. The reply is shown on the reply channel exactly as `ReplyDraft` shows an answer's `text`
+/// (the same `RedactionStream`, then `LineGuard` in reply mode: a line in the form of FERB's own checks is marked
+/// before any prefix that could pass for one is shown). A hand-off's ack is shown on the plan channel with the guard
+/// in task mode (`policy.from_task`), and is withdrawn with `plan_abort` when code refuses the call. Frames are only
+/// those `ReplyDraft` sends: `reply_delta`, `reply_abort`, `plan_delta`, `plan_end`, `plan_abort`.
+///
+/// decision: GATE-581, ORCH-734
+pub struct PlainReply {
+    emit: Arc<Emit>,
+    policy: Arc<dyn Policy>,
+    redactor: Arc<Redactor>,
+    reply: Channel,
+    ack: Channel,
+    /// The reply was finished or aborted: nothing more is shown on the reply channel.
+    closed: bool,
+    /// The run was aborted: nothing more is shown on either channel.
+    ended: bool,
+}
+
+impl PlainReply {
+    pub fn new(redactor: Arc<Redactor>, policy: Arc<dyn Policy>, emit: Arc<Emit>) -> PlainReply {
+        PlainReply {
+            emit,
+            policy,
+            reply: Channel::new("reply", true, &redactor),
+            ack: Channel::new("plan", false, &redactor),
+            redactor,
+            closed: false,
+            ended: false,
+        }
+    }
+
+    /// The next piece of the model's plain reply text.
+    pub fn feed(&mut self, piece: &str) {
+        if self.closed {
+            return;
+        }
+        self.reply.streamed.push_str(piece);
+        self.reply
+            .show(self.policy.as_ref(), self.emit.as_ref(), piece, false);
+    }
+
+    /// A tool call began. Unlike `ReplyDraft::restart`, which withdraws a shown draft (a JSON answer that starts
+    /// over is a different answer), what was shown stays: plain text before a call is the front door's own line to
+    /// the owner ("let me look that up"), not part of an answer form. What the redaction stream or the guard still
+    /// holds is shown now, so the line is whole while the call runs, and the text after the call starts a fresh
+    /// line for the guard (a mark is never skipped because the model went on mid-line).
+    pub fn restart(&mut self) {
+        if self.closed {
+            return;
+        }
+        self.reply
+            .flush(self.policy.as_ref(), self.emit.as_ref(), &self.redactor);
+    }
+
+    /// The run's final plain answer: every reply piece fed, in order, across calls. Equal to what streamed, the
+    /// rest is shown and the reply ends; anything else withdraws the shown draft (`reply_abort`), as
+    /// `ReplyDraft::finish` does for an answer that is not the one streamed.
+    pub fn finish(&mut self, final_text: &str) {
+        if self.closed {
+            return;
+        }
+        if final_text != self.reply.streamed {
+            self.abort_reply();
+            return;
+        }
+        self.reply
+            .show(self.policy.as_ref(), self.emit.as_ref(), "", true);
+        self.closed = true;
+    }
+
+    /// The run ended unfinished: a shown reply is withdrawn (`reply_abort`), and so is an ack not yet ended
+    /// (`plan_abort`): no promise stays shown for work that did not start.
+    pub fn abort(&mut self) {
+        self.abort_reply();
+        if !self.ended {
+            self.ack.withdraw(self.emit.as_ref(), &self.redactor);
+        }
+        self.ended = true;
+    }
+
+    fn abort_reply(&mut self) {
+        if !self.closed && self.reply.visible {
+            (self.emit)(json!({"type": "reply_abort", "reason": INTERRUPTED}));
+        }
+        self.closed = true;
+    }
+
+    /// The next piece of a hand-off's ack as the runtime streams the call's arguments, shown provisionally on the
+    /// plan channel.
+    pub fn ack(&mut self, piece: &str) {
+        if self.ended {
+            return;
+        }
+        self.ack.streamed.push_str(piece);
+        self.ack
+            .show(self.policy.as_ref(), self.emit.as_ref(), piece, false);
+    }
+
+    /// Code accepted the hand-off and `final_ack` is its ack. Equal to what streamed, the rest is shown and the
+    /// plan stream ends (`plan_end`, as `ReplyDraft::finish` ends a plan line); anything else withdraws it. A later
+    /// call's ack streams afresh.
+    pub fn ack_end(&mut self, final_ack: &str) {
+        if self.ended {
+            return;
+        }
+        if final_ack != self.ack.streamed {
+            self.withdraw();
+            return;
+        }
+        self.ack
+            .show(self.policy.as_ref(), self.emit.as_ref(), "", true);
+        if self.ack.visible {
+            (self.emit)(json!({"type": "plan_end"}));
+        }
+        self.ack = Channel::new("plan", false, &self.redactor);
+    }
+
+    /// Code refused the hand-off: a shown ack is withdrawn (`plan_abort`); a repaired call's ack streams afresh.
+    pub fn withdraw(&mut self) {
+        if self.ended {
+            return;
+        }
+        self.ack.withdraw(self.emit.as_ref(), &self.redactor);
     }
 }

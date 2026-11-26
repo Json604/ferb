@@ -166,6 +166,7 @@ impl Inner {
             images: Vec::new(),
             hooks: Default::default(),
             retry_silent: false,
+            ends_on: Vec::new(),
         };
         let ran = worker.run_call(&rt, call).await.map_err(Failure::Worker);
         let result = ran.and_then(|final_| {

@@ -883,7 +883,7 @@ title = "Front door step 4: every runtime streams text, reports a tool's start, 
 area = "runtimes"
 kind = "build"
 status = "open"
-why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 4. Text streams only with an answer form today (claude/mod.rs:384, codex/stream.rs:1471); a tool is reported after it finished."
+why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 4. Done in journal 259-261 (RUN-480, ORCH-733, ORCH-734). Left: measured live once step 5 uses plain mode."
 decisions = ["ORCH-726"]
 after = ["T-1340"]
 

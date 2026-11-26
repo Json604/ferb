@@ -417,6 +417,7 @@ async fn calls_match_python() {
             images,
             hooks,
             retry_silent: inputs["retry_silent"].as_bool().unwrap(),
+            ends_on: Vec::new(),
         };
         let out = worker.run_call(&rt, call).await;
         let got = match &out {
@@ -676,6 +677,7 @@ fn attempts_and_calls_can_be_spawned(
             images: vec![],
             hooks: CallHooks::default(),
             retry_silent: true,
+            ends_on: Vec::new(),
         };
         let _ = worker.run_call(&rt, call).await;
     });
@@ -834,6 +836,7 @@ async fn usage_a_run_hands_over_at_its_close_is_recorded() {
         images: Vec::new(),
         hooks: CallHooks::default(),
         retry_silent: inputs["retry_silent"].as_bool().unwrap(),
+        ends_on: Vec::new(),
     };
     assert!(
         worker.run_call(&rt, call).await.is_err(),

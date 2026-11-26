@@ -305,6 +305,7 @@ impl Inner {
             images: Vec::new(),
             hooks: Default::default(),
             retry_silent: true,
+            ends_on: Vec::new(),
         };
         *final_ = worker.run_call(&rt, call).await.map_err(failed)?;
         let text = summary_text(final_)?;

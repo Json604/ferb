@@ -471,6 +471,7 @@ impl Inner {
             images: Vec::new(),
             hooks: Default::default(),
             retry_silent: true,
+            ends_on: Vec::new(),
         };
         let final_ = match worker.run_call(&rt, call).await {
             Ok(f) => f,

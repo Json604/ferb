@@ -1339,6 +1339,7 @@ impl Inner {
             images: Vec::new(),
             hooks: Default::default(),
             retry_silent: true,
+            ends_on: Vec::new(),
         };
         let text = match worker.run_call(&rt, call).await {
             Ok(t) => t,

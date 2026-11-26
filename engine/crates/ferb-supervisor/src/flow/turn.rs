@@ -1552,6 +1552,7 @@ impl Inner {
                 let t = call_timing.clone();
                 Arc::new(move |m: Map<String, Value>| t.lock().unwrap().extend(m))
             }),
+            on_tool_event: None,
         };
         let ctx = self.context_final(&rid, ctx);
         let worker = self.worker.get().expect("the worker").clone();
@@ -1566,6 +1567,7 @@ impl Inner {
             images,
             hooks,
             retry_silent: false,
+            ends_on: Vec::new(),
         };
         let ran = tokio::select! {
             r = worker.run_call(&rt, call) => Some(r),

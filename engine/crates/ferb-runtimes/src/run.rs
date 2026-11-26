@@ -63,6 +63,39 @@ pub fn event(kind: RuntimeEventKind, data: Value) -> RuntimeEvent {
     RuntimeEvent { kind, data }
 }
 
+/// RUN-480 (kb/plans/front-door.md, step 4): FERB's capability name for a tool name as a runtime sent it, mapped back
+/// through the run's own `tool_names` with the adapters' `mcp_name`; None when it names none of them.
+pub fn capability(tool_names: &[String], sent: &str) -> Option<String> {
+    tool_names
+        .iter()
+        .find(|n| crate::codex::mcp_name(n) == sent)
+        .cloned()
+}
+
+/// RUN-480: a plain-mode run's tool event, the same on every runtime: `tool` as the runtime sent it, `name` FERB's
+/// capability (absent when it maps to none), `phase` "started" (arguments null until known) or "completed" (the full
+/// arguments and whether the result was an error). Only a plain-mode run (a supervisor run without an answer form)
+/// emits these; every other run's tool events are as recorded.
+pub fn tool_phase(
+    tool: Value,
+    name: Option<String>,
+    phase: &str,
+    arguments: Value,
+    error: Option<bool>,
+) -> Value {
+    let mut m = Map::new();
+    m.insert("tool".into(), tool);
+    if let Some(n) = name {
+        m.insert("name".into(), Value::String(n));
+    }
+    m.insert("phase".into(), Value::String(phase.into()));
+    m.insert("arguments".into(), arguments);
+    if let Some(e) = error {
+        m.insert("error".into(), Value::Bool(e));
+    }
+    Value::Object(m)
+}
+
 /// A started run's stream (until `events` takes it) and control.
 type Live = (Option<EventStream>, Arc<dyn RunControl>);
 

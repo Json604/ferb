@@ -26,6 +26,10 @@ use crate::process::{ProcControl, Spawn};
 use crate::pyjson::{get, get_or_empty};
 use crate::run::{event, RunControl, Started};
 
+/// RUN-480: how long a plain-mode cancel waits for Codex to end the interrupted turn before the app-server is
+/// killed (a clean-up wait, not a limit on the run).
+pub const INTERRUPT_WAIT_S: f64 = 2.0;
+
 /// The reader's limit for one line (Python's `limit=64 * 1024 * 1024`).
 pub const LINE_LIMIT: usize = 64 * 1024 * 1024;
 
@@ -57,6 +61,8 @@ struct State {
     context_tokens: Value,
     context_window: Value,
     watcher_crash: Option<Raised>,
+    /// RUN-480: a plain-mode cancel is ending the turn (interrupt first); nothing after it is an error or an event.
+    ending: bool,
 }
 
 /// One live Codex run: everything its readers, its consumer and its control share.
@@ -79,6 +85,8 @@ pub struct CodexRun {
     deadline: Option<Instant>,
     cleanup_done: tokio::sync::Mutex<bool>,
     context_role: Mutex<String>,
+    /// Told when the turn completed or the transport closed (a plain-mode cancel waits for its interrupt).
+    turn_end: tokio::sync::Notify,
 }
 
 fn timer_now(rt: &CodexRuntime) -> ferb_core::timing::Now {
@@ -184,6 +192,7 @@ impl CodexRun {
             let _ = w.send(Err(error.clone()));
         }
         let _ = self.notes_tx.send(Err(error));
+        self.turn_end.notify_waiters();
     }
 
     /// codex_stream.py `_write`.
@@ -275,9 +284,42 @@ impl CodexRun {
         self.proc.lock().ok().and_then(|p| p.clone())
     }
 
+    /// RUN-480: a plain-mode run's turn is ended in Codex first (`turn/interrupt`, measured on 0.166.0: the turn
+    /// ends in about 5 ms with its usage reported), waiting at most [`INTERRUPT_WAIT_S`] for the turn to complete,
+    /// so the usage Codex counted reaches the reader before the app-server is killed.
+    async fn interrupt(&self) {
+        let (thread_id, turn_id) = {
+            let mut st = self.lock();
+            if st.closed || st.cancelled || st.turn_completed || st.turn_id.is_none() {
+                return;
+            }
+            st.ending = true;
+            (st.thread_id.clone(), st.turn_id.clone())
+        };
+        let ended = self.turn_end.notified();
+        tokio::pin!(ended);
+        ended.as_mut().enable();
+        let wait = async {
+            let params = json!({"threadId": thread_id, "turnId": turn_id});
+            let _ = self.rpc("turn/interrupt", params).await;
+            let done = {
+                let st = self.lock();
+                st.turn_completed || st.closed
+            };
+            if !done {
+                ended.await;
+            }
+        };
+        let _ = tokio::time::timeout(Duration::from_secs_f64(INTERRUPT_WAIT_S), wait).await;
+    }
+
     /// codex_stream.py `cancel`: closed, the reader stopped, the app-server killed and reaped, the stderr reader
-    /// stopped, a refreshed login published, the run's folder removed and its lock released.
+    /// stopped, a refreshed login published, the run's folder removed and its lock released. A plain-mode run's turn
+    /// is interrupted first (RUN-480).
     pub async fn cancel(&self) {
+        if self.rt.plain() {
+            self.interrupt().await;
+        }
         self.lock().cancelled = true;
         self.close_transport(RuntimeError::protocol("Codex run closed"));
         let mut done = self.cleanup_done.lock().await;
@@ -604,6 +646,7 @@ async fn start_stream(
             context_tokens: Value::Null,
             context_window: Value::Null,
             watcher_crash: None,
+            ending: false,
         }),
         auth: Mutex::new(Some(Auth {
             source: home.join("auth.json"),
@@ -623,6 +666,7 @@ async fn start_stream(
         deadline,
         cleanup_done: tokio::sync::Mutex::new(false),
         context_role: Mutex::new(String::new()),
+        turn_end: tokio::sync::Notify::new(),
     });
     let body = async {
         let mut token_file = None;
@@ -1043,6 +1087,7 @@ async fn dispatch(run: Arc<CodexRun>, stdout: Box<dyn AsyncRead + Send + Unpin>)
                             "Codex turn completed before RPC acknowledgement",
                         )));
                     }
+                    run.turn_end.notify_waiters();
                 }
                 Ok(false) => {}
             }
@@ -1256,7 +1301,7 @@ async fn events_body(run: Arc<CodexRun>, mut y: Yielder) -> Result<(), RuntimeEr
                     (
                         st.violation.clone(),
                         st.violation_item.clone(),
-                        st.cancelled,
+                        st.cancelled || st.ending,
                     )
                 };
                 let ev = if let Some(v) = violation {
@@ -1306,13 +1351,17 @@ async fn events_body(run: Arc<CodexRun>, mut y: Yielder) -> Result<(), RuntimeEr
 
 async fn event_loop(run: &Arc<CodexRun>, y: &mut Yielder) -> Result<(), Exit> {
     let rt = &run.rt;
+    let plain = rt.plain();
     let mut phases: HashMap<String, Value> = HashMap::new();
     let mut final_text = String::new();
     let mut pending: Vec<String> = Vec::new();
     let mut rx = run.notes_rx.lock().await;
     loop {
-        if run.lock().cancelled {
-            return Ok(());
+        {
+            let st = run.lock();
+            if st.cancelled || st.ending {
+                return Ok(());
+            }
         }
         if !pending.is_empty() && run.is_checked() {
             check_catalog(run).await?;
@@ -1328,6 +1377,11 @@ async fn event_loop(run: &Arc<CodexRun>, y: &mut Yielder) -> Result<(), Exit> {
         } else {
             rx.recv().await
         };
+        if run.lock().ending {
+            // RUN-480: what arrives while a plain-mode cancel ends the turn is not told (its usage stays for
+            // `unreported_usage`)
+            return Ok(());
+        }
         let obj = match item {
             Some(Ok(v)) => v,
             Some(Err(e)) => return Err(Exit::Fail(e)),
@@ -1418,7 +1472,54 @@ async fn event_loop(run: &Arc<CodexRun>, y: &mut Yielder) -> Result<(), Exit> {
                     "Codex runtime attempted a disallowed action",
                 )));
             }
-            if mcp_allowed && method == "item/completed" {
+            if mcp_allowed && plain {
+                // RUN-480: the call started, then completed; text written before it is told first
+                if !pending.is_empty() {
+                    check_catalog(run).await?;
+                    for text in pending.drain(..) {
+                        y.emit(event(K::TextDelta, json!({"text": text}))).await?;
+                    }
+                }
+                let sent = tool.clone().unwrap_or(Value::Null);
+                let name = tool
+                    .as_ref()
+                    .and_then(Value::as_str)
+                    .and_then(|t| crate::run::capability(&rt.tool_names, t));
+                let arguments = get(&item, "arguments")?.cloned().unwrap_or(Value::Null);
+                let status = get(&item, "status")?.cloned();
+                let completed = status.as_ref().and_then(Value::as_str) == Some("completed");
+                let data = if method == "item/started" {
+                    crate::run::tool_phase(sent, name, "started", arguments, None)
+                } else {
+                    // a failed call carries no result (null): only an object's isError is read
+                    let is_error = item
+                        .get("result")
+                        .and_then(|r| r.get("isError"))
+                        .is_some_and(ferb_py::value::truthy);
+                    crate::run::tool_phase(
+                        sent,
+                        name,
+                        "completed",
+                        arguments,
+                        Some(!completed || is_error),
+                    )
+                };
+                if method == "item/completed" && !completed {
+                    if let Some(note) = &rt.on_abandoned {
+                        let id = get(&item, "id")?.cloned().unwrap_or(Value::Null);
+                        note(
+                            &run.task_id,
+                            &format!(
+                                "{}/{}",
+                                ferb_py::value::py_str(thread_id.as_ref().unwrap_or(&Value::Null)),
+                                ferb_py::value::py_str(&id)
+                            ),
+                        );
+                    }
+                }
+                y.emit(event(K::ToolCall, data)).await?;
+                progress = false;
+            } else if mcp_allowed && method == "item/completed" {
                 let status = get(&item, "status")?.cloned();
                 if status.as_ref().and_then(Value::as_str) != Some("completed") {
                     if let Some(note) = &rt.on_abandoned {
@@ -1458,8 +1559,9 @@ async fn event_loop(run: &Arc<CodexRun>, y: &mut Yielder) -> Result<(), Exit> {
                 let phase = get(&item, "phase")?.cloned().unwrap_or(Value::Null);
                 phases.insert(hash_key(id)?, phase.clone());
                 let text = || ferb_py::value::py_str(item.get("text").unwrap_or(&json!("")));
+                // RUN-480: a plain-mode run's answer is its last message, whatever its phase
                 if method == "item/completed"
-                    && (phase.is_null() || phase.as_str() == Some("final_answer"))
+                    && (plain || phase.is_null() || phase.as_str() == Some("final_answer"))
                 {
                     final_text = text();
                 }
@@ -1470,9 +1572,10 @@ async fn event_loop(run: &Arc<CodexRun>, y: &mut Yielder) -> Result<(), Exit> {
             }
         } else if method == "item/agentMessage/delta" && {
             let key = hash_key(get(&params, "itemId")?.unwrap_or(&Value::Null))?;
-            phases.get(&key).and_then(Value::as_str) == Some("final_answer")
+            // RUN-480: a plain-mode run streams every message, whatever its phase
+            plain || phases.get(&key).and_then(Value::as_str) == Some("final_answer")
         } {
-            if rt.output_schema.is_some() {
+            if rt.output_schema.is_some() || plain {
                 if let Some(Value::String(d)) = get(&params, "delta")? {
                     pending.push(d.clone());
                 }

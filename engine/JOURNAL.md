@@ -14284,3 +14284,56 @@ coordinator; all pass.
 
 **Unverified.** Not on his store. IMPORTED_REFUSAL is owner-facing text shown to him for approval; the Memory page
 still offers Always on for an imported line (the daemon could send `can_always_on: false`; the apps would hide it).
+
+## 2026-11-26 · 259 · Every runtime streams a plain answer and reports a tool's start and end
+
+**Why (T-1341, ORCH-726 step 4).** Text streamed only with an answer form (claude/mod.rs `include_partial_messages`,
+codex/stream.rs's delta branch) and a call was reported only once finished, so a front door could show nothing until
+the end.
+
+**What (RUN-480).** A supervisor run with no answer form ("plain mode", `plain()` on each adapter; nothing runs in it
+yet) emits TextDelta as written and ToolCall `phase` started/completed (`run::tool_phase`, names mapped by
+`run::capability`). Claude: partial messages for every supervisor run, started at `content_block_start`, completed
+from the `tool_result` (Block::ToolResult now carries its id and `is_error`). Codex: every delta whatever its phase
+(text before a call is `commentary`), started on `item/started`, completed on `item/completed`, the answer is the last
+message. API loop: streamed, started before execute, completed after. A plain-mode cancel interrupts the turn first
+(Claude's `interrupt`, Codex's `turn/interrupt`, at most 2 s), then ends the program and raises nothing. Claude's
+cancel now reads the relay's usage after the program ended (every mode), so a request finished on its way out counts.
+Fixed while testing: a failed Codex call's null result raised AttributeError.
+
+**Evidence.** `cargo test -p ferb-runtimes`: all pass; `claude_plain.rs`, `codex_plain.rs` and four `api.rs` tests
+fail with plain mode off, the two cancel tests with the interrupt off; every recorded fixture passes unchanged.
+Built by a subagent (Opus), checked by the coordinator.
+
+**Unverified.** No live run: Claude Code 2.1.310's reaction to `interrupt` mid-turn, a real Codex result's `isError`.
+
+## 2026-11-26 · 260 · A call can end on its own accepted call; every tool event reaches the caller
+
+**Why (ORCH-726 step 4).** The front door's hand-off is one call: once the gateway accepted it, its arguments are the
+answer, and waiting for more text and the program's close costs the owner seconds (measured: 3.25 s against 5.2 s).
+
+**What (ORCH-733).** `CallHooks::on_tool_event` gets each ToolCall event's data; `on_tool` unchanged. `Call::ends_on`:
+with no answer form, a `completed`, `error: false` event naming one of them stops the stream; the call returns
+`{"ended_on","arguments","text"}` and, without a tree, closes after as ORCH-731 does whatever `answer_before_close`
+says. A refused call goes back to the model. RUN-445 counts a plain-mode call once. Every `Call` and `CallHooks` in
+ferb-supervisor sets the new fields empty (nothing uses them yet).
+
+**Evidence.** ferb-worker `tests/close_after.rs`: six new tests on the gated stand-in, each failing with its change
+off; `replay.rs` passes (its `Call` literals gained `ends_on: Vec::new()`).
+
+**Unverified.** Real runtimes' events; a call with a tree ending on `ends_on` (closes first, untested).
+
+## 2026-11-26 · 261 · The front door's plain reply streams through the same redaction and line guard
+
+**Why (ORCH-726 step 4).** ReplyDraft parses the planner's JSON form and shows only its `text`; a plain reply needs
+the same RedactionStream and LineGuard (GATE-581) without the form.
+
+**What (ORCH-734).** `reply_stream::PlainReply` beside ReplyDraft (unchanged): `feed` on the reply channel, `ack` /
+`ack_end` / `withdraw` on the plan channel, `restart` (keeps what was shown, shows what was held, starts a fresh guarded
+line), `finish` / `abort`. Only frames the apps draw.
+
+**Evidence.** ferb-orchestrator `tests/plain_reply.rs` (10): about 167 cases give ReplyDraft's frames byte for byte; 15
+deliberate breakages each fail a test.
+
+**Unverified.** Not wired yet (step 5). Text around a call joins as the model wrote it; the app drawing a second plan
+stream after `plan_end` is unchecked.

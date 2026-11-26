@@ -2,6 +2,9 @@
 //! answer passed its check; its program closes after. A stand-in runtime whose `cancel` waits on a gate (released by
 //! the test, the way a Claude Code program takes about 2 s to exit) shows what returns when. Not from the fixture.
 //! Tokio's paused clock: no real waiting (TEST-508).
+//!
+//! ORCH-733 (front door step 4), on the same stand-in: each tool event reaches `on_tool_event`, and a plain-mode run
+//! (no answer form) ends on an accepted call of `Call::ends_on`, closing after as above.
 
 mod support;
 
@@ -46,6 +49,10 @@ fn obj(v: Value) -> Map<String, Value> {
 struct Gated {
     host: Arc<TestHost>,
     events: Vec<RuntimeEvent>,
+    /// The answer form (None: plain mode).
+    schema: Option<Value>,
+    /// How long reading one event takes on the injected clock.
+    read_s: f64,
     gate: tokio::sync::watch::Receiver<bool>,
     unreported: Vec<Map<String, Value>>,
     reads: Arc<AtomicUsize>,
@@ -77,11 +84,20 @@ impl RunControl for GatedControl {
     }
 }
 
-struct Events(std::vec::IntoIter<RuntimeEvent>);
+/// The run's events; each one read is logged (`rt.read`) and takes `read_s`.
+struct Events {
+    host: Arc<TestHost>,
+    events: std::vec::IntoIter<RuntimeEvent>,
+    read_s: f64,
+}
 
 impl EventSource for Events {
     fn next(&mut self) -> BoxFuture<'_, Option<Result<RuntimeEvent, Error>>> {
-        let next = self.0.next();
+        let next = self.events.next();
+        if next.is_some() {
+            self.host.clock.advance(self.read_s);
+            self.host.rec("rt.read", Value::Null);
+        }
         Box::pin(async move { next.map(Ok) })
     }
 }
@@ -101,7 +117,7 @@ impl ModelRuntime for Gated {
         })
     }
     fn output_schema(&self) -> Option<Value> {
-        None
+        self.schema.clone()
     }
     fn start<'a>(
         &'a self,
@@ -117,7 +133,11 @@ impl ModelRuntime for Gated {
                     task_id: task.id.clone(),
                     state: Map::new(),
                 },
-                events: Box::new(Events(self.events.clone().into_iter())),
+                events: Box::new(Events {
+                    host: self.host.clone(),
+                    events: self.events.clone().into_iter(),
+                    read_s: self.read_s,
+                }),
                 control: Arc::new(GatedControl {
                     host: self.host.clone(),
                     gate: self.gate.clone(),
@@ -181,6 +201,8 @@ struct Run {
     out: Result<String, Error>,
     timing: Vec<Map<String, Value>>,
     reads: usize,
+    /// What `on_tool_event` was told, in order.
+    tool_events: Vec<Value>,
 }
 
 impl Run {
@@ -201,6 +223,10 @@ impl Run {
             .collect()
     }
 
+    fn count(&self, what: &str) -> usize {
+        self.log.iter().filter(|e| e[0] == what).count()
+    }
+
     fn started(&self, kind: &str) -> Vec<usize> {
         self.log
             .iter()
@@ -211,9 +237,48 @@ impl Run {
     }
 }
 
+/// How one call is set up.
+struct Setup {
+    answer_before_close: bool,
+    events: Vec<RuntimeEvent>,
+    with_tree: bool,
+    schema: Option<Value>,
+    ends_on: Vec<String>,
+    read_s: f64,
+}
+
+impl Setup {
+    fn new(answer_before_close: bool, events: Vec<RuntimeEvent>) -> Self {
+        Setup {
+            answer_before_close,
+            events,
+            with_tree: false,
+            schema: None,
+            ends_on: Vec::new(),
+            read_s: 0.0,
+        }
+    }
+}
+
+async fn run(answer_before_close: bool, events: Vec<RuntimeEvent>, with_tree: bool) -> Run {
+    run_with(Setup {
+        with_tree,
+        ..Setup::new(answer_before_close, events)
+    })
+    .await
+}
+
 /// One call through `run_call`, its gate released 5 s (paused clock) after the test begins; then the worker's
 /// background closes joined, as the daemon's shutdown does.
-async fn run(answer_before_close: bool, events: Vec<RuntimeEvent>, with_tree: bool) -> Run {
+async fn run_with(setup: Setup) -> Run {
+    let Setup {
+        answer_before_close,
+        events,
+        with_tree,
+        schema,
+        ends_on,
+        read_s,
+    } = setup;
     let host = TestHost::new(&json!({}), &json!({}));
     let worker = Arc::new(Worker::new(
         host.clone() as Arc<dyn WorkerHost>,
@@ -226,6 +291,8 @@ async fn run(answer_before_close: bool, events: Vec<RuntimeEvent>, with_tree: bo
     let rt: Arc<dyn ModelRuntime> = Arc::new(Gated {
         host: host.clone(),
         events,
+        schema,
+        read_s,
         gate,
         unreported: vec![at_end()],
         reads: reads.clone(),
@@ -235,6 +302,8 @@ async fn run(answer_before_close: bool, events: Vec<RuntimeEvent>, with_tree: bo
     let task = task();
     let timing: Arc<Mutex<Vec<Map<String, Value>>>> = Arc::default();
     let sink = timing.clone();
+    let tool_events: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let told = tool_events.clone();
     let call = Call {
         task: &task,
         system: "instructions".into(),
@@ -246,9 +315,13 @@ async fn run(answer_before_close: bool, events: Vec<RuntimeEvent>, with_tree: bo
         images: Vec::new(),
         hooks: CallHooks {
             on_timing: Some(Arc::new(move |t| sink.lock().unwrap().push(t))),
+            on_tool_event: Some(Arc::new(move |e: &Value| {
+                told.lock().unwrap().push(e.clone())
+            })),
             ..CallHooks::default()
         },
         retry_silent: false,
+        ends_on,
     };
     let called = async {
         let out = worker.run_call(&rt, call).await;
@@ -265,11 +338,13 @@ async fn run(answer_before_close: bool, events: Vec<RuntimeEvent>, with_tree: bo
     };
     let (out, ()) = tokio::join!(called, release);
     let timing = timing.lock().unwrap().clone();
+    let tool_events = tool_events.lock().unwrap().clone();
     Run {
         log: host.take_log(),
         out,
         timing,
         reads: reads.load(Ordering::SeqCst),
+        tool_events,
     }
 }
 
@@ -374,4 +449,200 @@ async fn switched_off_the_answer_waits_for_the_close() {
     assert!(r.at("rt.cancel.end") < r.at("returned"), "{:#?}", r.log);
     assert!(r.started("model.close").is_empty());
     assert_eq!(r.timing[0]["steps_ms"]["close"], 2100);
+}
+
+fn text(t: &str) -> RuntimeEvent {
+    event(RuntimeEventKind::TextDelta, json!({"text": t}))
+}
+
+/// A plain-mode tool event (the runtimes' contract, front door step 4).
+fn tool(name: &str, phase: &str, arguments: Value, error: Option<bool>) -> RuntimeEvent {
+    let mut data = json!({"tool": format!("mcp__ferb__{name}"), "name": name, "phase": phase,
+                          "arguments": arguments});
+    if let Some(e) = error {
+        data["error"] = json!(e);
+    }
+    event(RuntimeEventKind::ToolCall, data)
+}
+
+fn hand_off() -> Value {
+    json!({"ack": "On it: the flights for Friday.", "goal": "find flights for Friday"})
+}
+
+/// `ends_on` the hand-off, the early-close switch off, each event read taking 1 s.
+fn ends_on_dispatch(events: Vec<RuntimeEvent>) -> Setup {
+    Setup {
+        ends_on: vec!["dispatch_task".into()],
+        read_s: 1.0,
+        ..Setup::new(false, events)
+    }
+}
+
+/// Each tool event reaches the caller as the runtime reported it, in order: the start (the live status line's
+/// trigger) and then the completion; the run goes on to its own answer.
+// decision: ORCH-733
+#[tokio::test(start_paused = true)]
+async fn tool_events_reach_the_caller_in_order_with_both_phases() {
+    let r = run_with(Setup::new(
+        true,
+        vec![
+            text("Let me look. "),
+            tool("memory_read", "started", json!({"query": "flights"}), None),
+            tool(
+                "memory_read",
+                "completed",
+                json!({"query": "flights"}),
+                Some(false),
+            ),
+            text("Nothing saved."),
+            event(RuntimeEventKind::Final, json!({"text": "Nothing saved."})),
+        ],
+    ))
+    .await;
+    assert_eq!(r.out.as_deref().unwrap(), "Nothing saved.");
+    let seen: Vec<(&str, &str)> = r
+        .tool_events
+        .iter()
+        .map(|e| (e["name"].as_str().unwrap(), e["phase"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        seen,
+        [("memory_read", "started"), ("memory_read", "completed")]
+    );
+    assert_eq!(r.tool_events[0]["arguments"], json!({"query": "flights"}));
+    assert_eq!(r.tool_events[1]["error"], false);
+}
+
+/// The front door's hand-off: a completed, accepted call of `ends_on` is the answer. The stream is read no further,
+/// the call returns with which call ended it, its arguments and the text before it, while the program is still
+/// closing (the switch off: the call itself is the answer); the close, RUN-477's usage and `model.close` follow
+/// once, and `stream` is marked at the accepted call.
+// decision: ORCH-733
+// decision: ORCH-731
+#[tokio::test(start_paused = true)]
+async fn an_accepted_final_call_ends_the_run_and_closes_after() {
+    let r = run_with(ends_on_dispatch(vec![
+        text("On it."),
+        tool("dispatch_task", "started", hand_off(), None),
+        tool("dispatch_task", "completed", hand_off(), Some(false)),
+        text(" More words the model never gets to."),
+        event(RuntimeEventKind::Final, json!({"text": "unread"})),
+    ]))
+    .await;
+    let out: Value = serde_json::from_str(r.out.as_deref().unwrap()).unwrap();
+    assert_eq!(
+        out,
+        json!({"ended_on": "dispatch_task", "arguments": hand_off(), "text": "On it."})
+    );
+    assert_eq!(
+        r.count("rt.read"),
+        3,
+        "read past the accepted call: {:#?}",
+        r.log
+    );
+    let returned = r.at("returned");
+    assert!(
+        returned < r.at("released"),
+        "the answer waited: {:#?}",
+        r.log
+    );
+    assert_eq!(r.log[returned][1]["active"], 0);
+    assert!(r.at("released") < r.at("rt.cancel.end"));
+    assert!(r.at("rt.cancel.end") < r.at("closes_done"));
+    // RUN-477: read once, after the close, recorded once
+    assert_eq!(r.reads, 1);
+    let usage = r.finished_with("recorded_at_end");
+    assert_eq!(usage.len(), 1, "{:#?}", r.log);
+    assert!(r.at("rt.cancel.end") < usage[0].0);
+    let closed = r.finished_with("close_ms");
+    assert_eq!(closed.len(), 1, "{:#?}", r.log);
+    assert_eq!(closed[0].1["output"]["close_ms"], 2100);
+    assert_eq!(
+        r.log[r.started("model.close")[0]][1]["parent_id"],
+        "span-turn"
+    );
+    // timing: the stream ends at the third event (1 s each); the close is only the tables' update
+    let steps = &r.timing[0]["steps_ms"];
+    let keys: Vec<&String> = steps.as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["prepare", "start", "stream", "close"]);
+    assert_eq!(steps["stream"], 3000);
+    assert_eq!(steps["close"], 0);
+}
+
+/// A completed call the gateway refused does not end the run: the model sees the tool's error and goes on.
+// decision: ORCH-733
+#[tokio::test(start_paused = true)]
+async fn a_refused_final_call_does_not_end_the_run() {
+    let r = run_with(ends_on_dispatch(vec![
+        tool("dispatch_task", "started", hand_off(), None),
+        tool("dispatch_task", "completed", hand_off(), Some(true)),
+        text("Which Friday do you mean?"),
+        event(
+            RuntimeEventKind::Final,
+            json!({"text": "Which Friday do you mean?"}),
+        ),
+    ]))
+    .await;
+    assert_eq!(r.out.as_deref().unwrap(), "Which Friday do you mean?");
+    assert_eq!(r.count("rt.read"), 4);
+    // the switch is off: an ordinary answer closes first, as before
+    assert!(r.at("rt.cancel.end") < r.at("returned"), "{:#?}", r.log);
+    assert!(r.started("model.close").is_empty());
+}
+
+/// A call not named in `ends_on`, accepted, is a lookup: the run goes on to its answer.
+// decision: ORCH-733
+#[tokio::test(start_paused = true)]
+async fn a_call_not_in_ends_on_does_not_end_the_run() {
+    let r = run_with(ends_on_dispatch(vec![
+        tool("memory_read", "started", json!({}), None),
+        tool("memory_read", "completed", json!({}), Some(false)),
+        event(RuntimeEventKind::Final, json!({"text": "You have none."})),
+    ]))
+    .await;
+    assert_eq!(r.out.as_deref().unwrap(), "You have none.");
+    assert_eq!(r.count("rt.read"), 3);
+    assert_eq!(r.tool_events.len(), 2);
+}
+
+/// With an answer form nothing changes: today's tool events (no phase) reach the caller, and even an event shaped
+/// like an accepted call of `ends_on` does not end the run; its answer is the form's.
+// decision: ORCH-733
+#[tokio::test(start_paused = true)]
+async fn with_an_answer_form_ends_on_changes_nothing() {
+    let r = run_with(Setup {
+        schema: Some(json!({"type": "object"})),
+        ..ends_on_dispatch(vec![
+            event(
+                RuntimeEventKind::ToolCall,
+                json!({"tool": "mcp__ferb__dispatch_task", "name": "dispatch_task"}),
+            ),
+            tool("dispatch_task", "completed", hand_off(), Some(false)),
+            event(RuntimeEventKind::Final, json!({"text": "{\"ok\": true}"})),
+        ])
+    })
+    .await;
+    assert_eq!(r.out.as_deref().unwrap(), "{\"ok\": true}");
+    assert_eq!(r.count("rt.read"), 3);
+    assert_eq!(r.tool_events.len(), 2);
+    assert!(r.tool_events[0].get("phase").is_none());
+}
+
+/// RUN-445 counts a made-up call once though plain mode reports it twice (started, completed): 6 made-up calls
+/// stay under the cap of 10.
+// decision: ORCH-733
+#[tokio::test(start_paused = true)]
+async fn a_made_up_call_reported_in_two_phases_counts_once() {
+    let mut events = Vec::new();
+    for _ in 0..6 {
+        for (phase, error) in [("started", None), ("completed", Some(true))] {
+            let mut e = tool("invented_tool", phase, json!({}), error);
+            e.data.insert("offered".into(), json!(false));
+            events.push(e);
+        }
+    }
+    events.push(event(RuntimeEventKind::Final, json!({"text": "done"})));
+    let r = run_with(Setup::new(true, events)).await;
+    assert_eq!(r.out.as_deref().unwrap(), "done", "{:?}", r.out);
+    assert_eq!(r.tool_events.len(), 12);
 }

@@ -209,6 +209,8 @@ pub struct CodexRuntime {
     pub monotonic: Clock,
     pub allowed: BTreeSet<String>,
     pub host: Host,
+    /// FERB's capability names the run was given (a plain-mode tool event names its call's, RUN-480).
+    pub tool_names: Vec<String>,
 }
 
 impl CodexRuntime {
@@ -247,7 +249,15 @@ impl CodexRuntime {
             monotonic: Arc::new(monotonic_now),
             allowed,
             host,
+            tool_names: tool_names.to_vec(),
         }
+    }
+
+    /// RUN-480: a supervisor run with no answer form. Its answer is plain text, streamed as written whatever phase
+    /// Codex gives it, and each FERB tool call is reported when it starts and when it completed
+    /// (kb/plans/front-door.md, step 4).
+    pub fn plain(&self) -> bool {
+        self.mode == Mode::Supervisor && self.output_schema.is_none()
     }
 
     /// codex_exec.py `sent_effort`: its own, else low for a supervisor run, else none.
