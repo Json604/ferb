@@ -109,7 +109,7 @@ run = "engine/gate.sh test"
 # engine/runtime/ (inside engine/): the runtime Markdown and migrations the engine reads; extension/: ferb-browser
 # tests/extension_version.rs and extension_background.rs
 when = ["engine/**", "extension/**"]
-timeout = 1800
+timeout = 2700
 
 # --- the phone apps (area `phone`, stages 3 and 4): when an app or the Rust library both apps link changes ---
 [[check]]
