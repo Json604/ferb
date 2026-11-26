@@ -14624,3 +14624,21 @@ occur (the planner line in 48 scenarios; earlier_result's two; conversation_chan
 planner's runs in plan_repair and unbacked_part made two planner calls, so two Planner lines, the front door one.
 front_door_replay: 10 passed in 134 s under ferb-test-guard; ferb-supervisor and ferb-trace: 275 passed. The switch
 stays off until a real call on each runtime has taken the six tools (the runtimes check, next).
+
+## 2026-11-27 · 266 · The front door is on, with the planner as its fallback when a run fails in its runtime
+
+**Why (ORCH-735, ORCH-740).** The replay compares every effect (265) and the owner asked for a build to use. No
+real runtime has called the six tools yet, and the runtimes check can't offer them today (its token is observe-only
+and its answer step expects a form), so a runtime that refuses them must not cost a message.
+
+**What.** ferbd's `Reads::front_door` is true. `Inner::decide`: a front-door run that ends in `Failure::Worker`
+(the runtime refused or failed, or ended with nothing; front_decide returns that only when nothing was accepted)
+journals `front_door.fallback` {request_id, error} and runs today's planner for the turn. A cancelled run, a refused
+call (the model repairs it in the run) and the cross-part check's failure don't fall back.
+
+**Evidence.** ferb-supervisor tests/front_door.rs: 13 passed, the new fallback test (a front-door run failing as an
+invalid tool schema would, then the recorded planner: one fallback journaled, effects equal the planner's turn) shown
+failing with the fallback removed. ferbd seams_wired passes.
+
+**Unverified.** A real runtime taking the six tools: the owner's live use of this build, read from the journal's
+`front_door.fallback` rows and the traces. A runtimes-check line for the front door is still to do.

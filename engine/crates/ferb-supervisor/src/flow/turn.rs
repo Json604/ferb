@@ -1017,10 +1017,21 @@ impl Inner {
     ) -> Flow<SupervisorOutcome> {
         // decision: ORCH-735 — the front door decides in place of the planner's answer form and its repair round;
         // everything after `decide` is the same
-        if self.deps.daemon.front_door() {
-            return self.front_decide(turn, emit, cancel).await;
-        }
         let rid = turn.lock().unwrap().request_id.clone();
+        if self.deps.daemon.front_door() {
+            match self.front_decide(turn, emit, cancel).await {
+                // decision: ORCH-740 — a front-door run that failed in its runtime with nothing accepted (a runtime
+                // that refuses the front tools, a provider error) falls back to the planner for this turn, journaled
+                Err(Failure::Worker(e)) => {
+                    self.journal(
+                        "front_door.fallback",
+                        json!({"request_id": rid, "error": e.to_string()}),
+                        None,
+                    );
+                }
+                other => return other,
+            }
+        }
         // ORCH-703: every problem found so far goes with a repair, so a second repair can't bring back the first one
         let mut seen: Vec<String> = Vec::new();
         let mut out = match self.supervise(turn, None, Some(emit), "", cancel).await {

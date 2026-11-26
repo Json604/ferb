@@ -703,3 +703,31 @@ fn a_memory_call_resent_whole_saves_its_good_entry_once() {
     assert_eq!(saved.len(), 1, "{saved:?}");
     assert_eq!(saved[0]["content"], "I bake on Sundays");
 }
+
+// decision: ORCH-740 (a front-door run that fails in its runtime falls back to the planner for this turn)
+#[test]
+fn a_front_door_run_that_fails_in_its_runtime_falls_back_to_the_planner() {
+    let (old, _) = run("one_step_task", false, None);
+    let mut w = world_with("one_step_task", |calls| {
+        // the front door's run fails as a runtime refusing its tools would; the planner's recorded call follows
+        let at = calls.iter().position(|c| c["key"] == "supervisor").unwrap();
+        let mut failing = calls[at].clone();
+        failing["events"] = json!([{"kind": "error", "data": {
+            "message": "INVENTED invalid tool schema: chat.dispatch_task"}}]);
+        calls.insert(at, failing);
+    });
+    w.daemon.bounded.store(true, Ordering::SeqCst);
+    w.daemon.front.store(true, Ordering::SeqCst);
+    let _ = run_with(&mut w, "one_step_task", |_| {});
+    let fell = journal(&w, "front_door.fallback");
+    assert_eq!(fell.len(), 1, "one fallback journaled: {fell:?}");
+    assert!(fell[0]["error"]
+        .as_str()
+        .unwrap()
+        .contains("invalid tool schema"));
+    assert_eq!(
+        effects(&w),
+        effects(&old),
+        "the planner's turn ran as without the front door"
+    );
+}

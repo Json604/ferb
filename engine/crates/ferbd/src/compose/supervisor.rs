@@ -86,11 +86,11 @@ pub trait Reads: Send + Sync {
     fn answer_before_close(&self) -> bool {
         true
     }
-    /// ORCH-735: whether the front door decides a chat turn: false until ferbd's replay of the recorded chats through
-    /// it (tests/front_door_replay.rs) compares every effect with no open issue (journal 263, 264); the replay's own
-    /// script turns it on, and a replay of a Python recording keeps the planner.
+    /// ORCH-735: the front door decides a chat turn (on since its replay of the recorded chats, tests/front_door_replay.rs,
+    /// compares every effect, journal 265); a run that fails in its runtime falls back to the planner (ORCH-740). A
+    /// replay of a Python recording (the stand-ins' script) keeps the planner.
     fn front_door(&self) -> bool {
-        false
+        true
     }
     fn on_task_start<'a>(&'a self, tree_id: &'a str) -> BoxFuture<'a, ()>;
     fn on_task_finish<'a>(&'a self, tree_id: &'a str) -> BoxFuture<'a, ()>;
