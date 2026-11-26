@@ -117,6 +117,7 @@ async fn play(case: &Value, index: usize, fx: &Value) -> Value {
         Arc::new(Refusals::new(Box::new(|| 0.0))),
         host,
     );
+    rt.monotonic = Arc::new(|| 0.0);
     rt.shim_cmd = spec["shim_cmd"]
         .as_array()
         .map(|_| strings(&spec["shim_cmd"]));

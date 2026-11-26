@@ -73,6 +73,7 @@ async fn a_real_claude_program_runs_answers_and_is_reaped() {
         Arc::new(Refusals::new(Box::new(|| 0.0))),
         host,
     );
+    rt.monotonic = Arc::new(|| 0.0);
     rt.cli = Some(cli.clone());
     let task = Task {
         id: "t".into(),

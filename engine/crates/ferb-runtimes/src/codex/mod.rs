@@ -18,6 +18,7 @@ use ferb_core::types::{ModelLimits, Task};
 use serde_json::{json, Map, Value};
 
 use crate::error::{Raised, RuntimeError};
+use crate::monotonic_now;
 use crate::process::Spawner;
 
 pub use stream::CodexRun;
@@ -304,13 +305,6 @@ impl CodexRuntime {
     pub fn limits(&self) -> Result<ModelLimits, FerbError> {
         limits_for(&self.ferb_home, &self.model)
     }
-}
-
-fn monotonic_now() -> f64 {
-    use std::sync::OnceLock;
-    use std::time::Instant;
-    static START: OnceLock<Instant> = OnceLock::new();
-    START.get_or_init(Instant::now).elapsed().as_secs_f64()
 }
 
 pub(crate) fn value_error(message: &str) -> RuntimeError {

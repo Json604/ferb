@@ -386,7 +386,8 @@ impl ApiRuntime {
             timeout_s: 600.0,
             effort: None,
             limit_s: None,
-            monotonic: Arc::new(|| 0.0),
+            // RUN-419: the real clock unless a test gives another (api.py:209 `time.monotonic`)
+            monotonic: Arc::new(crate::monotonic_now),
             refusals,
             forms,
             planner: false,

@@ -14167,3 +14167,32 @@ not read. A card asked with five can grow past five the same day (it reads the l
 open turns it into the note. The phones' open is "in front, unlocked, online": a phone that opens while its Mac is
 offline tells it when the link comes up while still in front. MEM-485..487 and LIVE-1223 were the next free IDs at
 HEAD 59687311.
+
+## 2026-11-26 · 254 · The front door plan (ORCH-726); the Claude and API call timers read a real clock again
+
+**Why (T-1338, ORCH-726 step 1).** The owner's front-door plan (`kb/plans/front-door.md`, cb6cd37d) starts with
+stopwatches, because the owner's store could not say where a Claude turn's time went: every Claude `model.usage` row
+since the cutover reads `"timing": {"by": "runtime", "ttft_ms": 0, "generate_ms": 0, "tail_ms": 0, "total_ms": 0}`
+(read only, 2026-11-17..26; Codex rows carry real figures).
+
+**The drift.** Python built its Claude and API adapters with `monotonic = time.monotonic` and let tests give a fake
+(claude_sdk.py:151, api.py:209; RUN-419, RUN-420). The port's `ClaudeRuntime::new` and `ApiRuntime::new` started with
+`Arc::new(|| 0.0)`, the tests' clock, and ferbd's factory (`compose/runtimes.rs`) never set another, so `Steps` and
+`CallTimer` read 0 at every mark. Codex's constructor had the real clock (`monotonic_now`) and its tests set
+`|| 0.0`. Not listed as a difference before: a drift, fixed here.
+
+**The fix.** `ferb_runtimes::monotonic_now` (moved out of `codex/mod.rs`, unchanged) is the clock all three
+constructors start with. The five tests that build a Claude or API runtime set `rt.monotonic = Arc::new(|| 0.0)`,
+as Codex's three already did, so every recorded comparison keeps its zero timings. The clock is read only by `Steps`
+and `CallTimer`; deadlines use `Instant` (`claude/mod.rs:587`, `api/mod.rs:559`), so no limit changes.
+
+**Evidence.** `cargo test -p ferb-runtimes`: every test binary ok, with the new `tests/clocks.rs`
+(`every_adapter_starts_with_a_clock_that_moves`, shown failing with the old line: "the Claude adapter's clock
+stands still"). No model, no real home.
+
+**Also recorded today, not engine code.** The probes behind the plan ran outside the repo (`.local/front-door-probes`,
+untracked): 27 Codex calls from a temporary copy of the sign-in (compared after every run, unchanged), 14 Claude
+requests run by the owner through a counting relay with a ceiling of 40. Their figures are in the plan.
+
+**Unverified.** No installed build has this yet: that Claude rows now carry real timing is unseen live. Left in
+T-1338: the time to the first word per turn and the relay's per-request record of tool names and error flags.

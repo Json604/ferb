@@ -857,7 +857,7 @@ title = "Front door step 1: stopwatches (Claude and API timers, time to first wo
 area = "runtimes"
 kind = "build"
 status = "open"
-why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 1. Claude's call timing reads 0 on every row (claude/mod.rs:282); the doubled Claude answer has no recorded cause."
+why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 1. Done: the Claude and API timers' real clock (journal 254). Left: time to the first word per turn, the relay's record of tool names and error flags per request, both in ferb stats."
 decisions = ["ORCH-726"]
 
 [T-1339]

@@ -34,6 +34,17 @@ pub mod worker;
 
 pub use error::{Raised, RuntimeError};
 
+/// Seconds on a clock that only goes forward, counted from its first use in this process: what every adapter's
+/// call timing reads unless a test gives it another clock (TEST-508).
+///
+/// decision: RUN-419, RUN-420
+pub fn monotonic_now() -> f64 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64()
+}
+
 fn codex_home_exists(home: &std::path::Path) -> bool {
     codex::codex_home(home).is_some()
 }

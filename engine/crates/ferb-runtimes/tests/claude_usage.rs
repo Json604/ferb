@@ -106,6 +106,7 @@ async fn run(
         Arc::new(Refusals::new(Box::new(|| 0.0))),
         host,
     );
+    rt.monotonic = Arc::new(|| 0.0);
     rt.shim_cmd = Some(vec!["/opt/ferb/bin/ferb".into(), "mcp".into()]);
     rt.cli = Some(PathBuf::from("/opt/ferb/claude"));
     let task = Task {

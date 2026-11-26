@@ -260,6 +260,7 @@ async fn play(case: &Value, fx: &Value) -> Value {
         refusals.clone(),
     )
     .expect("a runtime");
+    rt.monotonic = Arc::new(|| 0.0);
     let sleeps = log.clone();
     rt.sleep = Arc::new(move |s: f64| {
         sleeps.lock().unwrap().push(json!(["sleep", s]));
@@ -410,6 +411,7 @@ async fn a_worker_loops_earlier_looks_at_a_window_are_compacted_in_its_own_reque
         Arc::new(Refusals::new(Box::new(|| 0.0))),
     )
     .expect("a runtime");
+    rt.monotonic = Arc::new(|| 0.0);
     rt.origin = Some(origin);
     rt.token_hex = counter();
     rt.compaction = Some(ferb_runtimes::compact::Policy {

@@ -279,7 +279,8 @@ impl ClaudeRuntime {
             model,
             effort: None,
             limit_s: None,
-            monotonic: Arc::new(|| 0.0),
+            // RUN-419, RUN-420: the real clock unless a test gives another (claude_sdk.py:151 `time.monotonic`)
+            monotonic: Arc::new(crate::monotonic_now),
             refusals,
             forms,
             cli: None,
