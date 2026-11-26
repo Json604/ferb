@@ -12,13 +12,13 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 | gateway | Gateway and safety | `ferb/policy`, `ferb/sanitize`, `engine/runtime/identity` | 134 | 5 | 62 |
 | hands | Hands (browser and Mac control) | `ferb/act`, `ferb/native_host`, `extension`, `extension-store` | 209 | 6 | 44 |
 | memory | Memory and memory import | `engine/runtime/memory` | 108 | 7 | 12 |
-| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 205 | 13 | 44 |
+| orchestration | Orchestration | `ferb/orchestrator/*.py`, `engine/runtime/decide`, `ferb/clock` | 206 | 17 | 44 |
 | perception | Perception | `ferb/sense` | 28 | 3 | 1 |
 | phone | Phone role, link and phone apps | `apps/android`, `apps/ios`, `engine/patches` | 397 | 11 | 23 |
 | project | Project knowledge and tooling | `README.md`, `CLAUDE.md`, `AGENTS.md`, `HANDOFF.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`, `kb`, `tools`, `spikes` | 17 | 5 | 0 |
 | prompts | Prompts and abilities | `engine/runtime/orchestrator/prompts`, `engine/runtime/abilities` | 69 | 2 | 11 |
 | release | Packaging and release | `scripts`, `assets`, `site`, `pyproject.toml`, `uv.lock`, `.python-version` | 36 | 9 | 7 |
-| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 69 | 6 | 11 |
+| runtimes | Model runtimes | `ferb/runtimes`, `package.json`, `package-lock.json` | 69 | 10 | 11 |
 | storage | Storage | `engine/runtime/store` | 37 | 4 | 4 |
 | tests | Tests | `tests` | 17 | 9 | 0 |
 | voice | Voice | `ferb/voice` | 3 | 0 | 0 |
@@ -32,6 +32,7 @@ Before editing a file: `tools/kb/run kb show <file>`. Work: `tools/kb/run kb nex
 - T-1272 (phone): When you want to plan it: which sessions (Claude Code, Codex, any terminal), what the phone shows and may type, and how a new reply wakes FERB without a model call while nothing happens. Start from engine/ARCHIVE-sessions.md (what worked and what didn't).
 - T-1280 (app): Which moments should FERB check in on (stuck on something, a deadline near, a repeated task, end of day), how often at most, and where (notch, phone, both)?
 - T-1325 (memory): How should FERB use what it knows of his sessions and other assistants to be proactive: which moments, how often at most, where, and what of the paused import and session tracking comes back (and how)?
+- T-1345 (orchestration): The library's contents list names a few of each kind of thing FERB remembers ("people (8 of 52): ..."). How many names per kind: 8, or another number?
 
 ## Terms
 

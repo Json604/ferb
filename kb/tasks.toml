@@ -848,6 +848,77 @@ title = "Context step 8: the planner day/month/year index, live open items, the 
 area = "orchestration"
 kind = "build"
 status = "open"
-why = "ORCH-719 (owner 2026-11-25); the design and its numbers are in kb/plans/context.md, step order there."
-decisions = ["ORCH-719"]
+why = "ORCH-719 (owner 2026-11-25); kb/plans/context.md. Also step 8 of kb/plans/front-door.md (ORCH-726): the library's contents list and the Librarian (code's day list, one model call a day and one a month); the running summary goes."
+decisions = ["ORCH-719", "ORCH-726"]
 after = ["T-1336"]
+
+[T-1338]
+title = "Front door step 1: stopwatches (Claude and API timers, time to first word, the relay's tool record)"
+area = "runtimes"
+kind = "build"
+status = "open"
+why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 1. Claude's call timing reads 0 on every row (claude/mod.rs:282); the doubled Claude answer has no recorded cause."
+decisions = ["ORCH-726"]
+
+[T-1339]
+title = "Front door step 2: use the answer on arrival, close after; fix Claude's doubled answer"
+area = "runtimes"
+kind = "build"
+status = "open"
+why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 2. The turn waits for the program's exit (about 2.1 s on 3 of 6 Claude turns); the doubled answer's fix follows step 1's record."
+decisions = ["ORCH-726"]
+after = ["T-1338"]
+
+[T-1340]
+title = "Front door step 3: notices, the pinned question, time since last message, phone picture, imports"
+area = "orchestration"
+kind = "build"
+status = "open"
+why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 3. Each part records the decision it changes (the plan's table: ORCH-586, MEM-483)."
+decisions = ["ORCH-726"]
+after = ["T-1339"]
+
+[T-1341]
+title = "Front door step 4: every runtime streams text, reports a tool's start, ends on a final call"
+area = "runtimes"
+kind = "build"
+status = "open"
+why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 4. Text streams only with an answer form today (claude/mod.rs:384, codex/stream.rs:1471); a tool is reported after it finished."
+decisions = ["ORCH-726"]
+after = ["T-1340"]
+
+[T-1342]
+title = "Front door step 5: concierge.md and the typed tools, replayed, then the old planner path removed"
+area = "orchestration"
+kind = "build"
+status = "open"
+why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 5. The prompt text is shown to the owner before it lands; the plan's targets table is the acceptance."
+decisions = ["ORCH-726"]
+after = ["T-1341"]
+
+[T-1343]
+title = "Front door step 6: a ready program on every runtime (5 idle minutes), preparing while he types"
+area = "runtimes"
+kind = "build"
+status = "open"
+why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 6. Codex: unsubscribe, template, resume per message (measured 21 ms, cache kept). The tool token, the sign-in copy and the typing RPC are settled first."
+decisions = ["ORCH-726"]
+after = ["T-1342"]
+
+[T-1344]
+title = "Front door step 7: complex work to the task architect; simple work starts its worker at once"
+area = "orchestration"
+kind = "build"
+status = "open"
+why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 7. The architect keeps today's plan rules and validation."
+decisions = ["ORCH-726"]
+after = ["T-1343"]
+
+[T-1345]
+title = "Owner: how many names per kind the library's contents list shows (the coordinator proposes 8)"
+area = "orchestration"
+kind = "question"
+status = "open"
+why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, waiting on the owner: a limit on what FERB sees every message (rule 18)."
+ask = "The library's contents list names a few of each kind of thing FERB remembers (\"people (8 of 52): ...\"). How many names per kind: 8, or another number?"
+decisions = ["ORCH-726"]

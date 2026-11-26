@@ -2604,3 +2604,14 @@ rule = "ORCH-719 part 8. No \"Ages of the items above\" line (each entry shows i
 why = "Live 2026-11-17..25 the ages line reached 9.8k characters and the latest result was repeated in 49 of the 80 turns that carried it, both after the cached part, so resent uncached every turn; the profiles appeared 3-4 times (about 5k characters)."
 evidence = "ferb-supervisor tests/planner_trims.rs; ferb-daemon tests/b_environment.rs (the_planner_reads_one_browser_profile_list, every recorded _environment case as a named difference). Owner's 8 planner turns since 11-24 (read only): context 109k -> 50k characters median."
 paths = ["engine/crates/ferb-supervisor/src/planner.rs::latest_unless_shown", "engine/crates/ferb-supervisor/src/flow/turn.rs", "engine/crates/ferb-supervisor/src/flow/mod.rs::bounded_planner", "engine/crates/ferb-daemon/src/areas_b/environment.rs"]
+
+[ORCH-726]
+title = "The front door: a lean, plain-text Concierge with typed tools, built to kb/plans/front-door.md"
+by = "owner"
+date = 2026-11-26
+status = "active"
+words = "i want the system i disucssed with agy in the spec file, even if you 'think' it wont matter, i wanna do it. PLUS lets decode whats happenign in hte calls / never alwasy on / we can have controlled AI calls in the bg / lets make teh 'keeping a program running' universal, so that we dont miss any AI / 5 minutes is the program uptime / idk how it helps, ferb anyways has enought context / oh, remove it from phone msg / no, then add a daily librarian call. one call isnt taht much anyways / yes go"
+words_source = "Owner 2026-11-26, in order: his spec and the slow calls; imported lines; background calls; the ready program; its idle time; the pinned question; phone pictures; the Librarian; his go."
+rule = "The planner becomes a front door (kb/plans/front-door.md): plain-text replies and small typed tools, the ack inside the hand-off call and shown once code accepts it, every code-enforced task field kept; a task architect off his path for complex work; the checker unchanged; an indexed library; a Librarian of code's day list, one model call a day and one a month, replacing the running summary. Imported lines are never always-on. The pinned question goes. A phone message carries no picture of the Mac's screen. A program is ready on every runtime; an idle one is kept 5 minutes."
+why = "Measured 2026-11-26 (27 Codex and 14 Claude calls): the same message took 2.5 s with a lean prompt and 5-10 s with today's on Codex, 1.5 s against 3.1-4.5 s on Claude; a fresh Codex program costs about 1 s; a tool call's second request 1-2 s."
+untestable = "A design decision whose parts are built and tested under T-1338..T-1344 and T-1337; each part's tests carry its own decision's id."
