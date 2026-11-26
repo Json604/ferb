@@ -922,3 +922,15 @@ status = "active"
 rule = "For ORCH-729. supervisor.md's clarify rule says, for a message that asks for something else: handle that alone without mentioning the open question; the question then lapses, and the owner asks again if they still want that request. Named in engine/fixtures/catalog/prompt_changes.json."
 why = "The prompt said the question and its request wait, which ORCH-729 ended."
 paths = ["engine/runtime/orchestrator/prompts/supervisor.md"]
+
+[PRM-385]
+title = "concierge.md: the front door's role, as the owner approved it"
+by = "owner"
+date = 2026-11-26
+status = "active"
+words = "ok cool, continue"
+words_source = "Owner 2026-11-26, answering the request to approve the front door's prompt draft and its six tool descriptions before they land."
+rule = "For ORCH-735. engine/runtime/orchestrator/prompts/concierge.md is the front door's role after the shared rules: answer in plain text; hand work off with one chat.dispatch_task whose ack comes first; ask a missing what, who or which with chat.ask; control tasks, reminders, schedules and memory through their tools with the owner's exact words; code says what was saved, set, started, stopped or scheduled. The six tools' descriptions are the approved draft's."
+why = "The front door replaces the planner's 301-line role and its answer form with a short role and typed tools."
+paths = ["engine/runtime/orchestrator/prompts/concierge.md"]
+untestable = "Prompt text is not tested (TEST-500); the front door tests check that concierge.md is the run's role."

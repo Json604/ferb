@@ -2693,3 +2693,30 @@ status = "active"
 rule = "For ORCH-726 (step 4), keeping GATE-581. reply_stream::PlainReply shows plain reply text through the RedactionStream and reply-mode LineGuard ReplyDraft applies to its text field, frame for frame, and a hand-off's ack on the plan channel in task mode. At a tool's start what is held is shown and the guard starts a fresh line; nothing shown is withdrawn. A final text other than what streamed withdraws it (reply_abort), a refused call its ack (plan_abort), an abort both. Only frames the apps already draw."
 why = "The front door answers in plain text; the line it writes before a lookup is meant for the owner."
 paths = ["engine/crates/ferb-orchestrator/src/reply_stream.rs"]
+
+[ORCH-735]
+title = "The front door decides a chat turn in one plain run, behind a switch"
+by = "agent"
+date = 2026-11-27
+status = "active"
+rule = "For ORCH-726 (step 5). With Daemon::front_door() on (off until ferbd's replay passes; Python replays off), decide runs one plain run instead of the planner and its repair: the planner's blocks, the shared rules with concierge.md, the lookups and FRONT_TOOLS on a grant with chat:act, text through PlainReply, a lookup's start as the planning line, ended on an accepted chat.dispatch_task or chat.ask. Accepted parts are joined in call order, checked whole again and routed by today's code at the turn's end. A failed run keeps accepted parts; a cancelled one none."
+why = "The front door is the plan's step 5; one apply path keeps every effect's checks and records as today."
+paths = ["engine/crates/ferb-supervisor/src/flow/turn/front_door.rs", "engine/crates/ferb-supervisor/src/flow/turn.rs", "engine/crates/ferb-supervisor/src/flow/mod.rs"]
+
+[ORCH-736]
+title = "Each front-door tool call passes today's checks on its own part of the answer form"
+by = "agent"
+date = 2026-11-27
+status = "active"
+rule = "For ORCH-735. Inner::front_call takes a call of chat.dispatch_task, chat.control_task, chat.ask, chat.set_reminder, chat.schedule or chat.remember; its arguments are parsed as the matching fields of today's answer form (no other field, a non-empty ack or question, something to do); problems() runs on it (a hand-off together with the side entries already accepted in the message, so a part they answer is backed) and side_quote_problems() on it; problems go back to the model as the tool's error, unseen by the owner. One task, control and card answer per message; answers_question absent is false."
+why = "Code keeps enforcing every field it enforces today; a refusal is repaired inside the same run instead of a second planner call."
+paths = ["engine/crates/ferb-supervisor/src/flow/turn/front_door.rs", "engine/crates/ferb-orchestrator/src/lookups.rs"]
+
+[ORCH-737]
+title = "The front door asks its question through chat.ask, so it stays a question"
+by = "agent"
+date = 2026-11-27
+status = "active"
+rule = "For ORCH-735, with ORCH-729. A question to the owner is a chat.ask call (kind clarify): the pending message is saved and question.asked journaled as today, and a later call with answers_question true joins it (join_question) before its words are checked. A plain text reply is never treated as a question."
+why = "The next message joins a question's words and attachments only when code knows it was a question, and code may not judge that from the text (AGENTS.md rule 4)."
+paths = ["engine/crates/ferb-supervisor/src/flow/turn/front_door.rs"]

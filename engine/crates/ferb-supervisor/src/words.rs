@@ -40,7 +40,7 @@ pub const FRONT_WINDOW_WAIT_S: f64 = 10.0;
 pub const WAITING_TOKENS: usize = 2000;
 /// The planner's lookups and scopes, one list with the runtime check's; the planner is offered each lookup that is
 /// installed.
-pub use ferb_orchestrator::lookups::{PLANNER_SCOPES, PLANNER_TOOLS};
+pub use ferb_orchestrator::lookups::{FRONT_SCOPES, FRONT_TOOLS, PLANNER_SCOPES, PLANNER_TOOLS};
 pub const PLANNER_LOOKUPS: usize = 10;
 pub const LOOKUPS: &str = ".lookups";
 pub const LOOKUPS_SPENT_NOTE: &str =

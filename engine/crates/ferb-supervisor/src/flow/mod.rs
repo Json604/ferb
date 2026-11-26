@@ -171,6 +171,13 @@ pub trait Daemon: Send + Sync {
     fn answer_before_close(&self) -> bool {
         true
     }
+    /// ORCH-735 (front door step 5): whether a chat turn is decided by the front door (a plain reply and typed
+    /// tool calls, each checked by today's checks as it is made, `Inner::front_call`) in place of the planner's answer
+    /// form and its repair round. False until ferbd turns it on once the recorded chats' replay through it passes;
+    /// every replay of a Python recording keeps it off.
+    fn front_door(&self) -> bool {
+        false
+    }
     /// `getattr(gateway.caps.get(tool), "reads_content", False)`.
     fn reads_content(&self, tool: &str) -> bool;
     /// `gateway.tools_for(grant)`: the rows `{name, description, input_schema}`.
@@ -831,6 +838,9 @@ pub struct Turn {
     /// The hand-overs this turn holds: each woken loop's round waits, after its span, until the reply is recorded; so
     /// does the step whose question this turn answered (keyed by its approval id).
     pub held: Vec<(String, Arc<loops::SteerHold>)>,
+    /// ORCH-735, ORCH-736: the front door's run of this turn while it runs (the parts its accepted calls made, in call
+    /// order); None for the planner's turn and once the run ended.
+    pub front: Option<turn::front_door::FrontRun>,
 }
 
 impl Turn {

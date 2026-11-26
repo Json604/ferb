@@ -33,6 +33,9 @@ use crate::seams::JournalRow;
 use crate::words::*;
 use crate::NotPorted;
 
+// the front door (kb/plans/front-door.md, step 5): a child of this module, so it uses the planner's own steps
+pub mod front_door;
+
 /// A turn's cancellation (Python's `run.think.cancel()`): set once, seen by every await that checks it.
 #[derive(Default)]
 pub struct Cancel {
@@ -1007,6 +1010,11 @@ impl Inner {
         emit: &Emit,
         cancel: &Cancel,
     ) -> Flow<SupervisorOutcome> {
+        // decision: ORCH-735 — the front door decides in place of the planner's answer form and its repair round;
+        // everything after `decide` is the same
+        if self.deps.daemon.front_door() {
+            return self.front_decide(turn, emit, cancel).await;
+        }
         let rid = turn.lock().unwrap().request_id.clone();
         // ORCH-703: every problem found so far goes with a repair, so a second repair can't bring back the first one
         let mut seen: Vec<String> = Vec::new();
@@ -1474,7 +1482,7 @@ impl Inner {
         let rid = turn.lock().unwrap().request_id.clone();
         let held = turn.lock().unwrap().prepare.take();
         let mut prep = held.unwrap_or_else(|| Prepare::start(self, &rid, repair.is_some()));
-        let built = self.planner_blocks(turn, repair, last_call, &mut prep);
+        let built = self.planner_blocks(turn, repair, last_call, &mut prep, false);
         let (rt, ctx, sourced, lookups) = match built {
             Ok(b) => b,
             Err(e) => {
@@ -1520,7 +1528,7 @@ impl Inner {
             let clock = self.deps.clock.clone();
             ferb_core::timing::Steps::new(Box::new(move || clock.monotonic()))
         };
-        let (token, looker) = self.lookup_grant(turn, &span, &lookups);
+        let (token, looker) = self.lookup_grant(turn, &span, &lookups, false);
         let system = self.system_for_request("supervisor.md", false, &[], &rid);
         clocked.mark("ferb_before");
         let task = Task {
@@ -1715,26 +1723,29 @@ impl Inner {
                     json!({"request_id": rid, "error": we.to_string()}),
                     None,
                 );
-                {
-                    let mut t = turn.lock().unwrap();
-                    let withhold = |s: &mut super::Seen| {
-                        s.image = None;
-                        s.withheld = Some(IMAGE_REFUSED.to_string());
-                    };
-                    if let Some(seen) = t.seen.as_mut() {
-                        withhold(seen);
-                    }
-                    for seen in t.screens.iter_mut() {
-                        withhold(seen);
-                    }
-                    if let Some(screen) = t.screen.as_mut() {
-                        screen.image = None;
-                    }
-                }
+                self.withhold_images(turn);
                 return Box::pin(self.supervise(turn, repair, emit, last_call, cancel)).await;
             }
         }
         Err(Repairable::Not(e))
+    }
+
+    /// ORCH-524, L12: the turn's screenshots are withheld (a model refused them), each window saying why.
+    fn withhold_images(&self, turn: &Arc<Mutex<Turn>>) {
+        let mut t = turn.lock().unwrap();
+        let withhold = |s: &mut super::Seen| {
+            s.image = None;
+            s.withheld = Some(IMAGE_REFUSED.to_string());
+        };
+        if let Some(seen) = t.seen.as_mut() {
+            withhold(seen);
+        }
+        for seen in t.screens.iter_mut() {
+            withhold(seen);
+        }
+        if let Some(screen) = t.screen.as_mut() {
+            screen.image = None;
+        }
     }
 
     /// supervisor.py:3778 `_conversation_blocks`: the conversation as context blocks with their origins, the entries'
@@ -1829,12 +1840,15 @@ impl Inner {
 
     /// `_supervise`'s blocks (supervisor.py:3497-3601): the runtime, the context and the blocks with their origins.
     #[allow(clippy::type_complexity)]
+    /// `front`: the front door's run (ORCH-735): its runtime is offered the lookups and [`FRONT_TOOLS`] and has no
+    /// answer form (plain mode, RUN-480); the blocks are the planner's.
     fn planner_blocks(
         &self,
         turn: &Arc<Mutex<Turn>>,
         repair: Option<&[String]>,
         last_call: &str,
         prep: &mut Prepare,
+        front: bool,
     ) -> Flow<(
         Arc<dyn ferb_worker::ports::ModelRuntime>,
         Vec<ContextBlock>,
@@ -1867,17 +1881,29 @@ impl Inner {
             l.sort();
             l
         };
-        let rt = self
-            .deps
-            .daemon
-            .make_runtime(
+        let made = if front {
+            let offered: Vec<String> = lookups
+                .iter()
+                .cloned()
+                .chain(FRONT_TOOLS.iter().map(|n| n.to_string()))
+                .collect();
+            self.deps.daemon.make_runtime(
+                "orchestrator",
+                "supervisor",
+                &offered,
+                &Value::Null,
+                None,
+            )
+        } else {
+            self.deps.daemon.make_runtime(
                 "orchestrator",
                 "supervisor",
                 &lookups,
                 &ferb_context::schemas::supervisor_schema(),
                 None,
             )
-            .map_err(Failure::Worker)?;
+        };
+        let rt = made.map_err(Failure::Worker)?;
         prep.mark(self, "runtime");
         // the conversation (`_conversation_blocks`)
         let (conversation, ages, latest, said) =
@@ -2116,12 +2142,15 @@ impl Inner {
         t.shown = shown;
     }
 
-    /// supervisor.py:3690 `_lookup_grant`.
+    /// supervisor.py:3690 `_lookup_grant`. `front` (ORCH-735): the front door's grant: `tools` are the lookups and
+    /// [`FRONT_TOOLS`], its scopes add [`FRONT_SCOPES`] and it may call tools that do more than observe; the planner's
+    /// grant is unchanged.
     fn lookup_grant(
         &self,
         turn: &Arc<Mutex<Turn>>,
         span_id: &str,
         tools: &[String],
+        front: bool,
     ) -> (String, String) {
         if tools.is_empty() {
             return (String::new(), String::new());
@@ -2142,14 +2171,17 @@ impl Inner {
             tree_id: Some(task_id.clone()),
         });
         self.lend(&task_id, &session);
-        let scopes: BTreeSet<String> = PLANNER_SCOPES.iter().map(|s| s.to_string()).collect();
+        let mut scopes: BTreeSet<String> = PLANNER_SCOPES.iter().map(|s| s.to_string()).collect();
+        if front {
+            scopes.extend(FRONT_SCOPES.iter().map(|s| s.to_string()));
+        }
         let token = self.deps.daemon.issue_token(
             &task_id,
             &holder,
             &scopes,
             "owner",
             f64::INFINITY,
-            true,
+            !front,
             Some(tools),
             Some(PLANNER_LOOKUPS),
         );

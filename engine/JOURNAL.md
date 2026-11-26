@@ -14337,3 +14337,71 @@ deliberate breakages each fail a test.
 
 **Unverified.** Not wired yet (step 5). Text around a call joins as the model wrote it; the app drawing a second plan
 stream after `plan_end` is unchecked.
+
+## 2026-11-27 · 262 · The front door decides a chat turn behind one switch (off): a plain reply and typed calls, each checked as it is made
+
+**Why (T-1342, ORCH-726 step 5, "Step 5 in detail").** Steps 1-4 gave plain mode, tool start/end events, `ends_on` and
+`PlainReply`; this is the front door itself in ferb-supervisor, behind a switch ferbd turns on after the replay passes.
+
+**What.**
+- ORCH-735: `Daemon::front_door()` (default false; every stand-in keeps it off unless a test sets it). `Inner::decide`
+  calls `front_decide` (src/flow/turn/front_door.rs, a child of turn.rs) in place of `supervise` + repair; `route` and
+  everything after is unchanged. The run: `planner_blocks(.., front: true)` (the same blocks; the runtime is made with
+  no answer form, `Value::Null`, and offered the installed lookups + `FRONT_TOOLS`), system = the shared rules +
+  `concierge.md` (engine/runtime/orchestrator/prompts/concierge.md, byte for byte the owner-approved draft of
+  2026-11-26; added to `NO_CATALOG_ROLES` like supervisor.md), `lookup_grant(.., front: true)` (scopes PLANNER_SCOPES ∪
+  FRONT_SCOPES, observe_only false, tools = lookups + FRONT_TOOLS; the planner's grant is byte-for-byte unchanged),
+  `ends_on = [chat.dispatch_task, chat.ask]`, text through `PlainReply`, a lookup's `started` event emits today's
+  `progress` frame with `planning: true`, an accepted hand-off's ack shown on the plan channel (`ack` + `ack_end`), a
+  refused one withdrawn. ORCH-732's first_text timing kept. ferb-orchestrator `lookups.rs`: `FRONT_TOOLS` (6, sorted)
+  and `FRONT_SCOPES` (["chat:act"]).
+- ORCH-736: `pub async fn Inner::front_call(task_id, tool, arguments) -> Result<String, String>`: the turn from
+  `{request}.lookups`; arguments parsed as the matching part of today's form (`part_of`: kind task with `ack` as text,
+  clarify with `question` as text, else reply; validated by `supervisor_outcome_validate_json`); `answers_question`
+  joins the earlier question first (`join_question`, once per turn); `problems()` and `side_quote_problems()` on the
+  part; problems → Err (lines joined) and a `task.repair` journal row with the tool; accepted → kept on `Turn::front`,
+  Ok(a short line for the model). A second dispatch, control or card answer in one message is refused.
+- After the run: parts joined in call order (`joined`): kind task / clarify / reply, text = the streamed text, else
+  the ack or the question; `problems()` once more on the whole (no live line); no parts and no text = today's
+  "runtime finished without an answer" failure; a failed run with accepted parts keeps them; a cancelled run (a newer
+  message) keeps nothing (the turn restarts). The image-refused rerun (ORCH-524) is kept, refactored into
+  `withhold_images` shared with `supervise`.
+- ORCH-737: `chat.ask` makes kind `clarify`, so `exit` saves the pending input, journals `question.asked`, and the
+  next message's `answers_question` joins it.
+
+**Evidence.** `cargo test -p ferb-supervisor`: 43 test binaries, 263 passed, 0 failed, the recorded replays unchanged; clippy `--tests -D warnings` clean; new `tests/front_door.rs` (8): the
+recorded plain_reply, one_step_task and clarify_then_answer scenarios run through the old planner and, with each
+planner answer converted mechanically to its calls, through the front door; task rows (ids aside), replies, questions,
+joins and the cleared question compared equal. A refused hand-off (a quote the owner never wrote) is repaired in the
+run, the owner's frames show no refusal; a second hand-off in one message refused; a timer and a memory in one message
+both applied (a test memory port added to the stand-in); a lookup's live line; the switch off: the planner's form,
+tools and grant unchanged. Shown failing with `join_question` removed from `front_call` (the question test).
+support_control gained a `front_call` script event (started, then `Inner::front_call` as the gateway would, then
+completed with its error flag; `also` makes parallel calls), `TestDaemon::front`, `front_results`, `memory_port`.
+
+**Deviations from the plan's step 5 (agent rulings, for review).**
+- A hand-off's per-call `problems()` runs on the task beside the side entries already accepted in this message (not the
+  task alone): `unbacked_parts` (a part with `direct ""`) would otherwise refuse every such hand-off. A hand-off made
+  before its backing entry is refused and must come after it.
+- `answers_question` absent from a call means false (the form's own default is true).
+- A call naming an argument its tool doesn't take, a missing/blank `ack` or `question`, or carrying nothing is refused.
+- One `control` and one `answer_question` per message, as one dispatch (the form holds one of each).
+- The final whole check is `problems()` only (no `side_quote_problems`, no live line); a failure there is
+  `PlanRejected` (journal `chat.failed`, why "the front door's accepted calls are invalid together"): the owner reads
+  PLAN_UNUSABLE, whose "even after one more try" does not fit the front door.
+- No ORCH-557/558 last call without tools in the front door (lookups spent / tool loop / empty): a run that ends so with
+  nothing accepted fails as today's empty answer.
+- The lookup's live line text is `progress::describe(name, args, kind "read")` (existing worker words, "reading"): the
+  owner has not seen it.
+- The model.turn span input adds `"front_door": true`; its output adds `"calls"` (accepted tools).
+
+**Unverified / open.** Not wired: ferbd's gateway tools (chat.*, `named_only`, scope chat:act, their descriptions,
+which the owner must see) and the switch's turn-on; the plan's replay of every ferbd `chat_replay.rs` scenario through
+the front door is not done here (ferbd). No real runtime has run it. When a model writes text and then hands off,
+the task's line is the streamed text, not the ack (as the plan says): worth a look. A temporary chat is offered all
+six tools (remember/forget are dropped there as today). A hand-off's plan inventory is walked twice (its call and the
+whole check). kb records ORCH-735, ORCH-736, ORCH-737 and PRM-385 (the owner's approval of concierge.md) were added by the coordinator.
+Coordinator's review (verified against the code): a call with `answers_question` true joins the earlier question
+before its checks run, so a refused call has already used the question up; a retry in the same run still sees the
+joined words, and a run that abandons the call loses the question. Accepted for now (the model repairs in the run);
+ferbd's `seams-off.txt` names `Daemon::front_door`.

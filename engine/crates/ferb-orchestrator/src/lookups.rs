@@ -19,3 +19,19 @@ pub const PLANNER_TOOLS: [&str; 9] = [
     "device.facts",
 ];
 pub const PLANNER_SCOPES: [&str; 2] = ["task:read", "trail:read"];
+
+/// The front door's own tools (kb/plans/front-door.md, step 5): its hand-off, control, question and side-entry calls,
+/// each taking the matching part of the planner's answer form and checked by the supervisor's own checks
+/// (`Inner::front_call`). Offered beside the lookups only to the front door's grant; sorted.
+///
+/// decision: ORCH-735, ORCH-736
+pub const FRONT_TOOLS: [&str; 6] = [
+    "chat.ask",
+    "chat.control_task",
+    "chat.dispatch_task",
+    "chat.remember",
+    "chat.schedule",
+    "chat.set_reminder",
+];
+/// The front door's write scope, beside [`PLANNER_SCOPES`]: its grant may call [`FRONT_TOOLS`].
+pub const FRONT_SCOPES: [&str; 1] = ["chat:act"];

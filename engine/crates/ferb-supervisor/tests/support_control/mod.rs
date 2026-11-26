@@ -402,7 +402,7 @@ pub struct TestDaemon {
     contexts: Mutex<Vec<Value>>,
     availability: String,
     requests: Mutex<HashMap<String, Request>>,
-    grants: Mutex<HashMap<String, Grant>>,
+    pub grants: Mutex<HashMap<String, Grant>>,
     revoked: Mutex<BTreeSet<String>>,
     /// Each run token's tool list (worker id -> the tools it names), as issued.
     pub only: Mutex<HashMap<String, Vec<String>>>,
@@ -484,6 +484,11 @@ pub struct TestDaemon {
     /// a tap pointed at another service (`use_runtime`: runtime, role).
     pub types: Mutex<Option<Vec<String>>>,
     pub switched: Mutex<Vec<(String, String)>>,
+    /// ORCH-735: a test turns the front door on; each front call a script made (its tool and what `front_call` said).
+    pub front: AtomicBool,
+    pub front_results: Mutex<Vec<(String, Result<String, String>)>>,
+    /// A test's memory port (None: none here, as the recordings had): each item `remember` was given, saved.
+    pub memory_port: Mutex<Option<Vec<Value>>>,
 }
 
 pub struct Gate {
@@ -708,6 +713,32 @@ impl Daemon for TestDaemon {
     // decision: ORCH-731 (the Python recordings closed every program before the answer was used)
     fn answer_before_close(&self) -> bool {
         false
+    }
+    // decision: ORCH-735 (off for every recording; a front door test turns it on)
+    fn front_door(&self) -> bool {
+        self.front.load(Ordering::SeqCst)
+    }
+    fn remember<'a>(
+        &'a self,
+        items: &'a [Value],
+        _words: &'a str,
+        _source: &'a str,
+        _sites: &'a [String],
+        _elsewhere: &'a [String],
+        _about: &'a str,
+    ) -> BoxFuture<'a, Option<Vec<Value>>> {
+        let mut port = self.memory_port.lock().unwrap();
+        let answer = port.as_mut().map(|saved| {
+            saved.extend(items.iter().cloned());
+            items
+                .iter()
+                .map(|i| {
+                    json!({"receipt": format!("saved {}", s(&i["key"])),
+                                "line": format!("Saved: {}", s(&i["content"]))})
+                })
+                .collect()
+        });
+        Box::pin(async move { answer })
     }
     fn probe_read<'a>(
         &'a self,
@@ -1361,9 +1392,17 @@ impl ModelRuntime for ScriptRuntime {
         &'a self,
         task: &'a Task,
         request: &'a ModelRequest,
-        _token: &'a str,
+        token: &'a str,
     ) -> BoxFuture<'a, Result<StartedRun, ferb_worker::Error>> {
         Box::pin(async move {
+            let grant_task = self
+                .daemon
+                .grants
+                .lock()
+                .unwrap()
+                .get(token)
+                .map(|g| g.task_id.clone())
+                .unwrap_or_default();
             let root = &self.daemon.root;
             let parts: Vec<String> = request
                 .parts
@@ -1394,6 +1433,9 @@ impl ModelRuntime for ScriptRuntime {
                     cancelled: cancelled.clone(),
                     gate: self.gate.clone(),
                     clock: self.daemon.clock.lock().unwrap().clone(),
+                    daemon: self.daemon.clone(),
+                    grant_task,
+                    front_pending: None,
                 }),
                 control: Arc::new(ScriptControl {
                     daemon: self.daemon.clone(),
@@ -1439,6 +1481,12 @@ struct ScriptEvents {
     cancelled: Arc<(AtomicBool, Notify)>,
     gate: Option<Arc<Gate>>,
     clock: Option<Arc<FakeClock>>,
+    daemon: Arc<TestDaemon>,
+    /// The run grant's task (`{request}.lookups` for a planner's or the front door's run).
+    grant_task: String,
+    /// ORCH-735: a test's `front_call` event reported as started, made through the supervisor's `front_call` (as the
+    /// gateway hands it over) when the next event is read, and reported completed with its error flag.
+    front_pending: Option<Value>,
 }
 
 impl ScriptEvents {
@@ -1461,6 +1509,44 @@ impl EventSource for ScriptEvents {
         Box::pin(async move {
             if self.cancelled.0.load(Ordering::SeqCst) {
                 return None;
+            }
+            if let Some(ev) = self.front_pending.take() {
+                let name = s(&ev["name"]);
+                let sup = self
+                    .daemon
+                    .sup
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .expect("the supervisor");
+                let said = sup
+                    .inner()
+                    .front_call(&self.grant_task, &name, &ev["arguments"])
+                    .await;
+                let error = said.is_err();
+                let result = match &said {
+                    Ok(t) | Err(t) => t.clone(),
+                };
+                self.daemon
+                    .front_results
+                    .lock()
+                    .unwrap()
+                    .push((name.clone(), said));
+                // calls made beside it (a runtime's parallel calls), each handed over before its result is known
+                for also in ev["also"].as_array().cloned().unwrap_or_default() {
+                    let other = s(&also["name"]);
+                    let got = sup
+                        .inner()
+                        .front_call(&self.grant_task, &other, &also["arguments"])
+                        .await;
+                    self.daemon.front_results.lock().unwrap().push((other, got));
+                }
+                let data = json!({"tool": name.replace('.', "_"), "name": name, "phase": "completed",
+                                  "arguments": ev["arguments"], "error": error, "result": result});
+                return Some(Ok(RuntimeEvent {
+                    kind: RuntimeEventKind::ToolCall,
+                    data: data.as_object().cloned().unwrap_or_default(),
+                }));
             }
             // an event marked `before_gate` (a test's own script, never a recording) arrives while the call is held
             let early = self
@@ -1491,6 +1577,17 @@ impl EventSource for ScriptEvents {
                 self.at += 1;
             }
             let kind = s(&ev["kind"]);
+            if kind == "front_call" {
+                // a test's own script: a call of the front door's tools, started now, decided by `front_call` next
+                let name = s(&ev["name"]);
+                let data = json!({"tool": name.replace('.', "_"), "name": name, "phase": "started",
+                                  "arguments": ev["arguments"]});
+                self.front_pending = Some(ev);
+                return Some(Ok(RuntimeEvent {
+                    kind: RuntimeEventKind::ToolCall,
+                    data: data.as_object().cloned().unwrap_or_default(),
+                }));
+            }
             if kind == "raise" {
                 // a test's own script: the run breaks as a program crash or an unreadable stream does
                 return Some(Err(ferb_worker::Error::Other {
@@ -2012,6 +2109,9 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         switched: Mutex::default(),
         lean: AtomicBool::new(false),
         bounded: AtomicBool::new(false),
+        front: AtomicBool::new(false),
+        front_results: Mutex::default(),
+        memory_port: Mutex::default(),
         code_look: Mutex::default(),
         probes: Mutex::default(),
         capped: Mutex::default(),

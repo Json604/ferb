@@ -11,8 +11,14 @@ use serde_json::Value;
 
 /// supervisor.py:165 `TOOLLESS_ROLES`: roles that run without tools; their instructions name no catalog.
 pub const TOOLLESS_ROLES: [&str; 2] = ["question.md", "attention.md"];
-/// supervisor.py:166 `NO_CATALOG_ROLES`: those and the planner (ORCH-515: its lookups describe themselves).
-pub const NO_CATALOG_ROLES: [&str; 3] = ["question.md", "attention.md", "supervisor.md"];
+/// supervisor.py:166 `NO_CATALOG_ROLES`: those and the planner (ORCH-515: its lookups describe themselves), and the
+/// front door that takes the planner's place (ORCH-735: the same assembly with `concierge.md` for `supervisor.md`).
+pub const NO_CATALOG_ROLES: [&str; 4] = [
+    "question.md",
+    "attention.md",
+    "supervisor.md",
+    "concierge.md",
+];
 
 /// gateway.py:2846 `EFFECT_HELP`: the effect contract, once in the instructions (`{effects}`).
 pub const EFFECT_HELP: &str = "The kind of change this action makes, declared truthfully. send: it delivers the \

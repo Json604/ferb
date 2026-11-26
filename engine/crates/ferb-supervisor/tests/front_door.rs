@@ -1,0 +1,484 @@
+//! ORCH-735, ORCH-736, ORCH-737 (kb/plans/front-door.md, step 5): with the front door on, a chat turn is one
+//! plain-mode run that streams its reply and acts only through typed calls, each checked by today's checks as it is
+//! made (`Inner::front_call`, as the gateway hands it over). Scripted on recorded scenarios through the real
+//! supervisor with stand-in models (temp store, injected ids and clock, no provider): the recorded planner answer is
+//! converted mechanically into the front door's calls (each part of the answer to its tool) and the effects are
+//! compared with the old path's run of the same scenario.
+
+mod common;
+mod support_control;
+
+use std::sync::atomic::Ordering;
+
+use ferb_orchestrator::lookups::FRONT_TOOLS;
+use serde_json::{json, Map, Value};
+use support_control::{run_with, world_with, Report, World};
+
+const CONCIERGE: &str = "You are FERB's front door.";
+
+/// The recorded planner answer as the front door's calls (in an order a model could make them: control and side
+/// entries first, then the hand-off or the question, which ends the run) and its plain text ("" for a hand-off or a
+/// question, whose text is the call's).
+fn convert(answer: &Value) -> (Vec<(String, Value)>, String) {
+    let side = &answer["side_entries"];
+    let given = |v: &Value| match v {
+        Value::Null | Value::Bool(false) => false,
+        Value::Array(a) => !a.is_empty(),
+        _ => true,
+    };
+    let aq = answer["answers_question"].as_bool().unwrap_or(false);
+    let mut calls = Vec::new();
+    let mut part = |tool: &str, fields: &[(&str, &Value)]| {
+        let mut args = Map::new();
+        for (k, v) in fields {
+            if given(v) {
+                args.insert(k.to_string(), (*v).clone());
+            }
+        }
+        if !args.is_empty() {
+            args.insert("answers_question".into(), json!(aq));
+            calls.push((tool.to_string(), Value::Object(args)));
+        }
+    };
+    part(
+        "chat.control_task",
+        &[
+            ("control", &answer["control"]),
+            ("answer_question", &side["answer_question"]),
+            ("conversation_changes", &side["conversation_changes"]),
+        ],
+    );
+    part(
+        "chat.set_reminder",
+        &[
+            ("timers", &side["timers"]),
+            ("reminder_cancels", &side["reminder_cancels"]),
+        ],
+    );
+    part(
+        "chat.schedule",
+        &[
+            ("schedules", &side["schedules"]),
+            ("schedule_changes", &side["schedule_changes"]),
+            ("show_schedules", &side["show_schedules"]),
+        ],
+    );
+    part(
+        "chat.remember",
+        &[("remember", &side["remember"]), ("forget", &side["forget"])],
+    );
+    let text = answer["text"].as_str().unwrap_or_default().to_string();
+    match answer["kind"].as_str() {
+        Some("task") => {
+            calls.push((
+                "chat.dispatch_task".into(),
+                json!({"ack": text, "task": answer["task"], "answers_question": aq}),
+            ));
+            (calls, String::new())
+        }
+        Some("clarify") => {
+            calls.push(("chat.ask".into(), json!({"question": text})));
+            (calls, String::new())
+        }
+        _ => (calls, text),
+    }
+}
+
+/// A front door run's script: each call, then the text streamed and the run's end.
+fn script(calls: &[(String, Value)], text: &str) -> Value {
+    let mut events: Vec<Value> = calls
+        .iter()
+        .map(|(name, args)| json!({"kind": "front_call", "name": name, "arguments": args}))
+        .collect();
+    if !text.is_empty() {
+        events.push(json!({"kind": "text_delta", "data": {"text": text}}));
+    }
+    events.push(json!({"kind": "usage", "data": {"input_tokens": 10, "output_tokens": 5}}));
+    events.push(json!({"kind": "final", "data": {"text": text}}));
+    Value::Array(events)
+}
+
+fn recorded_answer(call: &Value) -> Value {
+    let text = call["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["kind"] == "final")
+        .map(|e| e["data"]["text"].as_str().unwrap().to_string())
+        .unwrap();
+    serde_json::from_str(&text).unwrap()
+}
+
+/// The recorded scenario through the old planner (`front` false) or through the front door, each planner call's
+/// recorded answer converted to its calls (or replaced by `scripts`, one per planner call, when given).
+fn run(name: &str, front: bool, scripts: Option<Vec<Value>>) -> (World, Report) {
+    let mut w = world_with(name, |calls| {
+        if !front {
+            return;
+        }
+        let mut given = scripts.clone().map(|s| s.into_iter());
+        for c in calls.iter_mut().filter(|c| c["key"] == "supervisor") {
+            c["events"] = match given.as_mut() {
+                Some(g) => g.next().expect("a script for each planner call"),
+                None => {
+                    let (calls, text) = convert(&recorded_answer(c));
+                    script(&calls, &text)
+                }
+            };
+        }
+    });
+    w.daemon.bounded.store(true, Ordering::SeqCst);
+    w.daemon.front.store(front, Ordering::SeqCst);
+    let report = run_with(&mut w, name, |_| {});
+    (w, report)
+}
+
+fn rows(w: &World, sql: &str) -> Vec<Vec<Value>> {
+    let db = w.db.lock().unwrap();
+    let mut st = db.conn().prepare(sql).unwrap();
+    let n = st.column_count();
+    st.query_map([], |r| {
+        Ok((0..n)
+            .map(|i| match r.get::<_, rusqlite::types::Value>(i).unwrap() {
+                rusqlite::types::Value::Null => Value::Null,
+                rusqlite::types::Value::Integer(v) => json!(v),
+                rusqlite::types::Value::Real(v) => json!(v),
+                rusqlite::types::Value::Text(t) => json!(t),
+                rusqlite::types::Value::Blob(_) => json!("(blob)"),
+            })
+            .collect())
+    })
+    .unwrap()
+    .map(Result::unwrap)
+    .collect()
+}
+
+fn journal(w: &World, kind: &str) -> Vec<Value> {
+    rows(
+        w,
+        &format!("SELECT data_json FROM journal WHERE kind = '{kind}' ORDER BY seq"),
+    )
+    .into_iter()
+    .map(|r| serde_json::from_str(r[0].as_str().unwrap()).unwrap())
+    .collect()
+}
+
+/// What a turn did that lasts: the task rows (ids aside), the timers, FERB's replies and questions, the questions joined.
+fn effects(w: &World) -> Value {
+    let said = |kind: &str| -> Vec<Value> {
+        journal(w, kind)
+            .iter()
+            .map(|d| json!([d["request_id"], d["text"]]))
+            .collect()
+    };
+    json!({
+        // ids aside (a run that ended on its call reported no usage span, so the ids that follow are one lower)
+        "tasks": rows(w, "SELECT replace(id, tree_id, 'TREE'), request_id, goal, identity, role, scopes_json, \
+                          status FROM tasks ORDER BY rowid"),
+        "timers": rows(w, "SELECT kind, fire_at, message, request_id, state FROM timers ORDER BY seq"),
+        "replies": said("chat.reply"),
+        "questions": said("chat.clarify"),
+        "answered": journal(w, "question.answered"),
+        "pending": rows(w, "SELECT id, COALESCE(asked, '') FROM conversations ORDER BY id"),
+    })
+}
+
+/// Every frame FERB sent on the chat streams, as the client reads them.
+fn frames(report: &Report) -> Vec<Value> {
+    report
+        .streams
+        .iter()
+        .flat_map(|(_, lines)| lines.iter())
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .map(|v| v["params"].clone())
+        .collect()
+}
+
+fn of_type<'a>(frames: &'a [Value], kind: &str) -> Vec<&'a Value> {
+    frames.iter().filter(|f| f["type"] == kind).collect()
+}
+
+fn results(w: &World) -> Vec<(String, Result<String, String>)> {
+    w.daemon.front_results.lock().unwrap().clone()
+}
+
+// decision: ORCH-735
+#[test]
+fn a_plain_reply_streams_through_the_front_door_and_is_the_turns_answer() {
+    let (old, _) = run("plain_reply", false, None);
+    let (w, report) = run("plain_reply", true, None);
+    let made = w.daemon.calls.lock().unwrap().made.clone();
+    // one plain-mode run: no answer form, the lookups and the front tools offered
+    assert_eq!(made.len(), 1, "{made:?}");
+    assert_eq!(made[0]["schema"], "(unknown schema)", "no answer form");
+    let offered: Vec<String> = serde_json::from_value(made[0]["tools"].clone()).unwrap();
+    for t in FRONT_TOOLS {
+        assert!(offered.iter().any(|o| o == t), "{t} offered: {offered:?}");
+    }
+    let started = w.daemon.calls.lock().unwrap().started.clone();
+    let system = started[0]["system"].as_str().unwrap();
+    assert!(
+        system.contains(CONCIERGE),
+        "concierge.md in place of supervisor.md"
+    );
+    assert!(
+        !system.contains("Owner-written skills"),
+        "no catalog, as the planner"
+    );
+    // its grant may act through the front tools, beside the lookups' scopes
+    let grants = w.daemon.grants.lock().unwrap();
+    let grant = grants
+        .values()
+        .find(|g| g.task_id.ends_with(".lookups"))
+        .expect("the front door's grant");
+    assert!(!grant.observe_only);
+    assert!(grant.scopes.contains("chat:act") && grant.scopes.contains("task:read"));
+    drop(grants);
+    // the reply streamed, then the turn's reply as the old path's
+    let frames = frames(&report);
+    assert!(!of_type(&frames, "reply_delta").is_empty(), "{frames:#?}");
+    assert_eq!(
+        effects(&w)["replies"],
+        effects(&old)["replies"],
+        "the same reply as the planner's"
+    );
+    assert_eq!(
+        of_type(&frames, "reply").last().unwrap()["text"],
+        "Hello! What can I do for you today?"
+    );
+}
+
+// decision: ORCH-735 (the switch is off by default: the planner's answer form and its tools, unchanged)
+#[test]
+fn with_the_switch_off_the_planner_answers_through_its_form() {
+    let (w, _) = run("plain_reply", false, None);
+    let made = w.daemon.calls.lock().unwrap().made.clone();
+    assert_ne!(made[0]["schema"], "(unknown schema)");
+    assert!(!made[0]["tools"].to_string().contains("chat.dispatch_task"));
+    let started = w.daemon.calls.lock().unwrap().started.clone();
+    assert!(!started[0]["system"].as_str().unwrap().contains(CONCIERGE));
+    let grants = w.daemon.grants.lock().unwrap();
+    assert!(grants
+        .values()
+        .filter(|g| g.task_id.ends_with(".lookups"))
+        .all(|g| g.observe_only && !g.scopes.contains("chat:act")));
+}
+
+// decision: ORCH-735 (a lookup's start is the turn's live line, as the plan walk's)
+#[test]
+fn a_lookup_shows_the_turns_live_line_while_it_runs() {
+    let events = json!([
+        {"kind": "tool_call", "data": {"tool": "memory_read", "name": "memory.read", "phase": "started",
+                                         "arguments": {"query": "bread"}}},
+        {"kind": "tool_call", "data": {"tool": "memory_read", "name": "memory.read", "phase": "completed",
+                                         "arguments": {"query": "bread"}, "error": false}},
+        {"kind": "text_delta", "data": {"text": "You bake on Sundays."}},
+        {"kind": "usage", "data": {"input_tokens": 10, "output_tokens": 5}},
+        {"kind": "final", "data": {"text": "You bake on Sundays."}}
+    ]);
+    let (_, report) = run("plain_reply", true, Some(vec![events]));
+    let frames = frames(&report);
+    let progress = of_type(&frames, "progress");
+    assert_eq!(progress.len(), 1, "{frames:#?}");
+    assert_eq!(progress[0]["planning"], true);
+    assert!(!progress[0]["text"].as_str().unwrap().is_empty());
+    // the line came before the reply's words
+    let at = |kind: &str| frames.iter().position(|f| f["type"] == kind).unwrap();
+    assert!(at("progress") < at("reply_delta"));
+}
+
+// decision: ORCH-735, ORCH-736
+#[test]
+fn a_hand_off_starts_the_task_as_the_planners_answer_did() {
+    let (old, _) = run("one_step_task", false, None);
+    let (w, report) = run("one_step_task", true, None);
+    assert_eq!(
+        results(&w),
+        vec![(
+            "chat.dispatch_task".to_string(),
+            Ok(ferb_supervisor::flow::turn::front_door::ACCEPTED_TASK.to_string())
+        )]
+    );
+    let (a, b) = (effects(&old), effects(&w));
+    assert_eq!(a["tasks"], b["tasks"], "the same task rows");
+    assert!(!b["tasks"].as_array().unwrap().is_empty());
+    assert_eq!(a["replies"], b["replies"]);
+    // the ack is shown on the plan channel once code accepted the call
+    let frames = frames(&report);
+    let ack: String = of_type(&frames, "plan_delta")
+        .iter()
+        .map(|f| f["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(ack, "On it.", "{frames:#?}");
+    assert_eq!(of_type(&frames, "plan_end").len(), 1);
+}
+
+// decision: ORCH-736 (a refused call goes back to the model, the owner sees nothing; repaired in the same run)
+#[test]
+fn a_refused_hand_off_is_repaired_in_the_run_and_the_owner_never_sees_the_refusal() {
+    let recorded = support_control::scenario("one_step_task").1["model_calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["key"] == "supervisor")
+        .cloned()
+        .unwrap();
+    let (calls, _) = convert(&recorded_answer(&recorded));
+    let good = calls[0].1.clone();
+    let mut bad = good.clone();
+    bad["task"]["parts"] = json!([{"id": "p1", "quote": "buy me a boat", "label": "Boat",
+                                   "answer_step": "worker"}]);
+    let events = script(
+        &[
+            ("chat.dispatch_task".into(), bad),
+            ("chat.dispatch_task".into(), good),
+        ],
+        "",
+    );
+    let (old, _) = run("one_step_task", false, None);
+    let (w, report) = run("one_step_task", true, Some(vec![events]));
+    let got = results(&w);
+    assert_eq!(got.len(), 2, "{got:?}");
+    let refusal = got[0].1.clone().unwrap_err();
+    assert!(
+        refusal.contains("its quote must be the owner's own words"),
+        "{refusal}"
+    );
+    assert!(got[1].1.is_ok(), "{got:?}");
+    assert_eq!(
+        effects(&old)["tasks"],
+        effects(&w)["tasks"],
+        "the task started"
+    );
+    // the refusal is journaled for the trace, never shown
+    let repairs = journal(&w, "task.repair");
+    assert_eq!(repairs.len(), 1);
+    assert_eq!(repairs[0]["tool"], "chat.dispatch_task");
+    let frames = frames(&report);
+    let shown = serde_json::to_string(&frames).unwrap();
+    assert!(
+        !shown.contains("boat") && !shown.contains("quote"),
+        "{shown}"
+    );
+    assert!(of_type(&frames, "plan_abort").is_empty());
+}
+
+// decision: ORCH-736 (one task per message)
+#[test]
+fn a_second_hand_off_in_one_message_is_refused() {
+    let recorded = support_control::scenario("one_step_task").1["model_calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["key"] == "supervisor")
+        .cloned()
+        .unwrap();
+    let (calls, _) = convert(&recorded_answer(&recorded));
+    let task = calls[0].1.clone();
+    let events = json!([
+        {"kind": "front_call", "name": "chat.dispatch_task", "arguments": task,
+         "also": [{"name": "chat.dispatch_task", "arguments": task}]},
+        {"kind": "final", "data": {"text": ""}}
+    ]);
+    let (old, _) = run("one_step_task", false, None);
+    let (w, _) = run("one_step_task", true, Some(vec![events]));
+    let got = results(&w);
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert!(got[0].1.is_ok());
+    assert!(
+        got[1]
+            .1
+            .as_ref()
+            .unwrap_err()
+            .contains("One task per message"),
+        "{got:?}"
+    );
+    assert_eq!(
+        effects(&old)["tasks"],
+        effects(&w)["tasks"],
+        "one task, as asked"
+    );
+}
+
+// decision: ORCH-737 (the question is a question entry; the next message joins it)
+#[test]
+fn a_question_is_kept_and_the_message_that_answers_it_joins_it() {
+    let (old, _) = run("clarify_then_answer", false, None);
+    let (w, report) = run("clarify_then_answer", true, None);
+    let got = results(&w);
+    let names: Vec<&str> = got.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names, ["chat.ask", "chat.dispatch_task"], "{got:?}");
+    assert!(got.iter().all(|(_, r)| r.is_ok()), "{got:?}");
+    let (a, b) = (effects(&old), effects(&w));
+    assert_eq!(a["questions"], b["questions"], "asked as a question");
+    assert_eq!(
+        a["answered"], b["answered"],
+        "the answer joined the question"
+    );
+    assert_eq!(b["answered"].as_array().unwrap().len(), 1);
+    assert_eq!(a["tasks"], b["tasks"], "the joined request's task");
+    assert_eq!(a["pending"], b["pending"], "the question is cleared");
+    let frames = frames(&report);
+    assert_eq!(
+        of_type(&frames, "clarify")[0]["text"],
+        "Which restaurant, and for what time?"
+    );
+}
+
+// decision: ORCH-736 (several effects in one message: several calls, each taking effect)
+#[test]
+fn a_reminder_and_a_memory_in_one_message_both_take_effect() {
+    let said =
+        "set a timer for 2 minutes to take the bread out, and remember that I bake on Sundays";
+    let timer = json!({"when": {"in_minutes": 2, "in_days": null, "day": null, "date": null, "time": null},
+                       "message": "Take the bread out", "quote": "a timer for 2 minutes", "when_active": false,
+                       "name": "Bread", "kind": "timer"});
+    let item = json!({"kind": "fact", "subject": "owner", "key": "baking day", "content": "I bake on Sundays",
+                      "quote": "I bake on Sundays", "login_origin": null, "until": null, "replaces": [],
+                      "review_in_days": 0});
+    let events = script(
+        &[
+            (
+                "chat.set_reminder".into(),
+                json!({"timers": [timer], "answers_question": false}),
+            ),
+            (
+                "chat.remember".into(),
+                json!({"remember": [item], "answers_question": false}),
+            ),
+        ],
+        "",
+    );
+    let mut w = world_with("plain_reply", |calls| {
+        let c = calls.iter_mut().find(|c| c["key"] == "supervisor").unwrap();
+        c["events"] = events;
+    });
+    w.daemon.bounded.store(true, Ordering::SeqCst);
+    w.daemon.front.store(true, Ordering::SeqCst);
+    *w.daemon.memory_port.lock().unwrap() = Some(Vec::new());
+    let report = run_with(&mut w, "plain_reply", |steps| {
+        for st in steps.iter_mut() {
+            if st["do"] == "stream" {
+                let mut sent: Value =
+                    serde_json::from_str(st["lines"][0]["send"].as_str().unwrap()).unwrap();
+                sent["params"]["text"] = json!(said);
+                st["lines"][0]["send"] = json!(sent.to_string());
+            }
+        }
+    });
+    let got = results(&w);
+    assert!(got.iter().all(|(_, r)| r.is_ok()), "{got:?}");
+    let timers = rows(&w, "SELECT kind, message FROM timers");
+    assert_eq!(
+        timers,
+        vec![vec![json!("timer"), json!("Take the bread out")]]
+    );
+    let saved = w.daemon.memory_port.lock().unwrap().clone().unwrap();
+    assert_eq!(saved.len(), 1, "{saved:?}");
+    assert_eq!(saved[0]["content"], "I bake on Sundays");
+    // no text from the model: code's own lines say what was done
+    let frames = frames(&report);
+    let reply = of_type(&frames, "reply");
+    let text = reply.last().unwrap()["text"].as_str().unwrap();
+    assert!(text.contains("Saved: I bake on Sundays"), "{text}");
+}
