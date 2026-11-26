@@ -913,3 +913,12 @@ rule = "supervisor.md's Layer 2 sentence about the latest result shown in full a
 why = "The planner reads where each fact is; a block that is sometimes missing needs its rule stated once."
 paths = ["engine/runtime/orchestrator/prompts/supervisor.md", "engine/fixtures/catalog/prompt_changes.json"]
 untestable = "Prompt text (TEST-500); the named change is checked by ferb-supervisor's prompts test and ferb-context's parity test."
+
+[PRM-384]
+title = "supervisor.md: an open question lapses when the message doesn't answer it"
+by = "agent"
+date = 2026-11-26
+status = "active"
+rule = "For ORCH-729. supervisor.md's clarify rule says, for a message that asks for something else: handle that alone without mentioning the open question; the question then lapses, and the owner asks again if they still want that request. Named in engine/fixtures/catalog/prompt_changes.json."
+why = "The prompt said the question and its request wait, which ORCH-729 ended."
+paths = ["engine/runtime/orchestrator/prompts/supervisor.md"]

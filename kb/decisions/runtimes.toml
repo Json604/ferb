@@ -731,3 +731,12 @@ rule = "For RUN-470 and ORCH-719 step 1. When a request the relay edited gets a 
 why = "Anthropic enforces the check for accounts made from 2026-08-31 on Opus and Sonnet 5.5 and for all on Fable 5.2: a new user's long Claude task would fail at its first compaction. An enforced account refuses the first edit, and the run's earlier requests went unedited, so the unedited one is accepted."
 evidence = "ferb-runtimes tests/relay_usage.rs (the shape only; an enforced stand-in: the edit goes again byte for byte, nothing after is edited, reported once; a tampered-signature 400 passes and compaction stays), claude_usage.rs (the report and its line). Not live: the owner's account predates 2026-08-31."
 paths = ["engine/crates/ferb-runtimes/src/claude/tally.rs", "engine/crates/ferb-runtimes/src/claude/proxy.rs", "engine/crates/ferb-runtimes/src/claude/mod.rs", "engine/crates/ferb-worker/src/worker.rs"]
+
+[RUN-479]
+title = "FERB's Claude relay records each request's tool names, result error flags and times"
+by = "agent"
+date = 2026-11-26
+status = "active"
+rule = "For ORCH-726 (step 1), beside RUN-477. Per model step the relay keeps the tools the answer called, each tool result's tool name and is_error, the stop reason, a non-success status and the times to first byte and end; names only in Anthropic's tool-name characters, else \"?\". It reaches the run's model.usage output as steps (the latest 64, the rest counted in steps_dropped). Compressed traffic or an unreadable body leaves no step."
+why = "Some Claude planner turns answer twice and nothing recorded why."
+paths = ["engine/crates/ferb-runtimes/src/claude/steps.rs", "engine/crates/ferb-runtimes/src/claude/proxy.rs", "engine/crates/ferb-runtimes/src/claude/tally.rs"]

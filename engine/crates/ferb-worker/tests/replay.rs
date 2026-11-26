@@ -102,6 +102,8 @@ fn config(stall_s: f64) -> WorkerConfig {
         tokenizer: Tokenizer::Utf8Bytes,
         prompts: PromptRoot::new(repo().join("engine/runtime")).unwrap(),
         approach: "orchestrator/prompts".into(),
+        // the recorded calls closed their run before they returned (ORCH-731's switch off)
+        answer_before_close: false,
     }
 }
 

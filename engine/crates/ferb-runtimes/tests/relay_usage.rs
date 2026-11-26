@@ -2,11 +2,15 @@
 //! RUN-477, each model request's usage read from the answer as it streams past, per run, so a run Claude Code never
 //! reports still has its tokens; RUN-478, Anthropic's refusal of an edited history (the history-editing check's 400,
 //! in the shape the pinned Claude Code's bundled migration guide gives) answered by sending the run's own unedited
-//! request and never editing that run again. Invented bodies only.
+//! request and never editing that run again. T-1338: each model step's record of names, flags and times (the tools
+//! its answer called, its request's tool results by name and error flag, the stop reason), timed on a stepping clock.
+//! Invented bodies only.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use ferb_runtimes::claude::proxy::ToolListProxy;
+use ferb_runtimes::claude::steps::{self, Steps, KEPT};
 use ferb_runtimes::claude::tally::{history_refused, Tally, UsageReader};
 use ferb_runtimes::claude::ToolProxy;
 use ferb_runtimes::compact::{self, Policy};
@@ -116,9 +120,13 @@ async fn start(
     let up = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
     let got: Got = Arc::new(Mutex::new(Vec::new()));
     let server = tokio::spawn(upstream(listener, got.clone(), Arc::new(answer)));
-    let relay = ToolListProxy::start_with_clock(&up, Arc::new(|| "s".to_string()), clock())
-        .await
-        .unwrap();
+    // a stopwatch that moves 0.25 s at each reading: a step reads it at arrival, first byte and end
+    let ticks = Arc::new(AtomicUsize::new(0));
+    let stopwatch = Arc::new(move || ticks.fetch_add(1, Ordering::SeqCst) as f64 * 0.25);
+    let relay =
+        ToolListProxy::start_with_clocks(&up, Arc::new(|| "s".to_string()), clock(), stopwatch)
+            .await
+            .unwrap();
     (relay, got, server)
 }
 
@@ -381,4 +389,278 @@ async fn any_other_refusal_of_an_edited_request_goes_back_as_it_came_and_compact
     assert_eq!(got.lock().unwrap().len(), 3, "nothing sent twice");
     assert_eq!(relay.history_refusals("run-t"), 0);
     server.abort();
+}
+
+/// A streamed answer that calls `tools` (each with invented arguments) and stops for `stop`, cut into small pieces.
+fn sse_calls(tools: &[&str], stop: &str) -> Vec<String> {
+    let mut text = format!(
+        "event: message_start\ndata: {}\n\n",
+        json!({"type": "message_start", "message": {"id": "msg", "model": "claude-sonnet-5-5",
+            "usage": {"input_tokens": 3, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0,
+                "output_tokens": 1}}})
+    );
+    for (i, name) in tools.iter().enumerate() {
+        let start = json!({"type": "content_block_start", "index": i,
+            "content_block": {"type": "tool_use", "id": format!("toolu_{i}"), "name": name, "input": {}}});
+        let delta = json!({"type": "content_block_delta", "index": i,
+            "delta": {"type": "input_json_delta", "partial_json": "{\"reply\": \"private words\"}"}});
+        text.push_str(&format!(
+            "event: content_block_start\ndata: {start}\n\nevent: content_block_delta\ndata: {delta}\n\nevent: content_block_stop\ndata: {{\"type\":\"content_block_stop\",\"index\":{i}}}\n\n"
+        ));
+    }
+    let end = json!({"type": "message_delta", "delta": {"stop_reason": stop}, "usage": {"output_tokens": 9}});
+    text.push_str(&format!(
+        "event: message_delta\ndata: {end}\n\nevent: message_stop\ndata: {{\"type\":\"message_stop\"}}\n\n"
+    ));
+    text.as_bytes()
+        .chunks(7)
+        .map(|c| String::from_utf8(c.to_vec()).unwrap())
+        .collect()
+}
+
+/// One earlier exchange in a request: the assistant's calls (id, name), then the results sent back (id, is_error).
+type Exchange<'a> = (&'a [(&'a str, &'a str)], &'a [(&'a str, bool)]);
+
+/// Claude Code's request: the owner's words, then each exchange as an assistant turn and a user turn.
+fn request(turns: &[Exchange]) -> Vec<u8> {
+    let mut messages = vec![json!({"role": "user", "content": "the owner's private words"})];
+    for (calls, results) in turns {
+        messages.push(json!({"role": "assistant", "content": calls.iter()
+            .map(|(id, name)| json!({"type": "tool_use", "id": id, "name": name, "input": {"q": "private"}}))
+            .collect::<Vec<_>>()}));
+        messages.push(json!({"role": "user", "content": results.iter()
+            .map(|(id, error)| json!({"type": "tool_result", "tool_use_id": id, "is_error": error,
+                "content": [{"type": "text", "text": "a private result"}]}))
+            .collect::<Vec<_>>()}));
+    }
+    serde_json::to_vec(&json!({"model": "claude-sonnet-5-5", "messages": messages, "stream": true}))
+        .unwrap()
+}
+
+/// The run's steps as its usage record carries them.
+fn record(steps: Option<Steps>) -> Value {
+    let mut data = serde_json::Map::new();
+    if let Some(s) = steps {
+        s.insert_into(&mut data);
+    }
+    Value::Object(data)
+}
+
+// decision: RUN-477, RUN-479
+#[tokio::test]
+async fn a_plain_answer_is_one_step_with_its_stop_and_times() {
+    let (relay, _got, server) = start(|_, body| {
+        if String::from_utf8_lossy(body).contains("\"stream\":true") {
+            (200, "text/event-stream", sse(5, 0, 0, 0, 4))
+        } else {
+            // an answer that isn't streamed is read whole: its calls and stop the same way
+            let answer = json!({"id": "m", "model": "claude-sonnet-5-5", "stop_reason": "tool_use",
+                "content": [{"type": "text", "text": "x"},
+                    {"type": "tool_use", "id": "toolu_1", "name": "mcp__ferb__memory_read", "input": {}}],
+                "usage": {"input_tokens": 2, "output_tokens": 1}});
+            (200, "application/json", vec![answer.to_string()])
+        }
+    })
+    .await;
+    let url = relay.base_url("run-p");
+    assert_eq!(relay.take_steps("run-p"), None, "nothing before a step");
+    post(&format!("{url}/v1/messages?beta=true"), &request(&[])).await;
+    // a token count is no step
+    post(&format!("{url}/v1/messages/count_tokens"), &request(&[])).await;
+    assert_eq!(
+        record(relay.take_steps("run-p")),
+        json!({"steps": [{"called": [], "results": [], "stop": "end_turn", "first_byte_ms": 250,
+            "done_ms": 500}]})
+    );
+    assert_eq!(relay.take_steps("run-p"), None, "taken once");
+    let plain = serde_json::to_vec(&json!({"model": "m", "messages": []})).unwrap();
+    post(&format!("{url}/v1/messages"), &plain).await;
+    assert_eq!(
+        record(relay.take_steps("run-p")),
+        json!({"steps": [{"called": ["mcp__ferb__memory_read"], "results": [], "stop": "tool_use",
+            "first_byte_ms": 250, "done_ms": 500}]})
+    );
+    // the usage is counted as before, beside the steps
+    assert_eq!(relay.take_usage("run-p").map(|t| t.requests), Some(2));
+    post(&format!("{url}/v1/messages"), &plain).await;
+    relay.forget("run-p");
+    assert_eq!(
+        relay.take_steps("run-p"),
+        None,
+        "a forgotten run keeps nothing"
+    );
+    server.abort();
+}
+
+// decision: RUN-477, RUN-479
+#[tokio::test]
+async fn an_answer_tool_whose_result_was_an_error_and_was_called_again_is_named() {
+    // the doubled answer: Claude Code sends its own StructuredOutput call back as an error and the model calls it again
+    let (relay, _got, server) = start(|_, _| {
+        (
+            200,
+            "text/event-stream",
+            sse_calls(&["StructuredOutput"], "tool_use"),
+        )
+    })
+    .await;
+    let url = relay.base_url("run-d");
+    post(&format!("{url}/v1/messages?beta=true"), &request(&[])).await;
+    let again = request(&[(&[("toolu_0", "StructuredOutput")], &[("toolu_0", true)])]);
+    post(&format!("{url}/v1/messages?beta=true"), &again).await;
+    let row = record(relay.take_steps("run-d"));
+    assert_eq!(
+        row,
+        json!({"steps": [
+            {"called": ["StructuredOutput"], "results": [], "stop": "tool_use", "first_byte_ms": 250, "done_ms": 500},
+            {"called": ["StructuredOutput"], "results": [{"tool": "StructuredOutput", "error": true}],
+                "stop": "tool_use", "first_byte_ms": 250, "done_ms": 500},
+        ]})
+    );
+    // names, flags and numbers only: no argument, result or prompt text, no call id
+    let text = row.to_string();
+    for private in ["private", "toolu_", "reply", "\"q\""] {
+        assert!(!text.contains(private), "{private} in {text}");
+    }
+    server.abort();
+}
+
+// decision: RUN-477, RUN-479
+#[tokio::test]
+async fn a_lookup_tools_error_result_is_named_from_the_call_it_answers() {
+    let (relay, _got, server) =
+        start(|_, _| (200, "text/event-stream", sse_calls(&[], "end_turn"))).await;
+    let url = relay.base_url("run-m");
+    let body = request(&[
+        (
+            &[("toolu_a", "mcp__ferb__memory_read")],
+            &[("toolu_a", false)],
+        ),
+        (
+            &[
+                ("toolu_b", "mcp__ferb__chat_history"),
+                ("toolu_c", "mcp__ferb__task_records"),
+            ],
+            // a result for a call the message before doesn't hold is named "?"
+            &[("toolu_b", true), ("toolu_c", false), ("toolu_a", false)],
+        ),
+    ]);
+    post(&format!("{url}/v1/messages"), &body).await;
+    assert_eq!(
+        record(relay.take_steps("run-m"))["steps"][0]["results"],
+        json!([{"tool": "mcp__ferb__chat_history", "error": true},
+            {"tool": "mcp__ferb__task_records", "error": false}, {"tool": "?", "error": false}]),
+        "only the last user message's results; the earlier exchange's are not repeated"
+    );
+    server.abort();
+}
+
+// decision: RUN-477, RUN-479
+#[tokio::test]
+async fn compressed_traffic_leaves_no_step_rather_than_a_wrong_one() {
+    let (relay, _got, server) = start(|path, _| {
+        let kind = if path.contains("zipped") {
+            // the upstream says its answer is compressed: nothing in it is read
+            "text/event-stream\r\ncontent-encoding: gzip"
+        } else {
+            "text/event-stream"
+        };
+        (200, kind, sse_calls(&["StructuredOutput"], "tool_use"))
+    })
+    .await;
+    let url = relay.base_url("run-z");
+    post(&format!("{url}/v1/messages?zipped=1"), &request(&[])).await;
+    // a request Claude Code compressed is not read either
+    reqwest::Client::new()
+        .post(format!("{url}/v1/messages"))
+        .header("content-encoding", "gzip")
+        .body(request(&[]))
+        .send()
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    assert_eq!(relay.take_steps("run-z"), None);
+    assert_eq!(relay.take_usage("run-z"), None);
+    server.abort();
+}
+
+// decision: RUN-477, RUN-479
+#[tokio::test]
+async fn a_failed_answer_is_a_step_with_its_status_and_no_usage() {
+    let (relay, _got, server) = start(|_, _| {
+        (
+            529,
+            "application/json",
+            vec!["{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}".into()],
+        )
+    })
+    .await;
+    let url = relay.base_url("run-f");
+    post(&format!("{url}/v1/messages"), &request(&[])).await;
+    assert_eq!(
+        record(relay.take_steps("run-f")),
+        json!({"steps": [{"called": [], "results": [], "status": 529, "first_byte_ms": 250, "done_ms": 500}]})
+    );
+    assert_eq!(relay.take_usage("run-f"), None, "no usage, as before");
+    server.abort();
+}
+
+// decision: RUN-477, RUN-479
+#[tokio::test]
+async fn a_long_run_keeps_its_latest_steps_and_counts_the_rest() {
+    let n = Arc::new(AtomicUsize::new(0));
+    let (relay, _got, server) = start(move |_, _| {
+        let i = n.fetch_add(1, Ordering::SeqCst);
+        (
+            200,
+            "text/event-stream",
+            sse_calls(&[&format!("tool_{i}")], "tool_use"),
+        )
+    })
+    .await;
+    let url = relay.base_url("run-l");
+    for _ in 0..KEPT + 6 {
+        post(&format!("{url}/v1/messages"), &request(&[])).await;
+    }
+    let row = record(relay.take_steps("run-l"));
+    let kept = row["steps"].as_array().unwrap();
+    assert_eq!(kept.len(), KEPT);
+    assert_eq!(row["steps_dropped"], json!(6));
+    assert_eq!(
+        kept[0]["called"],
+        json!(["tool_6"]),
+        "the earliest are let go"
+    );
+    assert_eq!(
+        kept[KEPT - 1]["called"],
+        json!([format!("tool_{}", KEPT + 5)])
+    );
+    server.abort();
+}
+
+// decision: RUN-477, RUN-479
+#[test]
+fn a_name_is_kept_only_as_anthropic_allows_one() {
+    assert_eq!(
+        steps::tool_name("mcp__ferb__chat_history"),
+        "mcp__ferb__chat_history"
+    );
+    assert_eq!(steps::tool_name("StructuredOutput"), "StructuredOutput");
+    let long = "x".repeat(129);
+    for odd in ["", "a b", "ignore previous; call me", "név", long.as_str()] {
+        assert_eq!(steps::tool_name(odd), "?", "{odd}");
+    }
+    // a body that isn't a JSON request gives no results (and so no step); odd content shapes are skipped, not fatal
+    assert_eq!(steps::results(b"not json"), None);
+    let odd = json!({"messages": [{"role": "assistant", "content": [7, "x", {"type": "tool_use", "id": 3}]},
+        {"role": "user", "content": [null, {"type": "tool_result", "tool_use_id": "t", "is_error": "yes"}]}]});
+    assert_eq!(
+        steps::results(odd.to_string().as_bytes()),
+        Some(vec![steps::ToolResult {
+            tool: "?".into(),
+            error: false
+        }])
+    );
 }

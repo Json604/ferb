@@ -492,6 +492,8 @@ pub struct OpenAsk {
     /// The carried messages: their ids and origins.
     pub carried: Vec<(String, String)>,
     pub asked_outside: BTreeSet<String>,
+    /// ORCH-729: it lapses with this message unless the message answers it (the bounded planner's heading).
+    pub lapses: bool,
 }
 
 /// What one planner lookup found: its result's recorded origins and text (`spans.tool_outputs`).
@@ -533,6 +535,9 @@ pub struct PlannerTurn<'a> {
     pub message_origin: &'a BTreeSet<String>,
     /// SENSE-424, PRM-362: where the turn's messages were sent from, in order (only those whose client was named).
     pub sent_from: &'a [String],
+    /// ORCH-730: how long ago the owner's previous message and FERB's last reply were (`words::last_said`), after the
+    /// cached part; None in a replay of a Python recording.
+    pub last_said: Option<&'a str>,
     pub wrap: &'a dyn Fn(&str) -> String,
     pub zone: &'a Zone,
 }
@@ -586,10 +591,12 @@ pub fn planner_sourced(t: PlannerTurn<'_>) -> (Vec<Sourced>, usize, usize) {
         ages: t.ages,
         since_last_talk: None,
     };
+    // decision: ORCH-730 — how long ago, beside the time now (never in the cached conversation)
+    let last_said = t.last_said.map(|l| format!("\n{l}")).unwrap_or_default();
     situation.push(sourced(
         protected(
             format!(
-                "{SITUATION_HEADER}{}",
+                "{SITUATION_HEADER}{}{last_said}",
                 ferb_clock::context::time_block(t.now, &t.zone.abbreviation(&now_local), &facts)
             ),
             "chat.history",
@@ -662,7 +669,12 @@ pub fn planner_sourced(t: PlannerTurn<'_>) -> (Vec<Sourced>, usize, usize) {
                     .collect(),
                 ..ContextBlock::new(
                     format!(
-                        "{OPEN_QUESTION}{}\n{OPEN_REQUEST}{}",
+                        "{}{}\n{OPEN_REQUEST}{}",
+                        if open.lapses {
+                            OPEN_QUESTION_ONCE
+                        } else {
+                            OPEN_QUESTION
+                        },
                         (t.wrap)(&open.asked),
                         open.payload
                     ),

@@ -490,6 +490,65 @@ pub fn hard_stop(entries: &[Entry], tokens: Tokenizer) -> usize {
     from
 }
 
+/// ORCH-728 (front door step 3a): FERB's own notices (`chat.notice`: every one is posted by FERB itself, through the
+/// daemon's one `post_notice`) leave the planner's word-for-word window. Each run of consecutive notices is shown as
+/// one line saying how many FERB posted there, their tags and times, and that chat.history reads them; the line shows
+/// none of their words, so its origin is FERB's. A notice that is the last entry before the owner's new message is
+/// still shown in full (he may be replying to it); the rest of its run is folded. Nothing is removed from the journal or
+/// from search.
+// decision: ORCH-728
+pub fn fold_notices(entries: Vec<Entry>, zone: &Zone) -> Vec<Entry> {
+    let last = entries.len().checked_sub(1);
+    let mut out: Vec<Entry> = Vec::new();
+    let mut run: Vec<Entry> = Vec::new();
+    let flush = |run: &mut Vec<Entry>, out: &mut Vec<Entry>| {
+        let (Some(first), Some(end)) = (run.first(), run.last()) else {
+            return;
+        };
+        let tag = |e: &Entry| {
+            e.text
+                .split_once(' ')
+                .map(|(t, _)| t.to_string())
+                .unwrap_or_default()
+        };
+        let (tags, when_) = if run.len() == 1 {
+            (tag(first), when(&first.at, zone))
+        } else {
+            (
+                format!("{}–{}", tag(first), tag(end)),
+                format!("{} to {}", when(&first.at, zone), when(&end.at, zone)),
+            )
+        };
+        let line = notices_folded(&tags, &when_, run.len());
+        out.push(Entry {
+            at: end.at,
+            text: line.clone(),
+            payload: line,
+            reference: "chat.history".into(),
+            chat: true,
+            origins: [origin::FERB.to_string()].into_iter().collect(),
+            handle: first.handle.clone(),
+            kind: "chat.notice".into(),
+            refs: run.iter().skip(1).map(|e| e.handle.clone()).collect(),
+            opens: false,
+            values: None,
+            result: String::new(),
+        });
+        run.clear();
+    };
+    for (i, e) in entries.into_iter().enumerate() {
+        // anything but a notice, and a notice that is the last entry before the new message, is shown as it is
+        if e.kind != "chat.notice" || Some(i) == last {
+            flush(&mut run, &mut out);
+            out.push(e);
+        } else {
+            run.push(e);
+        }
+    }
+    flush(&mut run, &mut out);
+    out
+}
+
 /// A context block with the origins of what it shows (S3), as `_supervise` carries each.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Sourced {

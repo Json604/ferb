@@ -165,6 +165,12 @@ pub trait Daemon: Send + Sync {
     fn bounded_planner(&self) -> bool {
         true
     }
+    /// ORCH-731 (front door step 2a): whether a call with no task tree hands back its answer before its program has
+    /// closed (true; ferb-worker `WorkerConfig::answer_before_close`). A replay of a Python recording, whose records
+    /// show every close before the answer was used, says false (the named difference).
+    fn answer_before_close(&self) -> bool {
+        true
+    }
     /// `getattr(gateway.caps.get(tool), "reads_content", False)`.
     fn reads_content(&self, tool: &str) -> bool;
     /// `gateway.tools_for(grant)`: the rows `{name, description, input_schema}`.
@@ -802,6 +808,10 @@ pub struct Turn {
     pub said_first: String,
     pub said_first_cards: Vec<Value>,
     pub decided: Option<f64>,
+    /// ORCH-732: when this turn's intake began (its `planner.prepare` span's start, the injected monotonic clock).
+    pub intake_at: Option<f64>,
+    /// ORCH-732: this turn's first text frame's time is recorded (once per turn, on the call that sent it).
+    pub first_text_told: bool,
     pub preview: bool,
     /// The planner's pre-call span, open from intake to its first call (ORCH-525).
     pub prepare: Option<turn::Prepare>,
@@ -1169,6 +1179,7 @@ impl Supervisor {
             tokenizer: inner.deps.tokenizer,
             prompts: inner.deps.prompts.clone(),
             approach: crate::prompts::APPROACH.to_string(),
+            answer_before_close: inner.deps.daemon.answer_before_close(),
         };
         let worker = Arc::new(Worker::new(host, inner.runs.clone(), config));
         let _ = inner.worker.set(worker);

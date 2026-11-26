@@ -684,6 +684,10 @@ impl Daemon for TestDaemon {
     fn bounded_planner(&self) -> bool {
         false
     }
+    // decision: ORCH-731 (the Python recordings closed every program before the answer was used)
+    fn answer_before_close(&self) -> bool {
+        false
+    }
     fn tool_names(&self) -> Vec<String> {
         self.tools.iter().map(|t| t.name.clone()).collect()
     }

@@ -411,6 +411,7 @@ impl Inner {
         let result = match decided {
             Err(failure) => self.failed(&turn, &failure, emit).await,
             Ok(d) => {
+                self.lapsed_question(session_id, &turn);
                 // the running summary's fold, in the background (fold.rs)
                 self.start_keep_recent(session_id);
                 self.route(&turn, d.out, emit).await
@@ -620,7 +621,11 @@ impl Inner {
         {
             Ok(t) => {
                 self.live().turns.insert(lead.to_string(), t.clone());
-                t.lock().unwrap().prepare = Some(prep);
+                {
+                    let mut held = t.lock().unwrap();
+                    held.intake_at = Some(prep.started);
+                    held.prepare = Some(prep);
+                }
                 Ok(t)
             }
             Err(e) => {
@@ -696,9 +701,15 @@ impl Inner {
                 s = futures_util::future::join_all(waiting.iter().map(|rid| self.screen_at_send(rid))) => s,
                 _ = cancel.wait() => return Err(Failure::Cancelled),
             };
-            for (rid, seen) in waiting.iter().zip(seens) {
+            for (rid, mut seen) in waiting.iter().zip(seens) {
                 if let Some(line) = self.live().lines.get_mut(session_id) {
                     if let Some(a) = line.arrivals.get_mut(rid) {
+                        // decision: SENSE-432 — a message from the phone carries the front window's name, never a
+                        // picture of the Mac's screen: the planner, the task's worker and the trace get none
+                        if from_phone(a.sent_from.as_deref()) && seen.front.is_some() {
+                            seen.image = None;
+                            seen.withheld = Some(PHONE_NO_PICTURE.to_string());
+                        }
                         a.seen = Some(seen);
                     }
                 }
@@ -792,8 +803,9 @@ impl Inner {
             .filter(|e| e.get("by").is_some_and(ferb_py::value::truthy))
             .map(|e| (e.text("by"), e.text("request_id")))
             .collect();
+        // a message the question lapsed on (ORCH-729) ends the chain as one it was kept over did
         let kept: BTreeSet<String> = self
-            .of_kind("question.kept", "", "", None)
+            .entries_of(&["question.kept", LAPSED])
             .iter()
             .map(|e| e.text("by"))
             .collect();
@@ -933,8 +945,12 @@ impl Inner {
         t.message_origin = made;
     }
 
-    /// supervisor.py:2660 `_kept_question`.
+    /// supervisor.py:2660 `_kept_question`: a replay of a Python recording's (the bounded planner lets the question
+    /// lapse instead, [`Inner::lapsed_question`]).
     fn kept_question(&self, session_id: &str, turn: &Arc<Mutex<Turn>>) {
+        if self.deps.daemon.bounded_planner() {
+            return;
+        }
         let open = turn.lock().unwrap().open.is_some();
         let answered = self
             .live()
@@ -951,6 +967,34 @@ impl Inner {
         let by = turn.lock().unwrap().request_id.clone();
         self.journal(
             "question.kept",
+            json!({"request_id": rows.last().map(|r| r.text("request_id")).unwrap_or_default(), "by": by}),
+            None,
+        );
+    }
+
+    /// ORCH-729 (front door step 3b; changes ORCH-586's "the question stays open"): FERB's question lives only until
+    /// the owner's next message. That message is read with it apart and joined when the planner says it answers it
+    /// (`join_question`); otherwise, once the turn's planner has decided (after any restart, so a restart that joins
+    /// still journals its answer), the question is cleared and `question.lapsed` journaled in place of
+    /// `question.kept`: it never sits above a later message. The request stays in the chat like any message. A turn
+    /// that failed leaves it as it was.
+    // decision: ORCH-729
+    fn lapsed_question(&self, session_id: &str, turn: &Arc<Mutex<Turn>>) {
+        if !self.deps.daemon.bounded_planner() || turn.lock().unwrap().open.is_none() {
+            return;
+        }
+        let asked = self
+            .continuity(|c| c.pending(session_id))
+            .map(|(_, a)| a.as_str().unwrap_or("").to_string())
+            .unwrap_or_default();
+        if asked.is_empty() {
+            return;
+        }
+        let _ = self.continuity(|c| c.save_pending(session_id, "", "", ""));
+        let rows = self.of_kind("chat.clarify", "session_id", session_id, None);
+        let by = turn.lock().unwrap().request_id.clone();
+        self.journal(
+            LAPSED,
             json!({"request_id": rows.last().map(|r| r.text("request_id")).unwrap_or_default(), "by": by}),
             None,
         );
@@ -1445,13 +1489,25 @@ impl Inner {
             input.insert("last_call".into(), json!(last_call));
         }
         let span = self.span_start("model.turn", None, None, None, Value::Object(input));
+        // decision: ORCH-732 — the time to the owner's first word: when this call sent the turn's first reply or plan
+        // text frame (only with the bounded planner: a Python recording's replay keeps its model.turn bytes)
+        let first_text: Arc<Mutex<Option<f64>>> = Arc::default();
+        let timed = self.deps.daemon.bounded_planner();
         let draft = emit.map(|emit| {
             let emit = emit.clone();
+            let first = first_text.clone();
+            let clock = self.deps.clock.clone();
             Arc::new(Mutex::new(
                 ferb_orchestrator::reply_stream::ReplyDraft::new(
                     self.deps.redactor.clone(),
                     self.deps.policy.clone(),
                     Arc::new(move |v: Value| {
+                        if timed && text_frame(&v) {
+                            first
+                                .lock()
+                                .unwrap()
+                                .get_or_insert_with(|| clock.monotonic());
+                        }
                         let _ = emit.send(v);
                     }),
                     None,
@@ -1521,6 +1577,16 @@ impl Inner {
             let call = call_timing.lock().unwrap().clone();
             if !call.is_empty() {
                 t.insert("call".into(), Value::Object(call));
+            }
+            // decision: ORCH-732 — once per turn, on the call that sent its first text frame: ms from its intake
+            let sent = *first_text.lock().unwrap();
+            if let Some(sent) = sent {
+                let mut held = turn.lock().unwrap();
+                if let (false, Some(intake)) = (held.first_text_told, held.intake_at) {
+                    held.first_text_told = true;
+                    let ms = ((sent - intake) * 1000.0).round_ties_even() as i64;
+                    t.insert("first_text_ms".into(), json!(ms));
+                }
             }
             Value::Object(t)
         };
@@ -1670,15 +1736,20 @@ impl Inner {
     }
 
     /// supervisor.py:3778 `_conversation_blocks`: the conversation as context blocks with their origins, the entries'
-    /// ages, and the newest shown result's id. `since_last_notice` (the attention check, I2): only the entries after
-    /// the conversation's last notice.
+    /// ages, the newest shown result's id, and when the owner's previous message and FERB's last reply were (ORCH-730).
+    /// `since_last_notice` (the attention check, I2): only the entries after the conversation's last notice.
     #[allow(clippy::type_complexity)]
     pub(crate) fn conversation_view(
         &self,
         current: &BTreeSet<String>,
         session: &str,
         since_last_notice: bool,
-    ) -> Flow<(Vec<Sourced>, Vec<(String, ferb_clock::py::Time)>, String)> {
+    ) -> Flow<(
+        Vec<Sourced>,
+        Vec<(String, ferb_clock::py::Time)>,
+        String,
+        LastSaid,
+    )> {
         let summary = self
             .of_kind(SUMMARY_KIND, "session_id", session, None)
             .last()
@@ -1717,6 +1788,18 @@ impl Inner {
             zone: &zone,
         });
         let latest = latest_result(&entries);
+        // decision: ORCH-730 — the owner's previous message and FERB's last reply (this turn's messages are not here)
+        let last_of = |kinds: &[&str]| {
+            entries
+                .iter()
+                .rev()
+                .find(|e| kinds.contains(&e.kind.as_str()))
+                .map(|e| e.at)
+        };
+        let said = LastSaid {
+            owner: last_of(&["chat.message"]),
+            ferb: last_of(&["chat.reply", "chat.clarify", "task.answer"]),
+        };
         let summary_row = summary.as_ref().map(Entry::row);
         // decision: ORCH-719 — the hard stop: whatever the summary did, at most 40 exchanges and 20k tokens word for
         // word; the rest stays stored and chat.history reads it
@@ -1727,6 +1810,11 @@ impl Inner {
             0
         };
         entries.drain(..not_shown);
+        // decision: ORCH-728 — FERB's own notices leave the word-for-word window, one line per run (the attention
+        // check reads only what follows the last notice: nothing to fold there)
+        if self.deps.daemon.bounded_planner() && !since_last_notice {
+            entries = crate::history::fold_notices(entries, &zone);
+        }
         let conversation = conversation_blocks(
             entries,
             summary_row.as_ref(),
@@ -1734,7 +1822,7 @@ impl Inner {
             self.deps.tokenizer,
             not_shown,
         );
-        Ok((conversation, ages, latest))
+        Ok((conversation, ages, latest, said))
     }
 
     /// `_supervise`'s blocks (supervisor.py:3497-3601): the runtime, the context and the blocks with their origins.
@@ -1790,7 +1878,8 @@ impl Inner {
             .map_err(Failure::Worker)?;
         prep.mark(self, "runtime");
         // the conversation (`_conversation_blocks`)
-        let (conversation, ages, latest) = self.conversation_view(&current, &session, false)?;
+        let (conversation, ages, latest, said) =
+            self.conversation_view(&current, &session, false)?;
         // decision: ORCH-725 — no line of the entries' ages (a Python recording's replay keeps it)
         let ages = if self.deps.daemon.bounded_planner() {
             Vec::new()
@@ -1903,6 +1992,7 @@ impl Inner {
                 .map(|e| (e.id.clone(), e.origin.clone()))
                 .collect(),
             asked_outside: s.asked_outside.clone(),
+            lapses: self.deps.daemon.bounded_planner(),
         });
         let entry_ids: Vec<String> = t.entries.iter().map(|e| e.id.clone()).collect();
         // SENSE-424: each message's device, as its journal row recorded it
@@ -1917,6 +2007,15 @@ impl Inner {
             })
             .collect();
         let now = self.now();
+        // decision: ORCH-730 — how long ago, in the changing tail (a Python recording's replay has no such line)
+        let last_said = if self.deps.daemon.bounded_planner() {
+            let since = |t: Option<ferb_clock::py::Time>| {
+                t.map(|t| ferb_clock::py::total_seconds(&now, &t))
+            };
+            crate::words::last_said(since(said.owner), since(said.ferb))
+        } else {
+            None
+        };
         let last_runs = if preview || fresh {
             BTreeSet::new()
         } else {
@@ -1973,6 +2072,7 @@ impl Inner {
             payload: &t.payload,
             message_origin: &t.message_origin,
             sent_from: &sent_from,
+            last_said: last_said.as_deref(),
             wrap: &wrap,
             zone: &zone,
         });
@@ -3014,6 +3114,8 @@ pub struct Resumed {
 pub struct Prepare {
     span: String,
     steps: ferb_core::timing::Steps,
+    /// When it began (the injected monotonic clock): the turn's intake for its first word's time (ORCH-732).
+    started: f64,
 }
 
 impl Prepare {
@@ -3024,9 +3126,11 @@ impl Prepare {
         }
         let span = sup.span_start("planner.prepare", None, None, None, Value::Object(input));
         let clock = sup.deps.clock.clone();
+        let started = clock.monotonic();
         Prepare {
             span,
             steps: ferb_core::timing::Steps::new(Box::new(move || clock.monotonic())),
+            started,
         }
     }
 
@@ -3044,6 +3148,13 @@ impl Prepare {
             None,
         );
     }
+}
+
+/// ORCH-730: when the owner's previous message and FERB's last reply in this chat were, as the conversation holds them.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LastSaid {
+    pub owner: Option<ferb_clock::py::Time>,
+    pub ferb: Option<ferb_clock::py::Time>,
 }
 
 /// ORCH-703: what the owner reads when FERB's plan for his message still couldn't be carried out after a repair.
@@ -3092,6 +3203,16 @@ pub fn repair_class(e: &ferb_orchestrator::validate::ValidationError) -> &'stati
     e.raised().map(|r| r.exception).unwrap_or("ValidationError")
 }
 
+/// A frame of words the owner reads as the planner writes them: ReplyDraft's `reply_delta` or `plan_delta` with text.
+fn text_frame(v: &Value) -> bool {
+    v.get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|t| t.ends_with("_delta"))
+        && v.get("text")
+            .and_then(Value::as_str)
+            .is_some_and(|t| !t.is_empty())
+}
+
 pub fn origin_set(items: &[&str]) -> BTreeSet<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
@@ -3119,16 +3240,27 @@ fn by_window(arrivals: &[(Arrival, super::Seen)]) -> Vec<super::Seen> {
     let mut windows: Vec<(Vec<String>, super::Seen)> = Vec::new();
     for (arrival, seen) in arrivals {
         let key = seen.window_key();
-        let earlier = match windows.iter().position(|(k, _)| *k == key) {
-            Some(i) => windows.remove(i).1.said,
-            None => Vec::new(),
-        };
+        let earlier = windows
+            .iter()
+            .position(|(k, _)| *k == key)
+            .map(|i| windows.remove(i).1);
         let text = match &arrival.marked {
             Some(m) => m.for_model.clone(),
             None => arrival.text.clone(),
         };
-        let mut seen = seen.clone();
-        seen.said = earlier;
+        // decision: SENSE-432 — a message from the phone (no picture) never takes a Mac message's picture of the same
+        // window away: that window is given as the Mac message captured it
+        let mut seen = match &earlier {
+            Some(e)
+                if seen.image.is_none()
+                    && e.image.is_some()
+                    && from_phone(arrival.sent_from.as_deref()) =>
+            {
+                e.clone()
+            }
+            _ => seen.clone(),
+        };
+        seen.said = earlier.map(|e| e.said).unwrap_or_default();
         seen.said.push(crate::lines::said(&text));
         windows.push((key, seen));
     }

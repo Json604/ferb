@@ -54,6 +54,13 @@ pub struct WorkerConfig {
     pub prompts: PromptRoot,
     /// The supervisor's `_approach()`: the prompts' folder ("orchestrator/prompts").
     pub approach: String,
+    /// ORCH-731 (front door step 2a): a call with no task tree (the planner's turn and the other one-shot calls)
+    /// returns its answer as soon as its stream ended and the answer passed its check; the run is taken out of the
+    /// running calls then, and its program is closed after, in a task of its own ([`Worker::closes_done`] joins
+    /// it). Its `close` step then holds only that wait (about 0 ms) and the close's own time goes in a `model.close`
+    /// span. False: every call returns only once its run closed, as Python's did (the recorded replays keep it
+    /// off: the late close changes the order of their records).
+    pub answer_before_close: bool,
 }
 
 /// What one attempt handed back (worker.py `run_worker`'s first value).
@@ -145,6 +152,8 @@ pub struct Worker {
     host: Arc<dyn WorkerHost>,
     runs: Arc<Runs>,
     config: WorkerConfig,
+    /// ORCH-731: the closes still running after their call returned its answer (`answer_before_close`).
+    closing: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 /// worker.py:249 `reserve_tokens`: tokens kept beside the context: the instructions, the tool and answer schemas
@@ -374,7 +383,27 @@ impl Drop for Cleanup<'_> {
 
 impl Worker {
     pub fn new(host: Arc<dyn WorkerHost>, runs: Arc<Runs>, config: WorkerConfig) -> Self {
-        Worker { host, runs, config }
+        Worker {
+            host,
+            runs,
+            config,
+            closing: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// ORCH-731: resolves once every run closing after its call returned has closed (its program stopped, its usage
+    /// and close recorded), including closes begun while this waits. The daemon's shutdown awaits it, so no program
+    /// is left behind.
+    pub async fn closes_done(&self) {
+        loop {
+            let jobs = std::mem::take(&mut *self.closing.lock().unwrap_or_else(|e| e.into_inner()));
+            if jobs.is_empty() {
+                return;
+            }
+            for job in jobs {
+                let _ = job.await;
+            }
+        }
     }
 
     pub fn host(&self) -> &dyn WorkerHost {
@@ -1476,6 +1505,31 @@ impl Worker {
         if worker_id.is_empty() {
             host.activity().end(&watch_id);
         }
+        // ORCH-731: a tree-less call's good answer goes back now; its run leaves the running calls at once (nothing
+        // sees it as running) and its program closes after. A failure, a stall or a call of a tree closes first.
+        let early = if tree.is_none() && self.config.answer_before_close && body.is_ok() {
+            if self.runs.is_stalled(&watch_id) || final_text.is_empty() {
+                None
+            } else {
+                check_final(&final_text, output_schema.as_ref()).ok()
+            }
+        } else {
+            None
+        };
+        if let Some(text) = early {
+            self.runs.remove_active(&handle.id);
+            self.runs.remove_worker_run(worker_id);
+            self.runs.remove_connection(worker_id);
+            cleanup.armed = false;
+            tell_timing(&mut steps, "close", calls, &start_state);
+            self.close_after(
+                control,
+                span_task(task).map(str::to_string),
+                call.parent_span.to_string(),
+                name,
+            );
+            return Ok(text);
+        }
         // close: under the steering lock when the call belongs to a tree
         {
             let guard = match tree {
@@ -1494,19 +1548,13 @@ impl Worker {
             }
         }
         cleanup.armed = false;
-        // RUN-477: what the provider counted that no usage event carried (the run stopped, failed or was cancelled
-        // first) is recorded as the run's other usage is
-        for usage in control.unreported_usage() {
-            let s = host.span_start(
-                "model.usage",
-                span_task(task),
-                Some(call.parent_span),
-                None,
-                obj(json!({"runtime": name})),
-            );
-            let cost = usage.get("cost_usd").cloned();
-            host.span_finish(&s, Some(usage), None, cost);
-        }
+        record_unreported(
+            host,
+            control.as_ref(),
+            span_task(task),
+            call.parent_span,
+            &name,
+        );
         tell_timing(&mut steps, "close", calls, &start_state);
         body?;
         if self.runs.is_stalled(&watch_id) {
@@ -1534,6 +1582,69 @@ impl Worker {
         self.runs.remove_worker_run(worker_id);
         self.runs.remove_connection(worker_id);
         control.cancel().await;
+    }
+
+    /// ORCH-731: the rest of a close whose call already returned its answer (the run already left the running
+    /// calls), in a task of its own, in today's order: the program closed (`cancel`), the usage no event carried
+    /// (RUN-477), then the close's own time: a `model.close` span under the call's parent, `{"close_ms": n}`, on the
+    /// injected clock, started as the close begins.
+    fn close_after(
+        &self,
+        control: Arc<dyn RunControl>,
+        task_id: Option<String>,
+        parent: String,
+        runtime: String,
+    ) {
+        let host = self.host.clone();
+        let job = tokio::spawn(async move {
+            let mono = {
+                let h = host.clone();
+                move || h.clock().monotonic()
+            };
+            let mut steps = Steps::new(Box::new(mono));
+            let span = host.span_start(
+                "model.close",
+                task_id.as_deref(),
+                Some(&parent),
+                None,
+                obj(json!({"runtime": runtime})),
+            );
+            control.cancel().await;
+            let close_ms = steps.mark("close");
+            record_unreported(
+                host.as_ref(),
+                control.as_ref(),
+                task_id.as_deref(),
+                &parent,
+                &runtime,
+            );
+            host.span_finish(&span, Some(obj(json!({"close_ms": close_ms}))), None, None);
+        });
+        let mut closing = self.closing.lock().unwrap_or_else(|e| e.into_inner());
+        closing.retain(|j| !j.is_finished());
+        closing.push(job);
+    }
+}
+
+/// RUN-477: what the provider counted that no usage event carried (the run stopped, failed or was cancelled first),
+/// read once after the run's `cancel`, is recorded as the run's other usage is.
+fn record_unreported(
+    host: &dyn WorkerHost,
+    control: &dyn RunControl,
+    task_id: Option<&str>,
+    parent: &str,
+    runtime: &str,
+) {
+    for usage in control.unreported_usage() {
+        let s = host.span_start(
+            "model.usage",
+            task_id,
+            Some(parent),
+            None,
+            obj(json!({"runtime": runtime})),
+        );
+        let cost = usage.get("cost_usd").cloned();
+        host.span_finish(&s, Some(usage), None, cost);
     }
 }
 

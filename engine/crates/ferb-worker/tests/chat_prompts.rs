@@ -120,6 +120,7 @@ async fn worker_and_checker_prompts_match_the_recorded_daemon() {
                     tokenizer: Tokenizer::Utf8Bytes,
                     prompts: PromptRoot::new(repo().join("engine/runtime")).unwrap(),
                     approach: "orchestrator/prompts".into(),
+                    answer_before_close: false,
                 },
             ));
             let _ = host.worker.set(Arc::downgrade(&worker));

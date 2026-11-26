@@ -151,7 +151,7 @@ fn every_recorded_system_text() {
 /// Each deliberate prompt change (engine/fixtures/catalog/prompt_changes.json) is in its prompt file now, its old text
 /// is gone from it, and it changes recorded texts: the recordings' other bytes are compared unchanged. A change may
 /// change an earlier change's text again.
-// decision: ORCH-640, ORCH-663, PRM-373, PRM-376
+// decision: ORCH-640, ORCH-663, PRM-373, PRM-376, PRM-384
 #[test]
 fn the_deliberate_prompt_changes_are_the_only_ones() {
     let dir = repo().join("engine/runtime/orchestrator/prompts");

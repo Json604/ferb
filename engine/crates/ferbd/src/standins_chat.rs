@@ -391,6 +391,10 @@ impl Reads for ScriptReads {
     fn bounded_planner(&self) -> bool {
         false
     }
+    // decision: ORCH-731 (the Python recordings closed every program before the answer was used)
+    fn answer_before_close(&self) -> bool {
+        false
+    }
     fn memory_blocks<'a>(
         &'a self,
         message: &'a str,

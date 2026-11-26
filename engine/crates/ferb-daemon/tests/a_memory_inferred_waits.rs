@@ -142,11 +142,23 @@ fn owners_store(st: &std::rc::Rc<State>) -> (String, String, Vec<String>, Vec<St
     for id in [&his, &seen] {
         st.profile.add(id, "Who you are", "pass").unwrap();
     }
-    // his one Approve all: each line his pin, its line approved
-    let n = memory_import::job(st)
-        .answer_review(&st.profile, "always_on", &lines, "approve")
-        .unwrap();
-    assert_eq!(n, LINES);
+    // his one Approve all, as the older build stored it: each line his pin, its line marked approved
+    for (n, id) in lines.iter().enumerate() {
+        st.store
+            .exec(
+                "INSERT INTO memory_profile (item_id, section, position, added_by, added_at) \
+                 VALUES (?, 'How you like things done', ?, 'owner', 'x')",
+                ferb_learning::sql![id, n as i64],
+            )
+            .unwrap();
+        st.store
+            .exec(
+                "UPDATE memory_import_lines SET data_json = json_set(data_json, '$.always_on', 'approved') \
+                 WHERE item_id = ?",
+                ferb_learning::sql![id],
+            )
+            .unwrap();
+    }
     // and what an earlier build joined by itself (MEM-445), no answer of his on it
     let mut joined = Vec::new();
     for n in 0..JOINED {
@@ -182,20 +194,18 @@ fn owners_store(st: &std::rc::Rc<State>) -> (String, String, Vec<String>, Vec<St
     (his, seen, lines, joined)
 }
 
-// decision: MEM-480, MEM-482, MEM-483
+// decision: MEM-482, MEM-489
 #[tokio::test]
-async fn the_upgrade_keeps_what_he_approved_and_asks_about_what_an_earlier_build_joined() {
+async fn the_upgrade_takes_every_imported_line_out_of_always_on_and_asks_nothing_about_them() {
     let tmp = tempfile::tempdir().unwrap();
     let d = daemon(tmp.path()).await;
     let (his, seen, lines, joined) = d
         .on(|st| {
             Box::pin(async move {
                 let out = owners_store(&st);
-                // the earlier build's rows (the guard already keeps the 3 unanswered ones out of the prompts)
+                // the earlier build's rows: the 65 he approved and the 3 it joined by itself
                 let rows = st.profile.ids().unwrap();
                 assert!(out.2.iter().chain(&out.3).all(|id| rows.contains(id)));
-                let before = always_on(&st);
-                assert!(!out.3.iter().any(|id| before.contains(id)), "{before}");
                 memory::start(&st).unwrap();
                 out
             })
@@ -204,93 +214,43 @@ async fn the_upgrade_keeps_what_he_approved_and_asks_about_what_an_earlier_build
     let (h, s, l, j) = (his.clone(), seen.clone(), lines.clone(), joined.clone());
     d.on(move |st| {
         Box::pin(async move {
-            // his words, the observed fact and the 65 he approved stay always on; what no one answered leaves
+            // his words and the observed fact stay always on; no imported line does, approved or not (MEM-489)
             let text = always_on(&st);
             assert!(text.contains(&h) && text.contains(&s), "{text}");
-            assert!(
-                l.iter().all(|id| text.contains(id)),
-                "his Approve all stands: {text}"
-            );
-            assert!(!j.iter().any(|id| text.contains(id)), "{text}");
-            assert_eq!(st.profile.entries().unwrap().len(), 2 + LINES);
-            // nothing deleted: what left is still remembered and found by the lookups' search
-            for id in &j {
+            assert!(!l.iter().chain(&j).any(|id| text.contains(id)), "{text}");
+            assert_eq!(st.profile.entries().unwrap().len(), 2);
+            // nothing deleted: every one is still remembered and found by the lookups' search
+            for id in l.iter().chain(&j) {
                 assert_eq!(st.memory.get(id).unwrap().unwrap().status, "active");
             }
+            let found =
+                candidates::memory_item_search(&st, "step 7 planned before it is built").unwrap();
+            assert!(found.contains(&l[7]), "{found:?}");
             let found = candidates::memory_item_search(&st, "theme 1 in editors").unwrap();
             assert!(found.contains(&j[1]), "{found:?}");
+            // one journal row for the move, and a later start moves nothing more
+            let moved = |st: &State| {
+                st.store
+                    .count(
+                        "SELECT COUNT(*) FROM journal WHERE kind = 'memory.imported_not_always_on'",
+                        ferb_learning::sql![],
+                    )
+                    .unwrap()
+            };
+            assert_eq!(moved(&st), 1);
+            memory::start(&st).unwrap();
+            assert_eq!(moved(&st), 1);
+            assert!(!l.iter().chain(&j).any(|id| always_on(&st).contains(id)));
         })
     })
     .await;
-    // nothing asked at the start (MEM-485); the day's first open: one card in the chat for what waits, as the chat,
-    // the Memory page and the phones draw it
+    // nothing about them is asked: not at the start, not at the day's first open
     assert!(asks(&d).is_empty());
     setup_done(&d).await;
     daily(&d).await;
-    let asked = asks(&d);
-    assert_eq!(asked.len(), 1, "{asked:?}");
-    assert_eq!(asked[0]["kind"], "memory_review");
-    assert_eq!(
-        asked[0]["detail"],
-        "3 things to keep in mind all the time. Untick anything that isn't right, or just tell me."
-    );
-    // the Memory page's "To check" reads the same list, any time
+    assert!(asks(&d).is_empty(), "{:?}", asks(&d));
     let review = call(&d, "memory.review", json!({})).await;
-    assert_eq!(review["result"]["count"], json!(JOINED), "{review}");
-    let part = &review["result"]["parts"][0];
-    assert_eq!(part["title"], "Keep these in mind all the time?");
-    let labels: Vec<&str> = part["all"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|b| b["label"].as_str().unwrap())
-        .collect();
-    assert_eq!(labels, vec!["Approve all", "Decline all"]);
-    // a second start (a restart) asks the same question again with the list as it stands, never a new one
-    d.on(|st| Box::pin(async move { memory::start(&st).unwrap() }))
-        .await;
-    let again = asks(&d);
-    assert!(again.iter().all(|a| a["id"] == asked[0]["id"]), "{again:?}");
-    // his Yes puts one in; his No keeps another out, remembered
-    let reply = call(
-        &d,
-        "memory.review.answer",
-        json!({"part": "always_on", "item_ids": [joined[0]], "answer": "approve"}),
-    )
-    .await;
-    assert_eq!(reply["result"]["answered"], json!(1), "{reply}");
-    call(
-        &d,
-        "memory.review.answer",
-        json!({"part": "always_on", "item_ids": [joined[1]], "answer": "decline"}),
-    )
-    .await;
-    let (l, j) = (lines.clone(), joined.clone());
-    d.on(move |st| {
-        Box::pin(async move {
-            let text = always_on(&st);
-            assert!(text.contains(&j[0]) && !text.contains(&j[1]), "{text}");
-            assert_eq!(st.memory.get(&j[1]).unwrap().unwrap().status, "active");
-            assert_eq!(
-                memory_import::job(&st).review().unwrap()["count"],
-                json!(JOINED - 2)
-            );
-            let rows = st
-                .store
-                .count(
-                    "SELECT COUNT(*) FROM journal WHERE kind = ?",
-                    ferb_learning::sql![ferb_learning::import_review::WAITING_KIND],
-                )
-                .unwrap();
-            assert_eq!(rows, 1, "journaled only when it moved something");
-            // a later start keeps every answer, the old Approve all and the new ones
-            memory::start(&st).unwrap();
-            let text = always_on(&st);
-            assert!(text.contains(&j[0]) && !text.contains(&j[1]), "{text}");
-            assert!(l.iter().all(|id| text.contains(id)), "{text}");
-        })
-    })
-    .await;
+    assert_eq!(review["result"]["count"], json!(0), "{review}");
 }
 
 // decision: MEM-481, MEM-485 — FERB's own understanding seen on two days waits in the same list, the day's first

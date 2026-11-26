@@ -82,6 +82,10 @@ pub trait Reads: Send + Sync {
     fn bounded_planner(&self) -> bool {
         true
     }
+    /// ORCH-731's named difference: a replay of a Python recording closes every program before its answer is used.
+    fn answer_before_close(&self) -> bool {
+        true
+    }
     fn on_task_start<'a>(&'a self, tree_id: &'a str) -> BoxFuture<'a, ()>;
     fn on_task_finish<'a>(&'a self, tree_id: &'a str) -> BoxFuture<'a, ()>;
     /// (bundle id, name, pid) of the apps running now.
@@ -733,6 +737,9 @@ impl Daemon for SupDaemon {
     }
     fn bounded_planner(&self) -> bool {
         self.reads.bounded_planner()
+    }
+    fn answer_before_close(&self) -> bool {
+        self.reads.answer_before_close()
     }
     fn named_only(&self, tool: &str) -> bool {
         self.gateway

@@ -849,7 +849,7 @@ area = "orchestration"
 kind = "build"
 status = "open"
 why = "ORCH-719 (owner 2026-11-25); kb/plans/context.md. Also step 8 of kb/plans/front-door.md (ORCH-726): the library's contents list and the Librarian (code's day list, one model call a day and one a month); the running summary goes."
-decisions = ["ORCH-719", "ORCH-726"]
+decisions = ["ORCH-719", "ORCH-726", "ORCH-727"]
 after = ["T-1336"]
 
 [T-1338]
@@ -857,7 +857,7 @@ title = "Front door step 1: stopwatches (Claude and API timers, time to first wo
 area = "runtimes"
 kind = "build"
 status = "open"
-why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 1. Done: the Claude and API timers' real clock (journal 254). Left: time to the first word per turn, the relay's record of tool names and error flags per request, both in ferb stats."
+why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 1. Done: the real clock (254), the relay record (255), first_text_ms (256). Left: ferb stats and ferb trace show the first-word time and the relay steps."
 decisions = ["ORCH-726"]
 
 [T-1339]
@@ -865,7 +865,7 @@ title = "Front door step 2: use the answer on arrival, close after; fix Claude's
 area = "runtimes"
 kind = "build"
 status = "open"
-why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 2. The turn waits for the program's exit (about 2.1 s on 3 of 6 Claude turns); the doubled answer's fix follows step 1's record."
+why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 2. Done: the answer before the close (257). Left: the fix for Claude's doubled answer, once the relay record (RUN-479) names its cause on the installed build."
 decisions = ["ORCH-726"]
 after = ["T-1338"]
 
@@ -874,7 +874,7 @@ title = "Front door step 3: notices, the pinned question, time since last messag
 area = "orchestration"
 kind = "build"
 status = "open"
-why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 3. Each part records the decision it changes (the plan's table: ORCH-586, MEM-483)."
+why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 3. Done: 3a-3e (256, 258). Left: the phone capture skips the picture at its seam (ferbd front_window_capture); LIVE-875 rewritten for ORCH-729; the Memory page hides Always on for an imported line."
 decisions = ["ORCH-726"]
 after = ["T-1339"]
 
@@ -913,12 +913,3 @@ status = "open"
 why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 7. The architect keeps today's plan rules and validation."
 decisions = ["ORCH-726"]
 after = ["T-1343"]
-
-[T-1345]
-title = "Owner: how many names per kind the library's contents list shows (the coordinator proposes 8)"
-area = "orchestration"
-kind = "question"
-status = "open"
-why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, waiting on the owner: a limit on what FERB sees every message (rule 18)."
-ask = "The library's contents list names a few of each kind of thing FERB remembers (\"people (8 of 52): ...\"). How many names per kind: 8, or another number?"
-decisions = ["ORCH-726"]

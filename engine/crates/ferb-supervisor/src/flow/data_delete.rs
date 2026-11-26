@@ -811,7 +811,7 @@ impl super::Inner {
     /// `data.context`: the conversation the planner would read for `conversation` now, block by block with each
     /// block's origins (the same `_conversation_blocks` its next turn reads).
     pub fn conversation_now(&self, conversation: &str) -> Result<Vec<Value>, String> {
-        let (blocks, _, _) = self
+        let (blocks, _, _, _) = self
             .conversation_view(&BTreeSet::new(), conversation, false)
             .map_err(|e| format!("{e:?}"))?;
         Ok(blocks

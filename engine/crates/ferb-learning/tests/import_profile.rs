@@ -354,10 +354,10 @@ fn in_profile(env: &Env, item_id: &str) -> Option<String> {
 }
 
 // decision: MEM-460 (the owner, 2026-11-23: "None by themselves; it gives me an easy to read list of thing s it thinks
-// shoudn be added in always on and i apprive/decline"), superseding MEM-445 for imports; IMP-47's recent repeat now
-// chooses what is suggested
+// shoudn be added in always on and i apprive/decline"), superseding MEM-445 for imports: nothing joins by itself;
+// MEM-489 (the owner, 2026-11-26: "never alwasy on"): nor is anything of an import offered for it
 #[test]
-fn an_import_never_puts_anything_in_always_on_it_lists_what_it_suggests_for_his_word() {
+fn an_import_never_puts_anything_in_always_on_nor_offers_it() {
     let env = Env::new("joins", None);
     at(&env, "2026-11-10T12:00:00+00:00");
     typed(
@@ -414,73 +414,39 @@ fn an_import_never_puts_anything_in_always_on_it_lists_what_it_suggests_for_his_
             .any(|e| e[0] == "profile.joined"),
         "no join was told"
     );
-    // the recent repeats are what FERB suggests, grouped, in plain words
+    // MEM-489 (the owner, 2026-11-26: "never alwasy on"): what an import brought in is never offered for always on,
+    // however often or lately it was said (MEM-460's suggestions of imported lines ended)
     let short = line_of(&job, "short answers");
     let laptop = line_of(&job, "laptop");
-    assert!(job.joins(&short) && job.joins(&laptop));
-    let suggested = part(&job, "always_on");
-    let ids: Vec<&str> = suggested.iter().map(|(i, _, _)| i.as_str()).collect();
-    assert_eq!(ids, vec![short.item_id.as_str(), laptop.item_id.as_str()]);
-    assert!(
-        suggested[0].1.starts_with("You prefer short answers"),
-        "{suggested:?}"
-    );
-    let review = job.review().unwrap();
-    let groups: Vec<&str> = review["parts"][0]["groups"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|g| g["title"].as_str().unwrap())
-        .collect();
-    assert_eq!(groups, vec!["How you like me to work", "About you"]);
+    assert!(job.joins(&short) && job.joins(&laptop), "recent repeats");
+    assert_eq!(job.suggest_always_on().unwrap(), 0);
+    assert!(part(&job, "always_on").is_empty());
+    assert_eq!(job.review().unwrap()["count"], 0);
+    assert_eq!(job.review_question().unwrap(), None);
+    // an answer naming one anyway changes nothing; his pin is refused, said plainly, and writes no row
     assert_eq!(
-        review["parts"][0]["title"],
-        "Keep these in mind all the time?"
-    );
-    let text = review.to_string();
-    assert!(
-        !text.contains(" AI") && !text.contains("\"AI"),
-        "never 'AI'"
-    );
-    // Approve: in the profile as his pin, holding up; it leaves the list
-    let n = job
-        .answer_review(
+        job.answer_review(
             &env.profile,
             "always_on",
             std::slice::from_ref(&short.item_id),
             "approve",
         )
-        .unwrap();
-    assert_eq!(n, 1);
-    assert_eq!(in_profile(&env, &short.item_id).as_deref(), Some("owner"));
-    assert!(holds(&line_of(&job, "short answers")));
-    // Decline: remembered only, never always on; it leaves the list
-    job.answer_review(
-        &env.profile,
-        "always_on",
-        std::slice::from_ref(&laptop.item_id),
-        "decline",
-    )
-    .unwrap();
-    assert_eq!(in_profile(&env, &laptop.item_id), None);
-    assert!(!holds(&line_of(&job, "laptop")));
-    assert_eq!(
-        env.memory.get(&laptop.item_id).unwrap().unwrap().status,
-        "active"
-    );
-    assert!(part(&job, "always_on").is_empty());
-    assert_eq!(job.review().unwrap()["count"], 0);
-    // an answered item answered again changes nothing; a later repeat never suggests it again
-    assert_eq!(
-        job.answer_review(
-            &env.profile,
-            "always_on",
-            std::slice::from_ref(&laptop.item_id),
-            "approve"
-        )
         .unwrap(),
         0
     );
+    let refused = env.profile.add(&short.item_id, "", "owner").unwrap_err();
+    assert_eq!(
+        refused.to_string(),
+        ferb_learning::profile::IMPORTED_REFUSAL
+    );
+    assert_eq!(in_profile(&env, &short.item_id), None);
+    assert!(!holds(&line_of(&job, "short answers")));
+    assert_eq!(
+        env.memory.get(&short.item_id).unwrap().unwrap().status,
+        "active",
+        "remembered"
+    );
+    // a later repeat never offers it either, and the weekly pass can't place any imported line
     at(&env, "2026-11-14T12:00:00+00:00");
     typed(
         &env,
@@ -493,7 +459,6 @@ fn an_import_never_puts_anything_in_always_on_it_lists_what_it_suggests_for_his_
     );
     import(&env, &job, "claude_code", "");
     assert!(part(&job, "always_on").is_empty());
-    // the weekly pass can't place a declined or unanswered imported line either
     let eligible: Vec<String> = env
         .profile
         .eligible()
@@ -501,15 +466,16 @@ fn an_import_never_puts_anything_in_always_on_it_lists_what_it_suggests_for_his_
         .into_iter()
         .map(|i| i.id)
         .collect();
-    assert!(!eligible.contains(&line_of(&job, "laptop").item_id));
-    assert!(!eligible.contains(&line_of(&job, "chess").item_id));
-    assert!(eligible.contains(&line_of(&job, "short answers").item_id));
+    for l in job.lines().unwrap() {
+        assert!(!eligible.contains(&l.item_id), "{}", l.content);
+    }
 }
 
-// decision: MEM-461 (the owner, 2026-11-23: "Show me one list to review"), refined by MEM-480 (the owner, 2026-11-25:
-// "idk ig wait"): one list still, but what an earlier build put in always on waits there for his Yes
+// decision: MEM-461 (the owner, 2026-11-23: "Show me one list to review"); MEM-489 (the owner, 2026-11-26: "never
+// alwasy on"), which ended MEM-480's wait for his Yes and MEM-483's "keep them" for imported lines: what an earlier
+// build or he himself put in always on of an import leaves it at the start, stays remembered and is never asked about
 #[test]
-fn lines_an_earlier_build_put_in_always_on_leave_it_and_wait_for_his_yes() {
+fn imported_lines_an_earlier_build_or_he_put_in_always_on_leave_it_and_are_not_asked() {
     let env = Env::new("earlier", None);
     at(&env, "2026-11-10T12:00:00+00:00");
     typed(
@@ -540,10 +506,8 @@ fn lines_an_earlier_build_put_in_always_on_leave_it_and_wait_for_his_yes() {
                 sql![id, by],
             )
             .unwrap();
-        // the earlier build marked no answer
-        let mut l = line_of(&job, &env.memory.get(id).unwrap().unwrap().content);
-        l.data.remove("always_on");
     }
+    // the earlier build marked no answer
     for l in job.lines().unwrap() {
         let mut l = l;
         l.data.remove("always_on");
@@ -554,73 +518,41 @@ fn lines_an_earlier_build_put_in_always_on_leave_it_and_wait_for_his_yes() {
             )
             .unwrap();
     }
-    // the start's step (MEM-480, superseding MEM-461's "stays on"): what an earlier build put in always on by itself
-    // waits for his word like any suggestion and leaves the prompts meanwhile; his own pin is his answer already
-    assert_eq!(job.suggest_always_on().unwrap(), 3);
-    assert_eq!(job.suggest_always_on().unwrap(), 0, "marked once");
-    let listed = part(&job, "always_on");
-    let ids: BTreeSet<&str> = listed.iter().map(|(i, _, _)| i.as_str()).collect();
-    assert_eq!(
-        ids,
-        BTreeSet::from([short.item_id.as_str(), laptop.item_id.as_str()])
-    );
-    assert!(
-        listed.iter().all(|(_, _, note)| note.is_empty()),
-        "{listed:?}"
-    );
-    let review = job.review().unwrap();
-    let labels = |v: &serde_json::Value| -> Vec<String> {
-        v.as_array()
-            .unwrap()
-            .iter()
-            .map(|b| b["label"].as_str().unwrap().to_owned())
-            .collect()
-    };
-    assert_eq!(
-        labels(&review["parts"][0]["answers"]),
-        vec!["Approve", "Decline"]
-    );
-    assert_eq!(
-        labels(&review["parts"][0]["all"]),
-        vec!["Approve all", "Decline all"]
-    );
+    // none of them is offered, none reaches a prompt, his pin included
+    assert_eq!(job.suggest_always_on().unwrap(), 0);
+    assert!(part(&job, "always_on").is_empty());
+    assert_eq!(job.review().unwrap()["count"], 0);
     let holds = |id: &str| {
         env.profile
             .holds_up(&env.memory.get(id).unwrap().unwrap(), None)
             .unwrap()
     };
-    assert!(!holds(&short.item_id) && !holds(&laptop.item_id));
-    assert!(holds(&chess.item_id));
     let text = env.profile.prompt_text().unwrap();
-    assert!(text.contains(&chess.item_id), "{text}");
-    assert!(
-        !text.contains(&short.item_id) && !text.contains(&laptop.item_id),
-        "{text}"
-    );
-    // still remembered meanwhile
-    assert_eq!(
-        env.memory.get(&short.item_id).unwrap().unwrap().status,
-        "active"
-    );
-    // he declines one: out, remembered; he approves the other: always on, his pin now
-    job.answer_review(
-        &env.profile,
-        "always_on",
-        std::slice::from_ref(&laptop.item_id),
-        "decline",
-    )
-    .unwrap();
-    assert_eq!(in_profile(&env, &laptop.item_id), None);
-    assert!(!holds(&laptop.item_id));
-    job.answer_review(
-        &env.profile,
-        "always_on",
-        std::slice::from_ref(&short.item_id),
-        "approve",
-    )
-    .unwrap();
-    assert_eq!(in_profile(&env, &short.item_id).as_deref(), Some("owner"));
-    assert!(env.profile.prompt_text().unwrap().contains(&short.item_id));
+    for id in [&short.item_id, &laptop.item_id, &chess.item_id] {
+        assert!(!holds(id));
+        assert!(!text.contains(id.as_str()), "{text}");
+    }
+    // the start's step takes the rows out, once, journaled once; nothing is deleted
+    assert_eq!(job.wait_for_yes(&env.profile).unwrap(), 0);
+    let left = |env: &Env| -> Vec<String> {
+        env.store
+            .query(
+                "SELECT data_json FROM journal WHERE kind = ?",
+                sql![ferb_learning::import_review::IMPORTED_LEFT_KIND],
+            )
+            .unwrap()
+            .iter()
+            .map(|r| r.s_at(0))
+            .collect()
+    };
+    assert_eq!(left(&env), vec![r#"{"left": 3}"#.to_owned()]);
+    for id in [&short.item_id, &laptop.item_id, &chess.item_id] {
+        assert_eq!(in_profile(&env, id), None);
+        assert_eq!(env.memory.get(id).unwrap().unwrap().status, "active");
+    }
+    assert_eq!(job.lines().unwrap().len(), 3, "the lines stay");
+    assert_eq!(job.wait_for_yes(&env.profile).unwrap(), 0);
+    assert_eq!(left(&env).len(), 1, "a second start changes nothing");
     assert_eq!(job.review().unwrap()["count"], 0);
 }
 
@@ -757,7 +689,8 @@ fn older_offers_and_lines_are_asked_once_each_under_its_own_question() {
     assert!(!aside.iter().any(|(l, _)| l.id == rent.id));
 }
 
-// decision: MEM-460
+// decision: MEM-460, MEM-481 — his words approve or decline what is suggested: FERB's own understanding; MEM-489 —
+// never an imported line
 #[test]
 fn his_words_approve_or_decline_what_is_suggested() {
     let env = Env::new("words", None);
@@ -772,7 +705,36 @@ fn his_words_approve_or_decline_what_is_suggested() {
     stand_in(&env);
     let job = env.importer();
     import(&env, &job, "claude_code", "");
+    // FERB's own understanding, seen on two separate days (MEM-481)
+    let own = |key: &str, content: &str| -> String {
+        let said = env
+            .journal
+            .append("chat.message", Some(json!({"key": key})), None)
+            .unwrap();
+        env.memory
+            .save(
+                "preference",
+                "owner",
+                key,
+                content,
+                "inferred",
+                &[("journal".into(), said.id)],
+                0.6,
+                &[],
+                "",
+                Some(false),
+            )
+            .unwrap()
+            .item
+            .id
+    };
+    let (tea, arc) = (
+        own("drink", "The owner prefers tea"),
+        own("browser", "The owner browses in Arc"),
+    );
     at(&env, "2026-11-12T12:00:00+00:00");
+    own("drink", "The owner prefers tea");
+    own("browser", "The owner browses in Arc");
     typed(
         &env,
         &[
@@ -791,7 +753,20 @@ fn his_words_approve_or_decline_what_is_suggested() {
         ],
     );
     import(&env, &job, "claude_code", "");
-    assert_eq!(part(&job, "always_on").len(), 2);
+    let listed: BTreeSet<String> = part(&job, "always_on")
+        .into_iter()
+        .map(|(i, _, _)| i)
+        .collect();
+    assert_eq!(listed, BTreeSet::from([tea.clone(), arc.clone()]));
+    let first = job.review_numbered().unwrap()[0]["item"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let other = if first == tea {
+        arc.clone()
+    } else {
+        tea.clone()
+    };
     let applied = rt()
         .block_on(job.apply_answer(&env.profile, &json!({}), "first one yes, the rest are done"))
         .unwrap();
@@ -799,11 +774,11 @@ fn his_words_approve_or_decline_what_is_suggested() {
         ImportJob::answer_line(&applied),
         "Got it: 1 always on now and 1 remembered but not always on."
     );
-    assert_eq!(
-        in_profile(&env, &line_of(&job, "short answers").item_id).as_deref(),
-        Some("owner")
-    );
-    assert_eq!(in_profile(&env, &line_of(&job, "laptop").item_id), None);
+    assert_eq!(in_profile(&env, &first).as_deref(), Some("owner"));
+    assert_eq!(in_profile(&env, &other), None);
+    for needle in ["short answers", "laptop"] {
+        assert_eq!(in_profile(&env, &line_of(&job, needle).item_id), None);
+    }
     assert_eq!(job.review().unwrap()["count"], 0);
 }
 

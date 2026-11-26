@@ -2,7 +2,7 @@
 //! it validated. A pure reply streams on the reply channel, a task's plan line on the plan channel; a malformed draft
 //! is withdrawn. D33 and GATE-581 marks are applied before any prefix that could pass for FERB is shown.
 //!
-//! decision: ORCH-638, ORCH-630, ORCH-586
+//! decision: ORCH-638, ORCH-630, ORCH-729
 
 use std::sync::Arc;
 

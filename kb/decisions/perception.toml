@@ -305,3 +305,14 @@ rule = "perception_seen rows (source 'notification') are deleted once their reco
 why = "T-2: the rows were never purged. An age alone could drop the row of a notification still in Notification Center, and the first read after a restart reads every record again, which would record it again as new once the trail's own copy is gone (30 days)."
 evidence = "ferb-sense tests/perception.rs seen_rows_go_once_notification_center_no_longer_has_them; tests/watchers.rs the database's present ids; tests/manager.rs the watcher prunes on its first read."
 paths = ["engine/crates/ferb-sense/src/perception.rs::prune_seen", "engine/crates/ferb-sense/src/watchers/notifications.rs", "engine/crates/ferbd/src/compose/loops.rs"]
+
+[SENSE-432]
+title = "A message from the phone carries the Mac window's facts, no picture"
+by = "owner"
+date = 2026-11-26
+status = "active"
+words = "oh, remove it from phone msg"
+words_source = "Owner 2026-11-26, told that a phone message gets a screenshot of whatever the Mac happens to show (kb/plans/front-door.md)."
+rule = "When a message was sent from a paired phone, the planner and its workers get the Mac's front window (app, title) but no screenshot, and the block says no picture was attached because the message came from the phone; a Mac message read in the same turn keeps its picture. The capture still takes the picture locally until its seam can skip it."
+why = "He isn't looking at the Mac when he writes from the phone; the picture showed an unrelated window and cost about 1,600 tokens and 0.35 s a message."
+paths = ["engine/crates/ferb-supervisor/src/flow/turn.rs"]

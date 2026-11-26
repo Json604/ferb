@@ -216,7 +216,7 @@ One model, one request for a reply, one for a hand-off, two when it looks someth
   per line; a short handle in place of the 32-hex id. 1,500 tokens at most (ORCH-719).
 - **Library index**: ORCH-719's dated index (14 days, 6 lines a day, months, years) plus a table of contents of what
   memory holds: each kind with its count and the most recently used names. A view over `memory_items`
-  (`kind`, `subject`, `key`), no new store. How many names per kind is his number.
+  (`kind`, `subject`, `key`), no new store. It names 8 of each kind (owner, ORCH-727: "yeah 8 looks fine").
 - **Conversation lines** lose what the model does not need: `[cN]` stays and lookups accept it in place of the
   32-hex id; the origin list becomes "has outside content"; notices that are FERB's own toasts leave the window
   (they stay in the journal and in search).
@@ -367,9 +367,6 @@ stated rate.
 
 ## Waiting on the owner
 
-1. **Names per kind in the library's table of contents** (T-1345; the coordinator proposes 8): the contents list
-   says, for each kind of thing FERB remembers, how many there are and names a few ("people (8 of 52): …"). How many
-   names it shows is a limit on what FERB sees every message, so it is his number.
-2. **The checker skipped on read-only tasks** (step 9): only if he says so.
+1. **The checker skipped on read-only tasks** (step 9): only if he says so.
 
 For his information: his weekly Codex allowance was at 73% during the probes (17 small calls used of it).

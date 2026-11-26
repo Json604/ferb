@@ -141,8 +141,8 @@ pub fn start(st: &Rc<State>) -> ferb_learning::Result<()> {
     st.profile.seed()?;
     st.profile.settle("start")?;
     ferb_learning::upgrade::close_fact_nodes(&st.store, &ferb_clock::py::iso(&st.now()), &record)?;
-    // decision: MEM-480, MEM-482, MEM-483 — FERB's understanding always on without the owner's Yes goes back to the
-    // review; what he approved stays
+    // decision: MEM-480, MEM-482, MEM-489 — FERB's understanding always on without the owner's Yes goes back to the
+    // review; what an import brought in leaves always on, whatever he approved
     super::memory_import::job(st).wait_for_yes(&st.profile)?;
     restore_memory_questions(st)?;
     super::memory_import::review_start(st);

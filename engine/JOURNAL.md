@@ -14196,3 +14196,91 @@ requests run by the owner through a counting relay with a ceiling of 40. Their f
 
 **Unverified.** No installed build has this yet: that Claude rows now carry real timing is unseen live. Left in
 T-1338: the time to the first word per turn and the relay's per-request record of tool names and error flags.
+
+## 2026-11-26 · 255 · The Claude relay records, per request, the tools called and each result's error flag
+
+**Why (T-1338, ORCH-726 step 1).** Some Claude planner turns answer twice (journal 251) and the relay kept only usage
+per run (RUN-477), so nothing said which tool was called, whether its result was an error, or whether it was called
+again. A probe outside the repo did not reproduce it without FERB's lookup tools (kb/plans/front-door.md, finding 5).
+
+**What (RUN-479).** `claude/steps.rs`: per model step the answer's `tool_use` names, the last user message's tool
+results (the name from the call it answers, and `is_error`), the stop reason, a status that was not a success, and
+the times from arrival to first byte and to the end on the relay's clock (`start_with_clocks`). Names, flags and
+numbers only; a name outside Anthropic's tool-name characters is kept as "?". `ToolProxy::take_steps` hands them to
+the adapter, which writes `steps` (the latest 64) and `steps_dropped` into the run's `model.usage` output. Compressed
+traffic, a body that isn't JSON or an answer over 4 MB leaves no step.
+
+**Evidence.** `cargo test -p ferb-runtimes`: all pass; `relay_usage.rs` has seven new tests (the doubled
+`StructuredOutput` case among them; the compressed case shown failing with its guard removed); `claude_usage.rs`
+shows the steps on both usage paths and absent with none. Built by a subagent (Opus), checked by the coordinator.
+
+**Unverified.** Not on an installed build: which of the two causes the doubled answer has is still to be read there.
+
+## 2026-11-26 · 256 · The first word's time, FERB's notices folded, the question lapses, how long ago, no phone picture
+
+**Why (T-1338, T-1340, ORCH-726).** Plan step 1 needs the time to the first word; steps 3a-3d are the owner's rulings
+of 2026-11-26 ("idk how it helps, ferb anyways has enought context"; "oh, remove it from phone msg") and the store's
+window, where 45 of 91 entries were FERB's own notices.
+
+**What.**
+- ORCH-732: `first_text_ms` in the timing of the `model.turn` span whose call sent the turn's first reply or plan
+  frame, ms from that pass's `planner.prepare` start.
+- ORCH-728: in `conversation_view`, after the hard stop, a run of `chat.notice` entries is one line ("FERB posted n
+  notices here by itself (not shown; chat.history reads them in full)"); a notice right before the new message stays
+  whole. One writer of notices exists (ferb-daemon `post_notice`).
+- ORCH-729 (owner), superseding ORCH-586: a question the next message doesn't answer is cleared and journaled
+  `question.lapsed` instead of `question.kept`; `carried()` reads both alike. The Layer 5 heading says the question
+  lapses with this message. PRM-384: supervisor.md's clause says the same (prompt_changes.json).
+- ORCH-730: the situation block ends with how long ago the owner's previous message and FERB's last reply were.
+- SENSE-432 (owner): a phone message's capture keeps the window's facts and drops the picture (withheld reason said
+  in the block); a Mac message of the same turn keeps its own.
+Parts 1-4 apply with `bounded_planner()` (the Python-recorded replays keep their input); part 5 needs no switch (no
+recording names a client).
+
+**Evidence.** `cargo test -p ferb-supervisor`: all pass, the recorded replays unchanged; five new test files
+(`first_word`, `notices_folded`, `question_lapses`, `how_long_ago`, `phone_no_picture`), each shown failing with its
+change off. Built by a subagent (Opus), checked and retagged by the coordinator.
+
+**Unverified.** The picture is still taken for a phone message and kept locally (ferbd's `front_window_capture` takes
+window and picture in one call: a seam change would skip it). LIVE-875 still describes the waiting question.
+
+## 2026-11-26 · 257 · A call with no task tree hands back its answer before its program closes
+
+**Why (T-1339, ORCH-726 step 2a).** `run_call` returned the answer only after `close_run` → `cancel()`: about 2.1 s on
+3 of the 6 latest Claude planner turns (store, `steps_ms.close`), time the owner waited for nothing.
+
+**What (ORCH-731).** `WorkerConfig::answer_before_close`, set from the new `Daemon::answer_before_close` (true; the
+Python-recorded replays' daemons say false): a call without a tree whose stream ended with an answer that passed
+`check_final` leaves `active`/`worker_runs`/`connection` at once, reports its timing (`close` is then only that wait),
+returns, and closes in a tracked task: `cancel()`, RUN-477's unreported usage as `model.usage`, then a `model.close`
+span (`close_ms`). `Worker::closes_done()` is awaited in `shut_down`. Failures, stalls and calls with a tree close
+first, as before.
+
+**Evidence.** ferb-worker `tests/close_after.rs` (a gated stand-in cancel, paused clock): the answer returns before
+the close with no active run; usage read once after the close; a failure and a tree call close first; switched off,
+the answer waits; each shown failing with its behaviour broken. ferb-supervisor's and ferb-daemon's suites pass with
+the wiring.
+
+**Unverified.** Live timing. Codex's sign-in publish-back can race a run starting during the close: the same race as
+parallel runs, its window Codex's close time.
+
+## 2026-11-26 · 258 · Lines imported from his coding-agent chats are never always on
+
+**Why.** The owner, asked whether imported lines may be always on: "never alwasy on" (MEM-489, superseding MEM-483's
+"yeah keep them"). All 65 always-on lines in his store were such imports.
+
+**What.** One check, `CoreProfile::never_always_on` (not his own words, and brought in by an import by its stored
+source), read by `entries`, `holds_up`, `write`, `add`/`keep` (refused with IMPORTED_REFUSAL), `waiting_for_yes` and
+the start's `wait_for_yes`, which takes every imported row out once and journals `memory.imported_not_always_on
+{left}` only when it moved something. Items, words, origin and import lines stay; lookups find them. The review's
+always-on part lists only FERB's own understanding. The coordinator kept one rule the subagent had dropped: a line he
+already answered for always-on is not asked "still true?" now that it left (no new questions for him).
+
+**Evidence.** ferb-learning `tests/imported_never_always_on.rs` (5, each failing with the check off) and
+`import_profile.rs`'s rewritten cases; ferb-daemon's `a_memory_inferred_waits` (the upgrade takes all 68 imported
+rows out, one journal row, a second start none, nothing asked) and `a_memory_flow` (an earlier build's imported rows
+leave and the day asks nothing; the review-closing test now on FERB's own understanding) rewritten by the
+coordinator; all pass.
+
+**Unverified.** Not on his store. IMPORTED_REFUSAL is owner-facing text shown to him for approval; the Memory page
+still offers Always on for an imported line (the daemon could send `can_always_on: false`; the apps would hide it).

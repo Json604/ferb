@@ -12,6 +12,12 @@
 //! run's tokens are counted per request and even when Claude Code never reports them (RUN-477). When Anthropic
 //! refuses an edited request for its edited history (the history-editing check), the run's own unedited request goes
 //! instead and the run is never edited again (RUN-478).
+//!
+//! T-1338 (the front door's step 1): beside the usage, each model step leaves a record of names, flags and times only
+//! ([`super::steps`]): the tools its answer called, the name and error flag of each tool result its request carried,
+//! the stop reason, a status that was not a success, and the times to the answer's first byte and end on the relay's
+//! clock. A step whose request or answer was compressed, whose request is not JSON, or whose JSON answer was too
+//! large to read leaves none.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
@@ -21,9 +27,13 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
+use super::steps::{self, Step, Steps};
 use super::tally::{history_refused, Tally, UsageReader};
 use super::ToolProxy;
 use crate::compact::{Clock, Compaction, Compactor, Policy};
+
+/// The relay's stopwatch: seconds on a monotonic clock (crate::monotonic_now; a test's own).
+pub type Monotonic = crate::codex::Clock;
 
 pub const UPSTREAM: &str = "https://api.anthropic.com";
 
@@ -78,6 +88,8 @@ struct Book {
     usage: HashMap<String, Tally>,
     /// RUN-478: the runs whose edited request Anthropic refused, refusals not yet reported.
     refused: HashMap<String, usize>,
+    /// T-1338: each run's model steps since they were last taken.
+    steps: HashMap<String, Steps>,
 }
 
 pub struct ToolListProxy {
@@ -104,6 +116,16 @@ impl ToolListProxy {
         secret: Arc<dyn Fn() -> String + Send + Sync>,
         clock: Clock,
     ) -> std::io::Result<ToolListProxy> {
+        Self::start_with_clocks(upstream, secret, clock, Arc::new(crate::monotonic_now)).await
+    }
+
+    /// `start_with_clock` with the stopwatch that times each model step too.
+    pub async fn start_with_clocks(
+        upstream: &str,
+        secret: Arc<dyn Fn() -> String + Send + Sync>,
+        clock: Clock,
+        monotonic: Monotonic,
+    ) -> std::io::Result<ToolListProxy> {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
         let port = listener.local_addr()?.port();
         let book = Arc::new(Mutex::new(Book::default()));
@@ -119,9 +141,9 @@ impl ToolListProxy {
                 let Ok((stream, _)) = listener.accept().await else {
                     continue;
                 };
-                let (b, u, c) = (b.clone(), u.clone(), client.clone());
+                let (b, u, c, m) = (b.clone(), u.clone(), client.clone(), monotonic.clone());
                 tokio::spawn(async move {
-                    let _ = serve(stream, b, u, c).await;
+                    let _ = serve(stream, b, u, c, m).await;
                 });
             }
         });
@@ -174,6 +196,7 @@ impl ToolProxy for ToolListProxy {
         book.made.remove(run_id);
         book.usage.remove(run_id);
         book.refused.remove(run_id);
+        book.steps.remove(run_id);
     }
 
     fn compact(&self, run_id: &str, policy: Policy) {
@@ -196,6 +219,51 @@ impl ToolProxy for ToolListProxy {
     fn history_refusals(&self, run_id: &str) -> usize {
         let mut book = self.book.lock().unwrap_or_else(|e| e.into_inner());
         book.refused.remove(run_id).unwrap_or(0)
+    }
+
+    fn take_steps(&self, run_id: &str) -> Option<Steps> {
+        let mut book = self.book.lock().unwrap_or_else(|e| e.into_inner());
+        book.steps.remove(run_id).filter(|s| !s.is_empty())
+    }
+}
+
+/// One model step being timed: when its request arrived and what it carried back.
+struct Timing {
+    monotonic: Monotonic,
+    arrived: f64,
+    results: Vec<steps::ToolResult>,
+    first_byte_ms: Option<i64>,
+}
+
+impl Timing {
+    fn ms(&self) -> i64 {
+        let ms = ((self.monotonic)() - self.arrived) * 1000.0;
+        if ms.is_finite() && ms > 0.0 {
+            ms.round() as i64
+        } else {
+            0
+        }
+    }
+
+    fn first_byte(&mut self) {
+        if self.first_byte_ms.is_none() {
+            self.first_byte_ms = Some(self.ms());
+        }
+    }
+
+    /// The step, ended now, kept for the run.
+    fn record(self, book: &Mutex<Book>, run_id: &str, status: u16, answer: steps::Answer) {
+        let done_ms = self.ms();
+        let step = Step {
+            called: answer.called,
+            results: self.results,
+            stop: answer.stop,
+            status,
+            first_byte_ms: self.first_byte_ms,
+            done_ms,
+        };
+        let mut b = book.lock().unwrap_or_else(|e| e.into_inner());
+        b.steps.entry(run_id.to_string()).or_default().push(step);
     }
 }
 
@@ -248,6 +316,7 @@ async fn serve(
     book: Arc<Mutex<Book>>,
     upstream: String,
     client: reqwest::Client,
+    monotonic: Monotonic,
 ) -> std::io::Result<()> {
     let (read, mut write) = stream.into_split();
     let mut read = BufReader::new(read);
@@ -257,6 +326,7 @@ async fn serve(
         if read.read_line(&mut line).await? == 0 {
             return Ok(());
         }
+        let arrived = monotonic();
         let mut parts = line.trim_end().splitn(3, ' ');
         let (method, path) = (
             parts.next().unwrap_or_default().to_string(),
@@ -326,6 +396,16 @@ async fn serve(
             .find(|(k, _)| k.eq_ignore_ascii_case("content-encoding"))
             .map(|(_, v)| v.clone());
         let step = !body.is_empty() && encoding.is_none() && model_step(upstream_path);
+        // T-1338: the step's record, from the request as Claude Code sent it (None: not a JSON request)
+        let mut timing = step
+            .then(|| steps::results(&body))
+            .flatten()
+            .map(|results| Timing {
+                monotonic: monotonic.clone(),
+                arrived,
+                results,
+                first_byte_ms: None,
+            });
         // RUN-478: the run's own request, kept while an edited one is out
         let mut unedited: Option<Vec<u8>> = None;
         if step {
@@ -341,6 +421,9 @@ async fn serve(
             encoding: encoding.as_deref(),
         };
         let Ok(mut resp) = out.send(body).await else {
+            if let Some(t) = timing.take() {
+                t.record(&book, run_id, 502, steps::Answer::default());
+            }
             write
                 .write_all(
                     b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
@@ -358,6 +441,10 @@ async fn serve(
                 return Ok(());
             };
             if !history_refused(400, &answer) {
+                if let Some(mut t) = timing.take() {
+                    t.first_byte();
+                    t.record(&book, run_id, 400, steps::Answer::default());
+                }
                 relay_whole(&mut write, 400, &head, &answer).await?;
                 continue;
             }
@@ -367,6 +454,9 @@ async fn serve(
                 *b.refused.entry(run_id.to_string()).or_default() += 1;
             }
             let Ok(again) = out.send(unedited.take().unwrap_or_default()).await else {
+                if let Some(t) = timing.take() {
+                    t.record(&book, run_id, 502, steps::Answer::default());
+                }
                 write
                     .write_all(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
                     .await?;
@@ -396,8 +486,14 @@ async fn serve(
             .is_some_and(|v| v.trim_start().starts_with("text/event-stream"));
         let mut reader =
             (step && status.is_success() && !compressed).then(|| UsageReader::new(sse));
+        if compressed {
+            timing = None; // T-1338: an answer not read gets no record rather than a wrong one
+        }
         let mut resp = resp;
         while let Ok(Some(chunk)) = resp.chunk().await {
+            if let Some(t) = timing.as_mut() {
+                t.first_byte();
+            }
             if let Some(r) = reader.as_mut() {
                 r.feed(&chunk);
             }
@@ -408,9 +504,17 @@ async fn serve(
             write.write_all(b"\r\n").await?;
             write.flush().await?;
         }
-        if let Some(t) = reader.and_then(UsageReader::finish) {
+        let (tally, answer) = match reader {
+            Some(r) => r.finish_step(),
+            // a refusal or failure: its body is not read, the step is still kept with its status
+            None => (None, Some(steps::Answer::default())),
+        };
+        if let Some(t) = tally {
             let mut b = book.lock().unwrap_or_else(|e| e.into_inner());
             b.usage.entry(run_id.to_string()).or_default().add(&t);
+        }
+        if let (Some(t), Some(answer)) = (timing, answer) {
+            t.record(&book, run_id, status.as_u16(), answer);
         }
         write.write_all(b"0\r\n\r\n").await?;
         write.flush().await?;

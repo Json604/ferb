@@ -95,7 +95,7 @@ impl Inner {
             .await
             .unwrap_or_default();
         let current = self.continuity(|c| c.current()).map_err(Failure::from)?;
-        let (conversation, _, _) = self.conversation_view(&BTreeSet::new(), &current, true)?;
+        let (conversation, _, _, _) = self.conversation_view(&BTreeSet::new(), &current, true)?;
         // each told notice keeps its JSON "text" (the purge)
         let notices = ferb_py::json::dumps(&json!({"already_told": already_told}));
         let body = ferb_py::json::dumps(

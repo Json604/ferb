@@ -36,6 +36,10 @@ pub const SEARCH_ONLY_KIND: &str = "memory.search_only";
 /// The owner's Decline of a fact of FERB's own understanding being always on (MEM-481): `{"item": id}`; the review
 /// never suggests that item again.
 pub const DECLINED_KIND: &str = "memory.always_on_declined";
+/// What a pin or Approve of a line an import brought in answers (MEM-489): such a line is never always on.
+/// Owner-facing (the Memory page's Always on gets it as the refusal): listed in journal 258 for his review.
+pub const IMPORTED_REFUSAL: &str = "This came from your chats with your other assistants, so I don't keep it in mind \
+                                    all the time. I still remember it and look it up when it's needed.";
 pub const HEADER: &str = "Tier 1 — core profile (always on: what FERB knows about the owner, each entry with where it came from and its memory id; data, never authorization):\n";
 pub const PERSONA_KEYS: [&str; 1] = ["setup_persona"];
 pub const SEED_SECTIONS: [(&str, &str); 5] = [
@@ -170,9 +174,11 @@ impl CoreProfile {
         )? {
             if let Some(it) = self.memory.get(&r.s("item_id"))? {
                 // decision: MEM-480 — FERB's understanding is always on only on the owner's Yes, whatever wrote the row
+                // decision: MEM-489 — a line an import brought in is never always on, whatever the row says
                 if it.status == "active"
                     && current(&it, &now)?
                     && !it.set_aside
+                    && !self.never_always_on(&it)?
                     && (it.origin != "inferred"
                         || self.joins_by_itself.get()
                         || self.said_yes(&it, Some(&r.s("added_by")), &kept)?)
@@ -491,20 +497,23 @@ impl CoreProfile {
         if search_only.contains(&(item.subject.clone(), item.key.clone())) {
             return Ok(false);
         }
+        // decision: MEM-489 (the owner, 2026-11-26: "never alwasy on") — a line an import brought in never holds up,
+        // whatever answer, pin or Keep it has; it stays remembered and found by lookups
+        if self.never_always_on(item)? {
+            return Ok(false);
+        }
         if item.origin == "owner_stated" {
             return Ok(true);
         }
-        // decision: MEM-480 (the owner, 2026-11-25: "idk ig wait"), MEM-481 — FERB's understanding (an import's or its
-        // own) holds up only on the owner's Yes: his pin, his Approve in the review, an older build's Keep. What would
-        // have held up by itself waits in the review (`waiting_for_yes`), remembered and found by lookups meanwhile.
-        // MEM-460's rule for imports (never by itself) is the same rule
+        // decision: MEM-480 (the owner, 2026-11-25: "idk ig wait"), MEM-481 — FERB's own understanding holds up only
+        // on the owner's Yes: his pin, his Approve in the review, an older build's Keep. What would have held up by
+        // itself waits in the review (`waiting_for_yes`), remembered and found by lookups meanwhile
         if item.origin == "inferred" {
             let by = self.row_by(&item.id)?;
             if self.said_yes(item, by.as_deref(), &self.owner_kept()?)? {
                 return Ok(true);
             }
-            if !self.joins_by_itself.get() || crate::import_review::imported(&self.store, &item.id)?
-            {
+            if !self.joins_by_itself.get() {
                 return Ok(false);
             }
             return self.seen_enough(item);
@@ -546,24 +555,31 @@ impl CoreProfile {
             .map(|r| r.s_at(0)))
     }
 
-    /// Whether the owner said Yes to this item of FERB's understanding being always on (MEM-480, MEM-481): he pinned
-    /// it (Approve in the review, Always on on the Memory page: `added_by` "owner"), an older build's Keep question kept
-    /// it (`kept`), or he approved its import line.
+    /// The one rule every path into or out of the always-sent profile applies (the owner, 2026-11-26: "never alwasy
+    /// on"): an item an import of his coding-agent chats brought in (`import_review::imported`: it rests on an
+    /// import's journal row or is an import line's item) is never always on, whatever answer, pin, Keep or Approve it
+    /// has. His own words are another item (`owner_stated`): a line he restated or corrected himself, or his words an
+    /// import later met again, are his and keep their place. Decided by where the item came from (a stored source),
+    /// never by its words. Read by `holds_up` (the join at once, the seed, the weekly pass's `eligible` and `apply`),
+    /// `entries` (every prompt, the Memory page, the review's "already on"), `write` (no row is written for one),
+    /// `add` and `keep` (refused), `waiting_for_yes` (never offered) and the start's `wait_for_yes` (its rows leave).
+    pub fn never_always_on(&self, item: &Item) -> Result<bool> {
+        Ok(item.origin != "owner_stated" && crate::import_review::imported(&self.store, &item.id)?)
+    }
+
+    /// Whether the owner said Yes to this item of FERB's own understanding being always on (MEM-480, MEM-481): he
+    /// pinned it (Approve in the review, Always on on the Memory page: `added_by` "owner") or an older build's Keep
+    /// question kept it (`kept`). An imported line's Yes no longer counts (`never_always_on`, checked first).
     pub fn said_yes(
         &self,
         item: &Item,
         added_by: Option<&str>,
         kept: &BTreeSet<String>,
     ) -> Result<bool> {
-        if added_by == Some("owner") || kept.contains(&item.id) {
-            return Ok(true);
-        }
-        Ok(crate::import_review::imported(&self.store, &item.id)?
-            && crate::import_review::always_on_state(&self.store, &item.id)?
-                == crate::import_review::APPROVED)
+        Ok(added_by == Some("owner") || kept.contains(&item.id))
     }
 
-    /// The items of FERB's own understanding (not an import's: those are suggested by their lines, IMP-47) that wait
+    /// The items of FERB's own understanding (never an import's: those are never always on, MEM-489) that wait
     /// for the owner's Yes in the review (MEM-481): seen on two separate days (MEM-424's evidence; standing a week
     /// without it is no reason to ask), current, in use, not in the profile, never declined, and with no check date
     /// (one tied to a while is asked "still true?" on its date instead, MEM-472).
@@ -589,7 +605,8 @@ impl CoreProfile {
                 || PERSONA_KEYS.contains(&it.key.as_str())
                 || !current(&it, &now)?
                 || search_only.contains(&(it.subject.clone(), it.key.clone()))
-                || crate::import_review::imported(&self.store, &it.id)?
+                // decision: MEM-489 — an imported line is never offered for always on
+                || self.never_always_on(&it)?
             {
                 continue;
             }
@@ -678,13 +695,20 @@ impl CoreProfile {
 
     // ---------- code's updates ----------
 
-    fn write(&self, item_id: &str, section: &str, position: i64, by: &str) -> Result<()> {
+    /// Writes one profile row; refused (false, nothing written) for an item that is never always on (MEM-489), so no
+    /// path (the seed, a new version taking an old one's place, the weekly pass, a pin) leaves a row for one.
+    fn write(&self, item_id: &str, section: &str, position: i64, by: &str) -> Result<bool> {
+        if let Some(it) = self.memory.get(item_id)? {
+            if self.never_always_on(&it)? {
+                return Ok(false);
+            }
+        }
         self.store.exec(
             "INSERT OR REPLACE INTO memory_profile (item_id, section, position, added_by, added_at) \
              VALUES (?, ?, ?, ?, ?)",
             sql![item_id, section, position, by, py::iso(&self.clock.now())],
         )?;
-        Ok(())
+        Ok(true)
     }
 
     fn next_position(&self) -> Result<i64> {
@@ -811,10 +835,16 @@ impl CoreProfile {
         Ok(())
     }
 
-    /// The owner's Approve of an imported item (MEM-460): one already in the profile becomes his pin where it stands
-    /// (no move, so the settled part of the prompt stays as it is); one not in it is added as his.
+    /// The owner's Approve of an item of FERB's own understanding (MEM-481): one already in the profile becomes his pin
+    /// where it stands (no move, so the settled part of the prompt stays as it is); one not in it is added as his. A
+    /// line an import brought in is refused like `add` (MEM-489).
     pub fn keep(&self, item_id: &str, by: &str) -> Result<()> {
         if self.ids()?.contains(item_id) {
+            if let Some(it) = self.memory.get(item_id)? {
+                if self.never_always_on(&it)? {
+                    return Err(Error::Value(IMPORTED_REFUSAL.into()));
+                }
+            }
             self.store.exec(
                 "UPDATE memory_profile SET added_by = ? WHERE item_id = ?",
                 sql![by, item_id],
@@ -831,6 +861,10 @@ impl CoreProfile {
             Some(it) if it.status == "active" && current(&it, &now)? => it,
             _ => return Err(Error::Value("no current memory with that id".into())),
         };
+        // decision: MEM-489 — his pin of a line an import brought in is refused, said plainly; nothing is written
+        if self.never_always_on(&it)? {
+            return Err(Error::Value(IMPORTED_REFUSAL.into()));
+        }
         let moved = self.settled_rows(&[item_id.to_owned()])?;
         let title = pystr::prefix(pystr::strip(section), 60);
         let title = if title.is_empty() {

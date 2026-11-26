@@ -175,6 +175,17 @@ pub const SENT_FROM: &str = "sent_from";
 pub const SENT_FROM_MAC: &str = "this Mac, in FERB.app";
 /// The prefix of a paired phone's client id (`phone:<its link id>`, the phone gate's mark).
 pub const PHONE_CLIENT: &str = "phone:";
+/// SENSE-432 (front door step 3d): why a message from a paired phone carries no picture of the Mac's screen (the
+/// window block's `screenshot: withheld: …`; the front window's app and title still go).
+// decision: SENSE-432
+pub const PHONE_NO_PICTURE: &str =
+    "this message was sent from the phone, so no picture of the Mac's screen is attached";
+
+/// Whether a message was sent from a paired phone, by where [`sent_from`] recorded it was sent from (a structural fact
+/// of its client id: anything but this Mac's FERB.app is a phone).
+pub fn from_phone(sent_from: Option<&str>) -> bool {
+    sent_from.is_some_and(|s| s != SENT_FROM_MAC)
+}
 
 /// Where a message with this `chat.send` client was sent from, by the phone's name as the Mac knows it (`phone`):
 /// None for a message that names no client (a recording, an older app). Never the phone's link id.
@@ -314,6 +325,16 @@ pub const NEEDS_ANSWER: &str = "I need your answer to finish this task.";
 pub const OPEN_QUESTION: &str =
     "Layer 5 — FERB's question in this chat, still open (set answers_question true only \
 if the owner's new message below answers it; otherwise the question and its request wait): ";
+/// ORCH-729 (front door step 3b): the same heading with the bounded planner, where FERB's question lives only until the
+/// owner's next message (a replay of a Python recording reads [`OPEN_QUESTION`]).
+// decision: ORCH-729
+pub const OPEN_QUESTION_ONCE: &str =
+    "Layer 5 — FERB's question in this chat, open until this message (set answers_question \
+true only if the owner's new message below answers it; otherwise the question lapses with this message, and the owner \
+asks again if they still want that request): ";
+/// ORCH-729: the journal row of FERB's question that lapsed because the owner's next message didn't answer it
+/// (`{request_id, by}`, as `question.kept`'s).
+pub const LAPSED: &str = "question.lapsed";
 pub const OPEN_REQUEST: &str =
     "The owner's earlier request it asked about (their words, waiting for that answer):\n";
 pub const COULDNT_DO: &str = "Couldn't do:";
@@ -373,6 +394,57 @@ pub const CONVERSATION_HEADER: &str =
 pub const NOT_SHOWN: &str =
     "\n{n} earlier {entries} of this conversation {are} not shown here (FERB keeps every \
 entry; chat.history reads {them} in full).";
+/// ORCH-730 (front door step 3c): how long ago, in plain words, from the seconds since: "less than a minute ago",
+/// "1 minute ago", "2 hours ago", "3 days ago" (whole units, rounded down).
+// decision: ORCH-730
+pub fn ago(seconds: f64) -> String {
+    let s = if seconds.is_nan() {
+        0.0
+    } else {
+        seconds.max(0.0)
+    };
+    let (n, unit) = if s < 60.0 {
+        return "less than a minute ago".into();
+    } else if s < 3600.0 {
+        ((s / 60.0).floor() as i64, "minute")
+    } else if s < 86_400.0 {
+        ((s / 3600.0).floor() as i64, "hour")
+    } else {
+        ((s / 86_400.0).floor() as i64, "day")
+    };
+    format!("{n} {unit}{} ago", if n == 1 { "" } else { "s" })
+}
+
+/// ORCH-730 (front door step 3c): the planner's one line after its cached part saying how long ago the owner's previous
+/// message in this chat was and how long ago FERB's last reply was (seconds since each; None when there is none). No
+/// line when neither is there.
+// decision: ORCH-730
+pub fn last_said(owner: Option<f64>, ferb: Option<f64>) -> Option<String> {
+    let owner = owner.map(|s| format!("the owner's previous message was {}", ago(s)));
+    let ferb = ferb.map(|s| format!("FERB's last reply was {}", ago(s)));
+    match (owner, ferb) {
+        (None, None) => None,
+        (Some(o), Some(f)) => Some(format!("In this chat, {o}, and {f}.")),
+        (Some(o), None) => Some(format!("In this chat, {o}; FERB hasn't replied here yet.")),
+        (None, Some(f)) => Some(format!(
+            "In this chat, this is the owner's first message; {f}."
+        )),
+    }
+}
+
+/// ORCH-728 (front door step 3a): the one line a run of FERB's own notices is shown as in the planner's conversation
+/// ({tags}: the run's first and last tag, "[c5]–[c45]"; {when}: its first and last time).
+// decision: ORCH-728
+pub fn notices_folded(tags: &str, when: &str, n: usize) -> String {
+    let (notices, them) = if n == 1 {
+        ("notice", "it")
+    } else {
+        ("notices", "them")
+    };
+    format!(
+        "{tags} ({when}) FERB posted {n} {notices} here by itself (not shown; chat.history reads {them} in full)."
+    )
+}
 pub const SUMMARY_HEADER: &str =
     "\nFERB's running summary of the earlier conversation (model-written from the \
 recorded entries; data; chat.history has every entry in full):\n";

@@ -439,13 +439,13 @@ async fn the_review_after_an_import_waits_for_the_days_first_open_and_is_answere
     );
 }
 
-// decision: MEM-460, MEM-461, MEM-465, MEM-485
+// decision: MEM-465, MEM-485, MEM-489
 #[tokio::test]
-async fn a_start_folds_the_old_notices_into_one_review_and_answers_close_it() {
+async fn a_start_takes_an_earlier_builds_imported_lines_out_and_the_day_asks_nothing_about_them() {
     let tmp = tempfile::tempdir().unwrap();
     let d = daemon(tmp.path()).await;
     setup_done(&d).await;
-    // what an earlier build left: two imported lines it put in always on by itself, and its offers question waiting
+    // what an earlier build left: two imported lines it put in always on by itself
     let (rent, tea) = d
         .on(|st| {
             Box::pin(async move {
@@ -461,113 +461,50 @@ async fn a_start_folds_the_old_notices_into_one_review_and_answers_close_it() {
                         )
                         .unwrap();
                 }
-                st.store
-                    .exec(
-                        "INSERT INTO memory_questions (approval_id, kind, target, reason, request_id, at) \
-                         VALUES ('ap-old', 'memory_offers', '{\"items\": []}', 'Are these still on?', 'k', 'x')",
-                        ferb_learning::sql![],
-                    )
-                    .unwrap();
-                memory::restore_memory_questions(&st).unwrap();
+                memory::start(&st).unwrap();
                 memory_import::review_start(&st);
                 (rent, tea)
             })
         })
         .await;
-    // nothing is asked at the start (MEM-485); the day's first open asks the one review, and the "Now always on"
-    // notices about imported lines are folded into it
+    // they left always on at the start, both still remembered; nothing is asked, then or at the day's first open
+    let (r, t) = (rent.clone(), tea.clone());
+    d.on(move |st| {
+        Box::pin(async move {
+            let ids = st.profile.ids().unwrap();
+            assert!(!ids.contains(&r) && !ids.contains(&t), "{ids:?}");
+            for id in [&r, &t] {
+                assert_eq!(st.memory.get(id).unwrap().unwrap().status, "active");
+            }
+        })
+    })
+    .await;
     assert!(asks(&d).is_empty());
     d.on(|st| Box::pin(async move { memory_import::daily(&st, "mac") }))
         .await;
     let asked = asks(&d);
-    assert_eq!(asked.len(), 1, "{asked:?}");
-    assert_eq!(asked[0]["kind"], "memory_review");
-    assert!(asked[0]["detail"]
-        .as_str()
-        .unwrap()
-        .starts_with("2 things to keep in mind all the time"));
-    let folds: Vec<Value> = d
-        .stand
-        .calls
-        .0
-        .lock()
-        .unwrap()
-        .iter()
-        .filter_map(|c| c.get("fold_notices").cloned())
-        .collect();
-    let refs = folds.last().unwrap()["refs"].as_array().unwrap().clone();
-    assert!(refs.contains(&json!(format!("memory-always-on-{rent}"))));
-    assert!(refs.contains(&json!(format!("memory-always-on-{tea}"))));
-    assert_eq!(folds.last().unwrap()["into"], "memory-review");
-    // they stay on until he answers; one declined leaves always on, one approved stays as his pin
-    let (r2, t2) = (rent.clone(), tea.clone());
-    let left = d
-        .on(move |st| {
-            Box::pin(async move {
-                let j = memory_import::job(&st);
-                let ids = st.profile.ids().unwrap();
-                assert!(ids.contains(&r2) && ids.contains(&t2));
-                j.answer_review(
-                    &st.profile,
-                    "always_on",
-                    std::slice::from_ref(&r2),
-                    "decline",
-                )
-                .unwrap();
-                memory_import::review_settled(&st);
-                let left = j.review().unwrap()["count"].clone();
-                j.answer_review(
-                    &st.profile,
-                    "always_on",
-                    std::slice::from_ref(&t2),
-                    "approve",
-                )
-                .unwrap();
-                memory_import::review_settled(&st);
-                let ids = st.profile.ids().unwrap();
-                assert!(!ids.contains(&r2) && ids.contains(&t2));
-                assert!(
-                    st.memory
-                        .get(&r2)
-                        .unwrap()
-                        .is_some_and(|i| i.status == "active"),
-                    "still remembered"
-                );
-                left
-            })
-        })
-        .await;
-    assert_eq!(left, json!(1), "answered in parts, it stays until done");
+    assert!(
+        asked.iter().all(|a| a["kind"] != "memory_review"),
+        "{asked:?}"
+    );
 }
 
-// decision: MEM-460 — the last items answered by a button close the review's question for every client: the close is
-// published, so its card goes and the chat's question entry closes (it stayed open, and a phone kept a card with no
-// list; owner 2026-11-23: "its blank after i approved all the memory messages")
+// decision: MEM-460, MEM-481 — the last items answered by a button close the review's question for every client: the
+// close is published, so its card goes and the chat's question entry closes (it stayed open, and a phone kept a card
+// with no list; owner 2026-11-23: "its blank after i approved all the memory messages")
 #[tokio::test]
 async fn answering_the_last_items_closes_the_review_on_every_client() {
     let tmp = tempfile::tempdir().unwrap();
     let d = daemon(tmp.path()).await;
     setup_done(&d).await;
     *d.stand.keeps.lock().unwrap() = Some(Default::default());
-    let ids = d
-        .on(|st| {
-            Box::pin(async move {
-                let a = imported_line(&st, "l1", "drink", "The owner prefers tea", 3, json!({"use": "follow"}));
-                let b = imported_line(&st, "l2", "browser", "The owner uses Arc", 3, json!({"use": "follow"}));
-                for id in [&a, &b] {
-                    st.store
-                        .exec(
-                            "INSERT INTO memory_profile (item_id, section, position, added_by, added_at) \
-                             VALUES (?, 'Recently said', 0, 'code', 'x')",
-                            ferb_learning::sql![id],
-                        )
-                        .unwrap();
-                }
-                memory_import::review_start(&st);
-                memory_import::daily(&st, "mac");
-                vec![a, b]
-            })
-        })
+    // FERB's own understanding, each said on two days three days apart: it waits for his Yes
+    own_understanding(&d).await;
+    d.clock.advance(3.0 * 86_400.0);
+    let ids = own_understanding(&d).await;
+    d.on(|st| Box::pin(async move { memory_import::hourly(&st).await }))
+        .await;
+    d.on(|st| Box::pin(async move { memory_import::daily(&st, "mac") }))
         .await;
     let asked = asks(&d);
     assert_eq!(asked.len(), 1, "{asked:?}");
@@ -1223,4 +1160,39 @@ async fn each_import_model_call_is_a_learning_span_with_its_usage() {
     )
     .await;
     assert_eq!(leaked, 0);
+}
+
+/// FERB's own understanding (inferred, not imported) said once now: two preferences, their ids.
+async fn own_understanding(d: &Daemon) -> Vec<String> {
+    d.on(|st| {
+        Box::pin(async move {
+            let mut ids = Vec::new();
+            for (key, content) in [
+                ("drink", "The owner prefers tea"),
+                ("browser", "The owner uses Arc"),
+            ] {
+                let said = st.journal("chat.message", json!({}), None).unwrap();
+                let id = st
+                    .memory
+                    .save(
+                        "preference",
+                        "owner",
+                        key,
+                        content,
+                        "inferred",
+                        &[("journal".into(), said.id.clone())],
+                        0.6,
+                        &[],
+                        "",
+                        Some(false),
+                    )
+                    .unwrap()
+                    .item
+                    .id;
+                ids.push(id);
+            }
+            ids
+        })
+    })
+    .await
 }

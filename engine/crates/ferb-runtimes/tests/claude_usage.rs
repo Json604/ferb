@@ -1,7 +1,8 @@
 //! ORCH-719 step 1 in the Claude adapter, on two recorded fake Claude Code runs (engine/fixtures/runtimes/claude.json)
 //! with a stand-in relay that reports usage and refusals: RUN-477, a finished run's usage names how many model
 //! requests made it, and a run that ends without Claude Code's result frame still hands over what the relay counted;
-//! RUN-478, a refused edit is reported as a stopped compaction with its owner-facing line.
+//! RUN-478, a refused edit is reported as a stopped compaction with its owner-facing line. T-1338: the relay's step
+//! records go into the same usage record, and only when the relay kept some.
 
 mod support;
 
@@ -11,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use ferb_core::types::{Identity, RuntimeEventKind, Task, TaskRole};
+use ferb_runtimes::claude::steps::{Step, Steps, ToolResult};
 use ferb_runtimes::claude::tally::{Tally, HISTORY_REFUSED_LINE};
 use ferb_runtimes::claude::{ClaudeRuntime, Host, Mode, ToolProxy};
 use ferb_runtimes::forms::Refusals;
@@ -18,10 +20,11 @@ use ferb_runtimes::run::{Adapter, Started};
 use serde_json::{json, Value};
 use support::*;
 
-/// A relay that counted `tally` for the run (taken once) and refused `refusals` of its edits.
+/// A relay that counted `tally` and kept `steps` for the run (each taken once) and refused `refusals` of its edits.
 struct CountingRelay {
     tally: Mutex<Option<Tally>>,
     refusals: Mutex<usize>,
+    steps: Mutex<Option<Steps>>,
 }
 
 impl ToolProxy for CountingRelay {
@@ -38,6 +41,42 @@ impl ToolProxy for CountingRelay {
     fn history_refusals(&self, _run_id: &str) -> usize {
         std::mem::take(&mut *self.refusals.lock().unwrap())
     }
+    fn take_steps(&self, _run_id: &str) -> Option<Steps> {
+        self.steps.lock().unwrap().take()
+    }
+}
+
+/// The doubled answer the record exists for: the answer tool called, its result an error, called again.
+fn doubled() -> Steps {
+    let mut s = Steps::default();
+    s.push(Step {
+        called: vec!["StructuredOutput".into()],
+        stop: "tool_use".into(),
+        status: 200,
+        first_byte_ms: Some(900),
+        done_ms: 4_100,
+        ..Step::default()
+    });
+    s.push(Step {
+        called: vec!["StructuredOutput".into()],
+        results: vec![ToolResult {
+            tool: "StructuredOutput".into(),
+            error: true,
+        }],
+        stop: "tool_use".into(),
+        status: 200,
+        first_byte_ms: Some(700),
+        done_ms: 4_300,
+    });
+    s
+}
+
+fn doubled_json() -> Value {
+    json!([
+        {"called": ["StructuredOutput"], "results": [], "stop": "tool_use", "first_byte_ms": 900, "done_ms": 4_100},
+        {"called": ["StructuredOutput"], "results": [{"tool": "StructuredOutput", "error": true}],
+            "stop": "tool_use", "first_byte_ms": 700, "done_ms": 4_300},
+    ])
 }
 
 fn counted() -> Tally {
@@ -141,6 +180,7 @@ async fn a_finished_runs_usage_names_its_model_requests_and_nothing_is_left_over
     let relay = Arc::new(CountingRelay {
         tally: Mutex::new(Some(counted())),
         refusals: Mutex::new(0),
+        steps: Mutex::new(Some(doubled())),
     });
     let (events, started, _dir) =
         run("a worker calls FERB's tool, reports, and answers", relay).await;
@@ -152,6 +192,9 @@ async fn a_finished_runs_usage_names_its_model_requests_and_nothing_is_left_over
     // Claude Code's own total is the record; the relay adds how many requests it took (RUN-421's normalizing)
     assert_eq!(usage["input_tokens"], json!(15));
     assert_eq!(usage["requests"], json!(3));
+    // decision: RUN-477, RUN-479 (T-1338): each request's tool names and error flags ride in the same record
+    assert_eq!(usage["steps"], doubled_json());
+    assert!(usage.get("steps_dropped").is_none(), "none let go");
     started.control.cancel().await;
     assert!(started.control.unreported_usage().is_empty());
 }
@@ -162,6 +205,7 @@ async fn a_run_that_ends_without_its_result_still_hands_over_what_the_relay_coun
     let relay = Arc::new(CountingRelay {
         tally: Mutex::new(Some(counted())),
         refusals: Mutex::new(0),
+        steps: Mutex::new(Some(doubled())),
     });
     let (events, started, _dir) =
         run("the program ending with an error status mid-run", relay).await;
@@ -184,6 +228,7 @@ async fn a_run_that_ends_without_its_result_still_hands_over_what_the_relay_coun
     assert_eq!(u["output_tokens"], json!(50));
     assert_eq!(u["requests"], json!(3));
     assert_eq!(u["recorded_at_end"], json!(true));
+    assert_eq!(u["steps"], doubled_json(), "the steps stay with the usage");
     assert!(started.control.unreported_usage().is_empty(), "taken once");
 }
 
@@ -193,6 +238,7 @@ async fn a_refused_edit_is_reported_with_its_owner_facing_line_before_the_runs_u
     let relay = Arc::new(CountingRelay {
         tally: Mutex::new(None),
         refusals: Mutex::new(1),
+        steps: Mutex::new(None),
     });
     let (events, started, _dir) =
         run("a worker calls FERB's tool, reports, and answers", relay).await;
@@ -209,6 +255,10 @@ async fn a_refused_edit_is_reported_with_its_owner_facing_line_before_the_runs_u
     assert!(
         events[at + 1].1.get("requests").is_none(),
         "no count, no field"
+    );
+    assert!(
+        events[at + 1].1.get("steps").is_none(),
+        "no steps kept, no field"
     );
     started.control.cancel().await;
 }

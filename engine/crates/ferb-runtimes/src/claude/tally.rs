@@ -4,9 +4,12 @@
 //! total (RUN-421); and Anthropic's refusal of a history edited after its thinking blocks were made.
 //!
 //! Only numbers are kept: no prompt, reply, header or key is read beyond the `usage` objects and an error's type and
-//! words.
+//! words. Beside the usage, the reader notes the names of the tools an answer called and its stop reason, for the
+//! step record ([`super::steps`]; names only, never a call's arguments).
 
 use serde_json::{json, Map, Value};
+
+use super::steps::{tool_name, Answer};
 
 /// The usage of a run's model requests since it was last taken, summed as Anthropic reports each one.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -115,6 +118,7 @@ pub struct UsageReader {
     sse: bool,
     too_long: bool,
     request: Request,
+    answer: Answer,
 }
 
 /// A JSON answer read whole for its usage is at most this large; a bigger one is not read (its usage is lost, never
@@ -176,13 +180,31 @@ impl UsageReader {
                     self.request.started = true;
                     self.request.take(u);
                 }
+                if let Some(s) = ev
+                    .get("delta")
+                    .and_then(|d| d.get("stop_reason"))
+                    .and_then(Value::as_str)
+                {
+                    self.answer.stop = tool_name(s);
+                }
+            }
+            Some("content_block_start") => {
+                if let Some(name) = called(ev.get("content_block")) {
+                    self.answer.called.push(name);
+                }
             }
             _ => {}
         }
     }
 
     /// The answer's usage, when it reported one.
-    pub fn finish(mut self) -> Option<Tally> {
+    pub fn finish(self) -> Option<Tally> {
+        self.finish_step().0
+    }
+
+    /// The answer's usage, when it reported one, and what it said (None when it was too large to read: never a
+    /// guess).
+    pub fn finish_step(mut self) -> (Option<Tally>, Option<Answer>) {
         if !self.sse && !self.whole.is_empty() {
             if let Ok(Value::Object(body)) = serde_json::from_slice::<Value>(&self.whole) {
                 if let Some(Value::Object(u)) = body.get("usage") {
@@ -192,15 +214,37 @@ impl UsageReader {
                 if let Some(m) = body.get("model").and_then(Value::as_str) {
                     self.request.model = m.to_string();
                 }
+                if let Some(Value::Array(content)) = body.get("content") {
+                    self.answer.called = content.iter().filter_map(|b| called(Some(b))).collect();
+                }
+                if let Some(s) = body.get("stop_reason").and_then(Value::as_str) {
+                    self.answer.stop = tool_name(s);
+                }
             }
         } else if self.sse && !self.line.is_empty() {
             let line = std::mem::take(&mut self.line);
             self.event_line(&line);
         }
-        self.request
+        let answer = (!self.too_long).then(|| std::mem::take(&mut self.answer));
+        let tally = self
+            .request
             .started
-            .then(|| std::mem::take(&mut self.request).into_tally())
+            .then(|| std::mem::take(&mut self.request).into_tally());
+        (tally, answer)
     }
+}
+
+/// The name of the tool a content block calls, when it is a `tool_use` block.
+fn called(block: Option<&Value>) -> Option<String> {
+    let block = block?;
+    (block.get("type").and_then(Value::as_str) == Some("tool_use")).then(|| {
+        tool_name(
+            block
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+        )
+    })
 }
 
 /// Anthropic's refusal of a request whose history was edited after a thinking block in it was made (the

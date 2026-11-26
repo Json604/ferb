@@ -478,6 +478,8 @@ pub struct TestDaemon {
     pub meanings: Mutex<String>,
     pub fresh_reads: Mutex<Vec<bool>>,
     pub capture: Mutex<Option<FrontSeen>>,
+    /// The scenario's clock: a test's own script event `{"kind": "advance", "seconds": n}` moves it (ORCH-732).
+    pub clock: Mutex<Option<Arc<FakeClock>>>,
     /// RUN-474: a test's runtimes that can run here (`worker_types`; None: default, codex and claude), and each role
     /// a tap pointed at another service (`use_runtime`: runtime, role).
     pub types: Mutex<Option<Vec<String>>>,
@@ -702,6 +704,10 @@ impl Daemon for TestDaemon {
     // decision: ORCH-725 (the Python recordings' planner read the whole chat, its ages line and the latest result)
     fn bounded_planner(&self) -> bool {
         self.bounded.load(Ordering::SeqCst)
+    }
+    // decision: ORCH-731 (the Python recordings closed every program before the answer was used)
+    fn answer_before_close(&self) -> bool {
+        false
     }
     fn probe_read<'a>(
         &'a self,
@@ -1387,6 +1393,7 @@ impl ModelRuntime for ScriptRuntime {
                     at: 0,
                     cancelled: cancelled.clone(),
                     gate: self.gate.clone(),
+                    clock: self.daemon.clock.lock().unwrap().clone(),
                 }),
                 control: Arc::new(ScriptControl {
                     daemon: self.daemon.clone(),
@@ -1431,6 +1438,7 @@ struct ScriptEvents {
     at: usize,
     cancelled: Arc<(AtomicBool, Notify)>,
     gate: Option<Arc<Gate>>,
+    clock: Option<Arc<FakeClock>>,
 }
 
 impl ScriptEvents {
@@ -1472,8 +1480,16 @@ impl EventSource for ScriptEvents {
                     tokio::task::yield_now().await;
                 }
             }
-            let ev = self.events.get(self.at)?.clone();
+            let mut ev = self.events.get(self.at)?.clone();
             self.at += 1;
+            // a test's own script: the model takes this long before its next event (the injected clock moves on)
+            while ev["kind"] == "advance" {
+                if let Some(clock) = &self.clock {
+                    clock.advance(ev["seconds"].as_f64().unwrap_or(0.0));
+                }
+                ev = self.events.get(self.at)?.clone();
+                self.at += 1;
+            }
             let kind = s(&ev["kind"]);
             if kind == "raise" {
                 // a test's own script: the run breaks as a program crash or an unreadable stream does
@@ -1991,6 +2007,7 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         meanings: Mutex::default(),
         fresh_reads: Mutex::default(),
         capture: Mutex::default(),
+        clock: Mutex::default(),
         types: Mutex::default(),
         switched: Mutex::default(),
         lean: AtomicBool::new(false),
@@ -2005,6 +2022,7 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
     );
     let workspace = format!("{root}/{nn}/home/workspace");
     let home = format!("{root}/{nn}/user");
+    *daemon.clock.lock().unwrap() = Some(clock.clone());
     let sup = new_supervisor(&db, &clock, &ids, &daemon, &workspace, &home, dir.path());
     *daemon.journal_to.lock().unwrap() = Some(Arc::downgrade(sup.inner()));
     World {

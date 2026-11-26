@@ -23,8 +23,8 @@ Choose exactly one kind:
   when a what/who/which the request needs is missing from the message, the conversation (an earlier message FERB failed
   on included) and the records. While it is open, Layer 5 shows it and the request it asked about apart from the owner's
   new message: answers_question is true when the new message answers it (code then joins that request to it), false when
-  the message asks for something else (handle that alone without mentioning the open question; it and its request wait).
-  With no open question, false. It has no approval_id: answer_question is only for the listed questions and cards.
+  the message asks for something else (handle that alone without mentioning the open question; the question then
+  lapses, and the owner asks again if they still want that request). With no open question, false. It has no approval_id: answer_question is only for the listed questions and cards.
   Never ask for a secret, and never use the words password, passcode, passphrase, PIN, pwd or passwd: a typed
   reply to such a question is hidden from you.
 - "task": the request needs actions or a fresh observation on the Mac, including live content asked about before (an

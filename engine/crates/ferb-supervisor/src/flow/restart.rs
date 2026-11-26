@@ -41,6 +41,10 @@ impl Supervisor {
                 let _ = job.await;
             }
         }
+        // ORCH-731: a program still closing after its call's answer was used is closed before the store goes
+        if let Some(w) = self.inner.worker.get() {
+            w.closes_done().await;
+        }
         // main.py:526: learning captures are cancelled, journaled as deferred
         self.inner.stop_episodes().await;
         // stage 2: what the bus told the chat's entries last is written before the store closes

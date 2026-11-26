@@ -1251,7 +1251,8 @@ live = ["LIVE-1221"]
 title = "His Approve all of 23 Nov stands: the 65 imported lines stay always on"
 by = "owner"
 date = 2026-11-25
-status = "active"
+status = "superseded"
+superseded_by = "MEM-489"
 words = "yeah keep them"
 words_source = "Relayed by the coordinator, 2026-11-25: his answer on being told his store shows all 65 imported lines approved by one Approve all at 2026-11-23T03:40:49."
 rule = "Refines MEM-480. An Approve he gave before MEM-480 stands: approved imported lines stay always on and are never asked again. Only lines without his answer, and FERB's own understanding from now on, wait for his Yes."
@@ -1306,3 +1307,15 @@ status = "active"
 rule = "For MEM-485. Card and list draw every line with a tick (no folding: Approve all answers only what he sees), the words from the engine (`memory.review`'s all, some, hint). `memory.review.all {approve, decline}` (phone: private) gives each ticked line its part's yes (Approve, Yes, Yes) and each unticked one its no (Decline, No, not any more, No thanks); the main button reads \"Approve {n}\" while some are unticked, none when nothing is. Not sure and Done already stay answerable in his words."
 paths = ["engine/crates/ferb-learning/src/import_review.rs", "engine/crates/ferb-mobile/src/review.rs", "engine/crates/ferb-mobile-ffi/src/mobile.rs", "apps/mac/FERBNotch/Sources/NotchCore/MemoryReview.swift", "apps/android/app/src/main/kotlin/com/ferb/app/ui/MemoryReviewList.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/ImportReview.swift"]
 live = ["LIVE-1223"]
+
+[MEM-489]
+title = "Lines imported from his coding-agent chats are never always on"
+by = "owner"
+date = 2026-11-26
+status = "active"
+words = "never alwasy on"
+words_source = "Owner 2026-11-26, asked whether lines FERB learned from his Claude Code and Codex chats may be in the always-sent profile (kb/plans/front-door.md)."
+rule = "An item an import brought in (an import's journal source or an import line) is never in the always-sent profile, whatever Approve, pin or Keep it has; it is never offered for always-on and a pin is refused plainly. His own words (owner_stated) are another item. At start, rows holding such items leave once (memory.imported_not_always_on); nothing is deleted and lookups still find them."
+why = "All 65 always-on lines in his store were imported coding-agent habits and tastes, sent with every message."
+supersedes = ["MEM-483"]
+paths = ["engine/crates/ferb-learning/src/profile.rs", "engine/crates/ferb-learning/src/import_review.rs"]

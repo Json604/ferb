@@ -1,11 +1,11 @@
 //! The owner's review of what an import brought in (MEM-460, MEM-461, MEM-462; his words of 2026-11-23): one list he
 //! answers item by item or all at once, in three parts.
 //!
-//! - **Keep in mind all the time?** An import never puts anything in the always-on profile by itself (MEM-460,
-//!   which replaced the join at once for imports). What FERB thinks should be always on (a recent repeat, IMP-47's
-//!   rule, now a suggestion) is listed for his Approve / Decline (Keep / Remove for one already on, MEM-464). Approving adds it to the profile as his pin; declining keeps it
-//!   remembered and searchable, never always on. Lines an earlier build put in the profile by themselves are listed
-//!   too and stay on until he declines each (MEM-461): nothing changes behind his back.
+//! - **Keep in mind all the time?** FERB's own understanding (MEM-480, MEM-481, below). A line an import brought in is
+//!   never always on (the owner, 2026-11-26: "never alwasy on", MEM-489, which ended MEM-460's suggestions of
+//!   imported lines and MEM-483's approved 65): it is never listed here, stays remembered and searchable, and is on
+//!   the Memory page as remembered. A line's `always_on` mark (suggested, on, approved, declined) is kept as history
+//!   and read by nothing that decides.
 //! - **Are these still true?** Lines from a while ago that steer FERB's work (how he likes it to work, his setup, his
 //!   recurring things and projects) are asked once (MEM-462, for IMP-41); a fact about him that steers nothing is kept,
 //!   marked "last said …" on the Memory page, and not asked.
@@ -14,8 +14,8 @@
 //!   asks again in a week.
 //! - **Still want help with these?** Offers 30 to 60 days old, at most five, newest first (MEM-444, IMP-51).
 //!
-//! FERB's own understanding (not an import's) is in the first part too (MEM-480, MEM-481): what would once have
-//! joined always on by itself (MEM-424's two days or a week) waits there for the owner's Approve, as a suggestion.
+//! FERB's own understanding (never an import's) is the first part (MEM-480, MEM-481): what would once have joined
+//! always on by itself (MEM-424's two days) waits there for the owner's Approve, as a suggestion.
 //!
 //! **How he is asked (MEM-485, MEM-486).** Never one by one, and never at the moment something is learned: code
 //! collects what waits (no model), and at the day's first open of FERB (FERB.app or a phone; `Daily`) one to
@@ -23,7 +23,7 @@
 //! more are one note that opens the list. Nothing expires; what he hasn't answered waits.
 //!
 //! An answered item leaves the list; the list stays until every item is answered. A line's state is on the line
-//! (`always_on`: suggested, on, approved, declined; `asking_old`; `asking`), so every client and the owner's typed
+//! (`asking_old`; `asking`), so every client and the owner's typed
 //! answer read the same list (`review`).
 
 use std::collections::BTreeSet;
@@ -149,20 +149,12 @@ pub fn imported(store: &crate::store::Store, item_id: &str) -> Result<bool> {
     )
 }
 
-/// The owner's word on an imported item's place in the always-on profile, as its line keeps it ("" when none).
-pub fn always_on_state(store: &crate::store::Store, item_id: &str) -> Result<String> {
-    Ok(store
-        .one(
-            "SELECT COALESCE(json_extract(data_json, '$.always_on'), '') FROM memory_import_lines WHERE item_id = ?",
-            sql![item_id],
-        )?
-        .map(|r| r.s_at(0))
-        .unwrap_or_default())
-}
-
 /// The journal row of the start's step that took FERB's understanding out of always on until the owner's Yes
 /// (MEM-482), written only when it moved something: what left and which import lines are asked again.
 pub const WAITING_KIND: &str = "memory.inferred_waiting";
+/// The journal row of the start's step that took lines an import brought in out of always on (MEM-489: never always
+/// on), written only when it moved some: `{"left": n}`. The items stay, remembered and found by lookups.
+pub const IMPORTED_LEFT_KIND: &str = "memory.imported_not_always_on";
 
 /// Which group a line shows under (MEM-460: how you like FERB to work, about you, your setup).
 pub fn group_of(line: &Line) -> &'static str {
@@ -175,11 +167,6 @@ pub fn group_of(line: &Line) -> &'static str {
 
 fn button(answer: &str, label: &str) -> Value {
     json!({"answer": answer, "label": label})
-}
-
-/// Whether a review item is FERB's own understanding (no import line holds it, MEM-481).
-fn understood(l: &Line) -> bool {
-    l.id.is_empty()
 }
 
 impl ImportJob<'_> {
@@ -228,11 +215,14 @@ impl ImportJob<'_> {
         Ok(out)
     }
 
-    /// The start's step (MEM-480, MEM-482): FERB's understanding is always on only on the owner's Yes. An imported
-    /// line in the profile that he approved stays (his Approve all of 23 Nov stands, MEM-483); one an earlier build
-    /// put there by itself goes back to the review as a suggestion; FERB's own understanding there leaves unless he
-    /// added it himself. Nothing is deleted: each stays remembered and found by lookups. By code at every start,
-    /// journaled (`WAITING_KIND`) only when it moved something. The number of import lines asked.
+    /// The start's step (MEM-480, MEM-482, MEM-489): FERB's understanding is always on only on the owner's Yes, and a
+    /// line an import brought in never is. Every profile row holding an imported line leaves, whatever answer, pin or
+    /// Keep it has (his Approve all of 23 Nov included), and is never asked about again; FERB's own understanding there
+    /// leaves unless he added it himself or an older build's Keep kept it. Nothing is deleted: each stays remembered,
+    /// keeps its words, origin and line, and is found by lookups. By code at every start; journaled only when it moved
+    /// something (`IMPORTED_LEFT_KIND` with how many imported lines left, `WAITING_KIND` for FERB's own), so a second
+    /// start changes nothing and writes nothing. The number of import lines asked again: none since MEM-489 (the
+    /// review never asks about an imported line being always on).
     pub fn wait_for_yes(&self, profile: &CoreProfile) -> Result<usize> {
         let rows: Vec<(String, String)> = self
             .store
@@ -243,74 +233,49 @@ impl ImportJob<'_> {
         if rows.is_empty() {
             return Ok(0);
         }
-        let lines = self.lines()?;
         let kept = profile.owner_kept()?;
-        let (mut left, mut asked) = (Vec::new(), Vec::new());
+        let (mut imported, mut own) = (Vec::new(), Vec::new());
         for (item_id, by) in rows {
             let Some(it) = self.memory.get(&item_id)? else {
                 continue;
             };
-            if it.origin != "inferred" || kept.contains(&it.id) {
+            // decision: MEM-489 (the owner, 2026-11-26: "never alwasy on") — an imported line's row leaves, his
+            // Approve or pin notwithstanding; it was MEM-483's to stay
+            if profile.never_always_on(&it)? {
+                imported.push(item_id);
                 continue;
             }
-            match lines.iter().find(|l| l.item_id == item_id) {
-                // decision: MEM-483 — his Approve stands, whenever he gave it
-                Some(l) if l.s(ALWAYS_ON) == APPROVED => continue,
-                Some(l) => {
-                    let mut l = l.clone();
-                    if !l.gone() && l.s(ALWAYS_ON) != DECLINED {
-                        l.data.insert(ALWAYS_ON.into(), json!(SUGGESTED));
-                        l.data.remove("always_on_at");
-                        self.write_line(&l, false)?;
-                        asked.push(l.item_id.clone());
-                    }
-                }
-                None if by == "owner" => continue,
-                None => {}
+            if it.origin != "inferred" || kept.contains(&it.id) || by == "owner" {
+                continue;
             }
-            left.push(item_id);
+            own.push(item_id);
         }
-        if left.is_empty() {
+        if imported.is_empty() && own.is_empty() {
             return Ok(0);
         }
+        let left: Vec<String> = imported.iter().chain(own.iter()).cloned().collect();
         profile.remove(&left, "code")?;
-        self.journal.append(
-            WAITING_KIND,
-            Some(json!({"left": left.len(), "asked_again": asked.len()})),
-            None,
-        )?;
-        Ok(asked.len())
+        if !imported.is_empty() {
+            self.journal.append(
+                IMPORTED_LEFT_KIND,
+                Some(json!({"left": imported.len()})),
+                None,
+            )?;
+        }
+        if !own.is_empty() {
+            self.journal.append(
+                WAITING_KIND,
+                Some(json!({"left": own.len(), "asked_again": 0})),
+                None,
+            )?;
+        }
+        Ok(0)
     }
 
-    /// Marks what the always-on part lists (MEM-460, MEM-480), on every line no answer settled: one always on now
-    /// is there on the owner's word (his pin, an older build's Keep) and is `approved`; one an earlier build put there
-    /// by itself (`on`) and one that holds up by IMP-47 (a recent repeat) are `suggested`. Run after every import and
-    /// at the start. The number newly marked.
+    /// Marked what the always-on part listed of an import's lines (MEM-460's suggestions). Since MEM-489 an imported
+    /// line is never always on, so nothing of an import is suggested or marked; kept for its callers. Always 0.
     pub fn suggest_always_on(&self) -> Result<usize> {
-        let today = self.today();
-        let shown = self.in_profile()?;
-        let rows = self.core().ids()?;
-        let mut marked = 0;
-        for mut l in self.lines()? {
-            let state = l.s(ALWAYS_ON);
-            if l.gone() || [APPROVED, DECLINED].contains(&state.as_str()) {
-                continue;
-            }
-            let new = if shown.contains_key(&l.item_id) {
-                APPROVED
-            } else if state == SUGGESTED || l.over(&today) {
-                continue;
-            } else if state == ON || rows.contains(&l.item_id) || self.joins(&l) {
-                // MEM-480: one an earlier build put in always on by itself waits for his Yes like any suggestion
-                SUGGESTED
-            } else {
-                continue;
-            };
-            l.data.insert(ALWAYS_ON.into(), json!(new));
-            self.write_line(&l, false)?;
-            marked += 1;
-        }
-        Ok(marked)
+        Ok(0)
     }
 
     /// The lines each part lists now, in the order shown. The older lines leave out a fact whose check date came:
@@ -378,13 +343,9 @@ impl ImportJob<'_> {
                 .iter()
                 .position(|x| *x == g)
         };
-        let mut on: Vec<Line> = lines
-            .iter()
-            .filter(|l| [SUGGESTED, ON].contains(&l.s(ALWAYS_ON).as_str()))
-            .cloned()
-            .collect();
-        // MEM-481: FERB's own understanding waiting for his Yes, in the same part
-        on.extend(self.understood_lines()?);
+        // decision: MEM-489 — an imported line is never always on, so none is listed for it, whatever an older build
+        // marked on it (`suggested`, `on`); MEM-481: FERB's own understanding waiting for his Yes is all this part asks
+        let mut on: Vec<Line> = self.understood_lines()?;
         on.sort_by_key(|l| {
             (
                 order(group_of(l)),
@@ -543,29 +504,13 @@ impl ImportJob<'_> {
         {
             let mut l = l.clone();
             match part {
-                // MEM-481: FERB's own understanding: Approve pins it as his, Decline keeps it remembered only
-                ALWAYS_ON if understood(&l) => {
+                // MEM-481: FERB's own understanding (all this part lists, MEM-489): Approve pins it as his, Decline
+                // keeps it remembered only
+                ALWAYS_ON => {
                     if answer == "approve" {
                         profile.keep(&l.item_id, "owner")?;
                     } else {
                         profile.decline(&l.item_id, "owner")?;
-                    }
-                }
-                ALWAYS_ON => {
-                    let approve = answer == "approve";
-                    l.data.insert(
-                        ALWAYS_ON.into(),
-                        json!(if approve { APPROVED } else { DECLINED }),
-                    );
-                    l.data.insert(
-                        "always_on_at".into(),
-                        json!(py::iso(&self.memory.clock.now())),
-                    );
-                    self.write_line(&l, false)?;
-                    if approve {
-                        profile.keep(&l.item_id, "owner")?;
-                    } else {
-                        profile.remove(std::slice::from_ref(&l.item_id), "owner")?;
                     }
                 }
                 STILL_TRUE => {
@@ -812,6 +757,8 @@ impl ImportJob<'_> {
                 }
                 "asking"
             } else if steers(&l) && ![SUGGESTED, ON].contains(&l.s(ALWAYS_ON).as_str()) {
+                // a line he already answered for always-on (an older build's `suggested` / `on`) is not asked "still
+                // true?" now that it left Tier 1: leaving it adds no question for him
                 "asking_old"
             } else {
                 continue;

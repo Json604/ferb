@@ -6,6 +6,7 @@
 //! tool-list proxy after every turn.
 
 pub mod proxy;
+pub mod steps;
 pub mod tally;
 pub mod transport;
 
@@ -164,6 +165,11 @@ pub trait ToolProxy: Send + Sync {
     /// call (each went again unedited, and the run is not edited again).
     fn history_refusals(&self, _run_id: &str) -> usize {
         0
+    }
+    /// T-1338: the run's model steps (tool names called, tool results' error flags, stop reasons, times) since the
+    /// last call; None when none.
+    fn take_steps(&self, _run_id: &str) -> Option<steps::Steps> {
+        None
     }
 }
 
@@ -472,6 +478,8 @@ struct State {
     repaired: bool,
     /// RUN-477: usage the relay counted that no result frame reported, kept when the run is cancelled.
     unreported: tally::Tally,
+    /// T-1338: the relay's step records no result frame carried, kept with that usage.
+    unreported_steps: steps::Steps,
 }
 
 /// One live Claude run.
@@ -525,6 +533,9 @@ impl ClaudeRun {
         // RUN-477: what the relay counted since the last result frame stays with the run once the relay forgets it
         if let Some(t) = self.rt.proxy.take_usage(&self.id) {
             self.lock().unreported.add(&t);
+        }
+        if let Some(s) = self.rt.proxy.take_steps(&self.id) {
+            self.lock().unreported_steps.add(s);
         }
         let client = {
             let mut st = self.lock();
@@ -673,6 +684,7 @@ pub async fn start(
             remembered: false,
             repaired: false,
             unreported: tally::Tally::default(),
+            unreported_steps: steps::Steps::default(),
         }),
         input_lock: tokio::sync::Mutex::new(()),
     });
@@ -1035,6 +1047,10 @@ async fn result_message(
     if let Some(t) = rt.proxy.take_usage(&run.id) {
         data.insert("requests".into(), json!(t.requests));
     }
+    // T-1338: what each of those requests called and got back, by name and error flag only
+    if let Some(s) = rt.proxy.take_steps(&run.id) {
+        s.insert_into(&mut data);
+    }
     for made in rt.proxy.compactions(&run.id) {
         y.emit(event(K::Compacted, made.as_event())).await?;
     }
@@ -1203,6 +1219,10 @@ impl ClaudeRun {
         if let Some(more) = self.rt.proxy.take_usage(&self.id) {
             t.add(&more);
         }
+        let mut s = std::mem::take(&mut self.lock().unreported_steps);
+        if let Some(more) = self.rt.proxy.take_steps(&self.id) {
+            s.add(more);
+        }
         if t.is_empty() {
             return Vec::new();
         }
@@ -1222,6 +1242,7 @@ impl ClaudeRun {
         };
         let mut data = usage.as_dict();
         data.insert("requests".into(), json!(t.requests));
+        s.insert_into(&mut data);
         data.insert("recorded_at_end".into(), json!(true));
         vec![data]
     }
