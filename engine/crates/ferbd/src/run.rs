@@ -160,6 +160,23 @@ fn daemon() -> i32 {
             };
             // this daemon holds FERB's home now: a stop marker an earlier daemon's stop left never makes it stay stopped
             ferb_device::install::clear_stale_stop(&stop_home, i64::from(std::process::id()));
+            // the last daemon was stuck and the watchdog ended it: its note is journaled now
+            if let Some(note) = crate::watchdog::take_note(&stop_home) {
+                crate::log::line("the last run was stuck and was started again (daemon.hung)");
+                daemon
+                    .journal
+                    .note("daemon.hung", serde_json::Value::Object(note));
+            }
+            let watchdog = {
+                let (db, home) = (daemon.db.clone(), stop_home.clone());
+                crate::watchdog::watch(
+                    tokio::runtime::Handle::current(),
+                    Arc::new(move || drop(crate::basics::lock(&db))),
+                    crate::watchdog::PROBE_EVERY,
+                    crate::watchdog::HUNG_AFTER,
+                    move |since| crate::watchdog::hung(&home, since),
+                )
+            };
             #[cfg(feature = "stand-ins")]
             if let Some(s) = stand {
                 crate::standins::attach(&daemon, s).await;
@@ -171,6 +188,7 @@ fn daemon() -> i32 {
                 _ = quit.notified() => true,
             };
             crate::log::line("stopping (asked to)");
+            watchdog.stop(); // a slow stop is not a hang
             daemon.shutdown().await;
             let signo = signalled.load(std::sync::atomic::Ordering::SeqCst);
             let on_purpose = updating

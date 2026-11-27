@@ -348,12 +348,12 @@ where
                     .and_then(|p| p.get("requestId"))
                     .map(id_key)
                     .unwrap_or_default();
-                if let Some(task) = bridge
+                let task = bridge
                     .calls
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .remove(&request)
-                {
+                    .remove(&request);
+                if let Some(task) = task {
                     // the daemon sees its caller leave (an owner question stays open for a retry)
                     task.abort();
                 }

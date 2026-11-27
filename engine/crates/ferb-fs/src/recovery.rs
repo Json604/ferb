@@ -1404,7 +1404,8 @@ impl Snapshots {
             }
         };
         let result = loop {
-            if let Some(r) = rx.borrow().clone() {
+            let r = rx.borrow().clone();
+            if let Some(r) = r {
                 break r;
             }
             if rx.changed().await.is_err() {

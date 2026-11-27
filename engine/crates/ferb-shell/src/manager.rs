@@ -852,12 +852,12 @@ impl ShellManager {
     }
 
     pub async fn kill_all(&self) -> usize {
-        if let Some(w) = self
+        let watcher = self
             .watcher
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .take()
-        {
+            .take();
+        if let Some(w) = watcher {
             w.abort();
         }
         let mut n = 0;
@@ -955,12 +955,12 @@ impl ShellManager {
             return;
         };
         // the bytes it received since the watch last looked still count
-        if let Some(count) = self
+        let on_received = self
             .on_received
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .clone()
-        {
+            .clone();
+        if let Some(count) = on_received {
             let got = Self::received_total(&facts);
             let new = {
                 let mut st = self.lock();

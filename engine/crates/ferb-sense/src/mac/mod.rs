@@ -165,7 +165,8 @@ pub fn native_loop(done: &AtomicBool, interval_s: f64, mut step: impl FnMut()) {
         running_loops().insert(key, rl as usize);
     }
     native_turns(done, interval_s, &mut step);
-    if let Some(rl) = running_loops().remove(&key) {
+    let rl = running_loops().remove(&key);
+    if let Some(rl) = rl {
         // SAFETY: the reference retained above, released once.
         unsafe { CFRelease(rl as CFTypeRef) };
     }

@@ -352,7 +352,8 @@ impl Mobile {
     pub fn connect_transport(&self, transport: Arc<dyn Transport>) -> Result<(), FerbError> {
         guard(|| {
             let core = self.core()?;
-            if let Some(old) = lock(&self.link).take() {
+            let old = lock(&self.link).take();
+            if let Some(old) = old {
                 old.detach(&core);
             }
             let transport: Arc<dyn ferb_mobile::Transport> = Arc::new(TransportAdapter(transport));
@@ -375,7 +376,8 @@ impl Mobile {
     pub fn disconnect(&self) -> Result<(), FerbError> {
         guard(|| {
             let core = self.core()?;
-            if let Some(old) = lock(&self.link).take() {
+            let old = lock(&self.link).take();
+            if let Some(old) = old {
                 old.detach(&core);
             }
             lock(&self.transport).take();

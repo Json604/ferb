@@ -1244,7 +1244,8 @@ impl RoundHost {
             let notified = self.aborted.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
-            if let Some(f) = self.abort.lock().unwrap().clone() {
+            let f = self.abort.lock().unwrap().clone();
+            if let Some(f) = f {
                 return f;
             }
             notified.await;

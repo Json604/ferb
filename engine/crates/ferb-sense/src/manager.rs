@@ -286,7 +286,8 @@ impl Sense {
 
     /// manager.py:119.
     pub async fn stop(&self) {
-        if let Some(s) = lock(&self.stop).take() {
+        let stop = lock(&self.stop).take();
+        if let Some(s) = stop {
             s.set();
         }
         let mut slow = Vec::new();

@@ -1080,7 +1080,8 @@ impl Daemon for TestDaemon {
             if self.episode_hang.load(Ordering::SeqCst) {
                 std::future::pending::<()>().await;
             }
-            match self.episode_fault.lock().unwrap().clone() {
+            let fault = self.episode_fault.lock().unwrap().clone();
+            match fault {
                 Some(f) => Err(f),
                 None => Ok(()),
             }
@@ -1116,7 +1117,8 @@ impl Daemon for TestDaemon {
     }
     fn keep_tabs_open(&self, _task_id: &str) {}
     fn code_checkable(&self, condition: &Condition, task_id: &str) -> bool {
-        if let Some(seed) = self.literal.lock().unwrap().clone() {
+        let seed = self.literal.lock().unwrap().clone();
+        if let Some(seed) = seed {
             let db = self.db.lock().unwrap();
             seed(&db, task_id);
             let host = LiteralHost { db: &db };
@@ -1198,7 +1200,8 @@ impl Daemon for TestDaemon {
             .map(|(k, _)| k.clone())
             .unwrap_or_else(|| "(unknown schema)".into());
         if role.starts_with("checker") {
-            if let Some(look) = self.look.lock().unwrap().clone() {
+            let look = self.look.lock().unwrap().clone();
+            if let Some(look) = look {
                 let k = self.looks.fetch_add(1, Ordering::SeqCst);
                 look(&self.db.lock().unwrap(), k);
             }
@@ -1329,7 +1332,8 @@ impl Daemon for TestDaemon {
         _request_id: &str,
         _words: &str,
     ) -> ferb_supervisor::flow::ProfileSources {
-        if let Some(set) = self.profile_sources.lock().unwrap().clone() {
+        let set = self.profile_sources.lock().unwrap().clone();
+        if let Some(set) = set {
             return set;
         }
         let mut all: Vec<(String, String)> = Vec::new();

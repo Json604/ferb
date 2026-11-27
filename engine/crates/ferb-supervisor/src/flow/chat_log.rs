@@ -116,6 +116,28 @@ struct State {
     open: HashMap<String, String>,
     /// request -> the bus events about it held while its stream is open.
     held: HashMap<String, Vec<(String, Value)>>,
+    /// conversation -> the last live frame of each running task's step, as a watcher was handed it (request, frame).
+    /// Live state is never stored (ENG-8): this is only what a watcher that starts now has missed, sent after its
+    /// catch-up; a task's go once it ends.
+    steps: HashMap<String, Vec<(Option<String>, Value)>>,
+}
+
+/// A live frame that tells a step's state (a stream's `step` frame, or the `task.step` event): its task and step, and
+/// its `seq` (the step-state clock: a later state has a greater one).
+pub(crate) fn step_of(frame: &Value) -> Option<(String, String, String)> {
+    let data = match frame.get("type").and_then(Value::as_str) {
+        Some("step") => frame,
+        Some("event") if frame.get("topic").and_then(Value::as_str) == Some("task.step") => {
+            frame.get("data")?
+        }
+        _ => return None,
+    };
+    let text = |k: &str| data.get(k).and_then(Value::as_str).map(str::to_string);
+    Some((
+        text("task_id")?,
+        text("step")?,
+        text("seq").unwrap_or_default(),
+    ))
 }
 
 /// The wired projector (one per daemon, inside the supervisor).
@@ -202,7 +224,8 @@ impl ChatLog {
     fn hand_trace(&self) {
         let sink = lock(&self.trace).clone();
         if let Some(sink) = sink {
-            for item in std::mem::take(&mut *lock(&self.traced)) {
+            let items = std::mem::take(&mut *lock(&self.traced));
+            for item in items {
                 sink(&item);
             }
         }
@@ -544,6 +567,16 @@ impl ChatLog {
         Watch { id, rx, behind }
     }
 
+    /// The last state of each running task's step in `conversation` (request, live frame): what a watcher that
+    /// starts now hasn't seen, since live state is never an entry.
+    pub fn live_steps(&self, conversation: &str) -> Vec<(Option<String>, Value)> {
+        lock(&self.state)
+            .steps
+            .get(conversation)
+            .cloned()
+            .unwrap_or_default()
+    }
+
     /// The watcher left.
     pub fn unwatch(&self, id: u64) {
         lock(&self.watchers).retain(|w| w.id != id);
@@ -701,11 +734,31 @@ impl Ctx<'_> {
                    "changes": out.changes.iter().map(|c| &c.entry).collect::<Vec<_>>(),
                    "live": out.live.is_some()})
         });
+        if let Input::Bus {
+            topic: "task.result",
+            data,
+        } = input
+        {
+            // an ended task's steps are no longer live
+            if let Some(t) = data.get("task_id").and_then(Value::as_str) {
+                let sub = format!("{t}.");
+                if let Some(steps) = self.st.steps.get_mut(conversation) {
+                    steps.retain(|(_, f)| {
+                        step_of(f).is_none_or(|(task, _, _)| task != t && !task.starts_with(&sub))
+                    });
+                }
+            }
+        }
         if let Some(live) = out.live {
             let request_id = match input {
                 Input::Frame { request_id, .. } => Some(request_id.to_string()),
                 _ => None,
             };
+            if let Some((task, step, _)) = step_of(&live) {
+                let steps = self.st.steps.entry(conversation.to_string()).or_default();
+                steps.retain(|(_, f)| step_of(f).is_none_or(|(t, s, _)| t != task || s != step));
+                steps.push((request_id.clone(), live.clone()));
+            }
             self.made.push((
                 conversation.to_string(),
                 Watched::Live {

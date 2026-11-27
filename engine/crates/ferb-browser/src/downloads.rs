@@ -922,7 +922,8 @@ impl Downloads {
         let size = ev.size;
         let checked = (|| -> Result<Result<(Limits, String), Stop>, Fault> {
             let lim = self.limits()?;
-            let tree = (Arc::clone(&lock(&self.hooks).task_root))(&owner.task);
+            let task_root = Arc::clone(&lock(&self.hooks).task_root); // called after the hooks' lock is let go
+            let tree = task_root(&owner.task);
             let (files, taken) = self.records.tree_usage(&tree)?;
             let used = taken + self.inflight(&tree) + self.shell_bytes(&tree)?;
             if files >= lim.task_files {
@@ -1240,7 +1241,8 @@ impl Downloads {
         if n <= 0 {
             return Ok(());
         }
-        let tree = (Arc::clone(&lock(&self.hooks).task_root))(task);
+        let task_root = Arc::clone(&lock(&self.hooks).task_root); // called after the hooks' lock is let go
+        let tree = task_root(task);
         let total = self.shell_bytes(&tree)? + n;
         lock(&self.state).shell.insert(tree.clone(), total);
         let at = ferb_core::when::isoformat(&self.clock.now());
@@ -1256,7 +1258,8 @@ impl Downloads {
     /// worker; `None`: it may go on.
     pub fn shell_stop(&self, task: &str) -> Result<Option<String>, Fault> {
         let lim = self.limits()?;
-        let tree = (Arc::clone(&lock(&self.hooks).task_root))(task);
+        let task_root = Arc::clone(&lock(&self.hooks).task_root); // called after the hooks' lock is let go
+        let tree = task_root(task);
         let used = self.used(&tree)?;
         if used > lim.task_bytes {
             return Ok(Some(format!(

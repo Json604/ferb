@@ -167,7 +167,8 @@ impl DeviceState {
                     .map(|e| e.chars().take(300).collect())
                     .unwrap_or_else(|| "FERB.app couldn't read the location".into())),
             };
-            let delivered = match lock(&self.waiting).remove(id) {
+            let waiting = lock(&self.waiting).remove(id);
+            let delivered = match waiting {
                 Some(w) => w.send(answer).is_ok(),
                 None => false,
             };
@@ -211,7 +212,8 @@ impl DeviceState {
     ) -> Result<bool, String> {
         let root = root_of(&ctx.task_id).to_string();
         let key = (root, phone.map(|p| p.0.to_string()).unwrap_or_default());
-        if let Some(yes) = lock(&self.answers).get(&key).copied() {
+        let answered = lock(&self.answers).get(&key).copied();
+        if let Some(yes) = answered {
             return Ok(yes);
         }
         let Some(yes) = ask(Ask {

@@ -993,7 +993,8 @@ impl Standin {
         let end = Instant::now() + Duration::from_secs(30);
         loop {
             let wait = changed.notified();
-            if let Some(v) = self.st.lock().unwrap().answers.remove(&id) {
+            let answer = self.st.lock().unwrap().answers.remove(&id);
+            if let Some(v) = answer {
                 return v;
             }
             if Instant::now() > end {

@@ -231,7 +231,12 @@ impl ResourceLog {
     }
 
     /// One window's row, written and returned. Nothing is kept from a sample that fails: the next covers both.
-    pub fn sample(&mut self, db: &Db) -> Result<Map<String, Value>, String> {
+    /// The database is taken (`db`) only after every reading and count: the counts come from other parts' locks
+    /// (the previews', perception's), and holding the database while asking for them froze the daemon (2026-11-28).
+    pub fn sample<G: std::ops::Deref<Target = Db>>(
+        &mut self,
+        db: impl FnOnce() -> G,
+    ) -> Result<Map<String, Value>, String> {
         let (now, day, mono) = (
             self.clock.now_iso(),
             self.clock.local_day(),
@@ -244,7 +249,6 @@ impl ResourceLog {
         let (live, children_cpu, tracked, owed) = self.descendants(&tree, reaped);
         walked.insert(self.pid);
         let app = self.app(&walked);
-        let (cursors, mut work) = self.work(db)?;
         let mut busiest: Vec<(f64, Key)> = live
             .iter()
             .filter(|(_, c)| **c > 0.0)
@@ -272,9 +276,12 @@ impl ResourceLog {
                 ])
             })
             .collect();
-        work.insert("top".into(), Value::Array(top));
         let counts = (self.perception)();
         let previews = (self.preview)();
+        let db = db();
+        let db: &Db = &db;
+        let (cursors, mut work) = self.work(db)?;
+        work.insert("top".into(), Value::Array(top));
         let mut preview = Map::new();
         for (key, value) in &previews {
             let before = self.mark.preview.get(key);
@@ -770,6 +777,7 @@ impl Readings for MacReadings {
 mod tests {
     //! tests/test_resource_log.py's cases, on the same invented readings (`Fake`).
     use super::*;
+    use std::sync::atomic::Ordering::SeqCst;
     use std::sync::{Arc, Mutex};
 
     const DAEMON: i32 = 100;
@@ -911,7 +919,7 @@ mod tests {
     impl Run {
         fn sample(&mut self) -> Map<String, Value> {
             *self.clock.0.lock().unwrap() += 300.0;
-            self.log.sample(&self.db).unwrap()
+            self.log.sample(|| &self.db).unwrap()
         }
         fn child(&mut self) -> f64 {
             self.sample()["child_cpu_s"].as_f64().unwrap()
@@ -1324,7 +1332,7 @@ mod tests {
             json!({"requests": 10, "frames": 8, "capture_ms": 340.5, "cached": 2, "busy": 1}),
         );
         *clock.0.lock().unwrap() += 300.0;
-        let row = log.sample(&db).unwrap();
+        let row = log.sample(|| &db).unwrap();
         let work: Value = serde_json::from_str(row["work_json"].as_str().unwrap()).unwrap();
         assert_eq!(
             work,
@@ -1367,5 +1375,48 @@ mod tests {
             .map(Result::unwrap)
             .collect();
         assert_eq!(left, ["2026-10-23", "2026-10-22"]);
+    }
+
+    // decision: ENG-24
+    /// The counts come from other parts' locks, and those parts read the database under them: a sample asks for
+    /// every count before it takes the database (2026-11-28: holding it while asking the previews froze the daemon).
+    #[test]
+    fn a_sample_asks_for_every_count_before_it_takes_the_database() {
+        let fake = Fake::new();
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(dir.path().join("ferb.db")).unwrap();
+        db.migrate().unwrap();
+        let taken = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let asked: Arc<Mutex<Vec<(&str, bool)>>> = Arc::new(Mutex::new(vec![]));
+        let (t1, a1, t2, a2) = (taken.clone(), asked.clone(), taken.clone(), asked.clone());
+        let clock = Clock(Arc::new(Mutex::new(0.0)));
+        let mut log = ResourceLog::new(
+            &db,
+            Box::new(clock.clone()),
+            Box::new(fake),
+            plain(),
+            Box::new(move || {
+                a1.lock().unwrap().push(("perception", t1.load(SeqCst)));
+                (0, BTreeMap::new())
+            }),
+            Box::new(move || {
+                a2.lock().unwrap().push(("preview", t2.load(SeqCst)));
+                Map::new()
+            }),
+            DAEMON,
+        )
+        .unwrap();
+        asked.lock().unwrap().clear();
+        *clock.0.lock().unwrap() += 300.0;
+        log.sample(|| {
+            taken.store(true, SeqCst);
+            &db
+        })
+        .unwrap();
+        assert!(taken.load(SeqCst));
+        assert_eq!(
+            *asked.lock().unwrap(),
+            [("perception", false), ("preview", false)]
+        );
     }
 }

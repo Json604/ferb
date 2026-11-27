@@ -527,12 +527,12 @@ impl Inner {
             self.set_status(tree_id, "paused", None);
             // ORCH-312: the owner's pause of a scheduled run pauses that schedule's next runs too (the daemon)
             let mut data = obj(json!({"task_id": tree_id}));
-            if let Some(s) = tree
+            let schedule = tree
                 .lock()
                 .schedule_id
                 .clone()
-                .filter(|_| question.is_empty())
-            {
+                .filter(|_| question.is_empty());
+            if let Some(s) = schedule {
                 data.insert("schedule_id".into(), json!(s));
             }
             self.deps.daemon.publish("task.paused", Value::Object(data));
@@ -1161,7 +1161,8 @@ impl Inner {
             None => false,
         };
         if found {
-            if let Some(tree) = self.live().tree_of.get(tree_id).cloned() {
+            let tree = self.live().tree_of.get(tree_id).cloned(); // `live` let go before the tree's lock
+            if let Some(tree) = tree {
                 let mut st = tree.lock();
                 if st.stop == RESTARTED {
                     st.stop = STOPPED_BY_YOU.into();

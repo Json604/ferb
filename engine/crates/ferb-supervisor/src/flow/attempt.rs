@@ -231,7 +231,8 @@ impl Inner {
             )
         };
         // a scheduled run's schedule (the root's: `_tree_of[tree.id]`) and what its roles read of it
-        let (schedule_id, schedule_facts) = match self.live().tree_of.get(&tree.id).cloned() {
+        let root = self.live().tree_of.get(&tree.id).cloned();
+        let (schedule_id, schedule_facts) = match root {
             Some(root) if !Arc::ptr_eq(&root, tree) => {
                 let st = root.lock();
                 (st.schedule_id.clone(), st.schedule_facts.clone())
@@ -2160,6 +2161,11 @@ impl Inner {
         span: &str,
         observations: &[ConditionResult],
     ) -> Flow<(Vec<ConditionResult>, Option<CheckerOutcome>)> {
+        // the daemon's facts first: they are never read under a tree's lock
+        let (worker_types, availability) = (
+            self.deps.daemon.worker_types(),
+            self.deps.daemon.availability(),
+        );
         let (reads, calls_since) = {
             let st = tree.lock();
             let spec = st.spec.clone().expect("a spec");
@@ -2203,8 +2209,8 @@ impl Inner {
                     worker_question: st.worker_question.clone(),
                     gaps: st.worker_gaps.clone(),
                     part_updates: st.part_updates.clone(),
-                    worker_types: self.deps.daemon.worker_types(),
-                    availability: self.deps.daemon.availability(),
+                    worker_types,
+                    availability,
                     observations,
                     calls_since: st.calls_since,
                     began: None,

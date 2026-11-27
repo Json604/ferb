@@ -579,7 +579,7 @@ fn waits_wake_as_python_did() {
                 &want["lines"],
                 &json!(env.lines.borrow_mut().split_off(0)),
             );
-            for (k, v) in [
+            let rows = [
                 ("rests", json!(env.rests.get())),
                 ("mono", json!(env.mono.get())),
                 ("wall", json!(py::iso(&env.wall.get()))),
@@ -592,7 +592,8 @@ fn waits_wake_as_python_did() {
                 ("killed", json!(*env.shells.killed.borrow())),
                 ("started", json!(*env.shells.started.borrow())),
                 ("told", json!(*env.shells.told.borrow())),
-            ] {
+            ];
+            for (k, v) in rows {
                 d.check(&format!("{what} {k}"), &want[k], &v);
             }
         }

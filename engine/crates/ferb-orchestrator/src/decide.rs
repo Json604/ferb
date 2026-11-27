@@ -264,12 +264,12 @@ impl JevClient {
         questions: &Value,
         timeout: f64,
     ) -> Result<Value, JevUnavailable> {
-        if let Some(r) = self
+        let refused = self
             .refused
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .clone()
-        {
+            .clone();
+        if let Some(r) = refused {
             return Err(JevUnavailable(format!(
                 "{r} earlier: not asked again until the key changes"
             )));

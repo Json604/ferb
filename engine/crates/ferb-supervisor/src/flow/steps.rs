@@ -98,7 +98,8 @@ impl Inner {
         if self.task_paused(root) {
             return Some(("paused".into(), "Paused".into()));
         }
-        if let Some(asleep) = self.live().sleeping.get(root).cloned() {
+        let asleep = self.live().sleeping.get(root).cloned();
+        if let Some(asleep) = asleep {
             let text = crate::lines::sleeping_line(&asleep);
             let mut chars = text.chars();
             let first: String = chars

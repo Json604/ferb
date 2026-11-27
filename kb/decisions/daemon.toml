@@ -1237,3 +1237,13 @@ words_source = "Owner 2026-11-24, to the recommendation to harden the report rel
 rule = "For DMN-8. The relay (relay/worker.mjs) stays as it is: no daily total of reports, no single-use tickets across Worker copies, no check of app_version's shape before it becomes a label, nothing that says when its token stops working."
 why = "The owner's call: \"nobody will spam\"."
 untestable = "Nothing is built or changed."
+
+[DMN-621]
+title = "A stuck daemon writes what each thread does and is started again after 60 seconds"
+by = "owner"
+date = 2026-11-28
+status = "active"
+words = "yes to watchdog"
+words_source = "Owner 2026-11-28, to the proposal after the night's freeze: if the engine stops answering for 60 seconds, FERB writes what every thread was doing to its log and restarts itself."
+rule = "For DMN-618. A thread outside the async runtime hands it a job that takes the shared database every 10 s; when none has finished for 60 s (Instant, which stops while the Mac sleeps), the daemon writes `sample` of itself to logs/hang-<time>.txt (the newest 5 kept), leaves run/hung.json, and exits 70 so launchd starts it again; the next start journals daemon.hung with when, how long and the report. A stop on purpose stops the watchdog first."
+paths = ["engine/crates/ferbd/src/watchdog.rs", "engine/crates/ferbd/src/run.rs"]

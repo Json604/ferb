@@ -2406,8 +2406,19 @@ impl Inner {
             let asleep = self.live().sleeping.get(&tree.id).cloned();
             let preview = self.preview_status(&tree.id, "");
             let waits = self.waiting_facts(&tree);
-            let st = tree.lock();
-            let spec = st.spec.clone().expect("a spec");
+            // what the view needs from the tree, copied out: the reads below take the database and the daemon's
+            // parts, never under a tree's lock
+            let (spec, schedule, stopping, reports, last_report, tree_runtime) = {
+                let st = tree.lock();
+                (
+                    st.spec.clone().expect("a spec"),
+                    st.schedule_id.is_some(),
+                    !st.stop.is_empty(),
+                    st.reports.len(),
+                    st.reports.last().cloned(),
+                    st.runtime.clone(),
+                )
+            };
             let steps = if spec.plan.is_some() {
                 self.plans(|p| p.steps(&tree.id))
                     .unwrap_or_default()
@@ -2421,11 +2432,11 @@ impl Inner {
             views.push(crate::planner::TreeView {
                 task_id: tree.id.clone(),
                 mine: mine.contains(&tree.id),
-                schedule: st.schedule_id.is_some(),
+                schedule,
                 goal: spec.goal.clone(),
-                stopping: !st.stop.is_empty(),
-                reports: st.reports.len(),
-                last_report: st.reports.last().cloned(),
+                stopping,
+                reports,
+                last_report,
                 steps,
                 loops,
                 paused,
@@ -2451,8 +2462,8 @@ impl Inner {
                         })
                         .collect()
                 }),
-                runtime: if !st.runtime.is_empty() {
-                    st.runtime.clone()
+                runtime: if !tree_runtime.is_empty() {
+                    tree_runtime
                 } else if !spec.worker_type.is_empty() {
                     spec.worker_type.clone()
                 } else {

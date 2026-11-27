@@ -639,3 +639,12 @@ why = "Only token hashes are kept, so answering the same pair twice needs it der
 rejected = ["Keeping the new pair's plaintext for 60 s: tokens would be stored readable", "A new random pair on each retry: two live refresh tokens in one family", "Running every schema statement on each cold start: about a dozen round trips per cold start"]
 paths = ["site/api/_lib/app.js", "site/api/_lib/store.js", "site/api/_lib/apple.js", "site/api/_lib/handlers.js", "site/sql", "site/tests", "site/privacy.html"]
 live = ["LIVE-1202", "LIVE-1203"]
+
+[REL-455]
+title = "Each build keeps ferbd's symbol map by its UUID, so a hang report can be read"
+by = "agent"
+date = 2026-11-28
+status = "active"
+rule = "For DMN-621. build-app-rust.sh links ferbd with a linker map (the code is the same; what ships stays stripped), gzips it to <build folder>/symbols/ferbd-<UUID>.map.gz and keeps the ten newest; scripts/symbolicate-hang.py names a hang report's ferbd frames from the map whose UUID the report prints."
+why = "2026-11-28 the stripped daemon's freeze took an hour to read: the code had to be rebuilt byte for byte to get its symbols."
+paths = ["scripts/build-app-rust.sh", "scripts/symbolicate-hang.py"]

@@ -387,7 +387,8 @@ impl Daemon {
         for entry in &set_aside {
             journal.note("store.set_aside", Value::Object(entry.clone()));
         }
-        for entry in std::mem::take(&mut *lock(&rebuilt)) {
+        let rebuilt_entries = std::mem::take(&mut *lock(&rebuilt));
+        for entry in rebuilt_entries {
             crate::log::line(&format!(
                 "store: search indexes rebuilt in place {}",
                 ferb_py::json::dumps(&entry)
@@ -1553,10 +1554,7 @@ impl Daemon {
     pub fn sample_resources(&self) {
         let mut held = lock(&self.resource_log);
         let Some(log) = held.as_mut() else { return };
-        let done = {
-            let d = lock(&self.db);
-            log.sample(&d)
-        };
+        let done = log.sample(|| lock(&self.db));
         if let Err(e) = done {
             self.journal.note("resources.failed", json!({"error": e}));
         }

@@ -37,3 +37,4 @@ pub mod standins_c;
 pub mod standins_chat;
 pub mod stats;
 pub mod usage_stats;
+pub mod watchdog;

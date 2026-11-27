@@ -1046,10 +1046,13 @@ impl Inner {
             .insert(step_id.to_string(), Value::Object(state.clone()));
         let request = match &row {
             Some((card, _)) => card.lock().request_id.clone(),
-            None => match root.lock().card.clone() {
-                Some(card) => card.lock().request_id.clone(),
-                None => root.worker.request_id.clone(),
-            },
+            None => {
+                let card = root.lock().card.clone();
+                match card {
+                    Some(card) => card.lock().request_id.clone(),
+                    None => root.worker.request_id.clone(),
+                }
+            }
         };
         let mut event = obj(
             json!({"type": "step", "task_id": tree_id, "request_id": request, "step": step_id,
@@ -1236,7 +1239,10 @@ impl Inner {
     /// supervisor.py:1778 `_stopped`: the one stop check: the task was stopped (by the owner, or FERB was stopped),
     /// and FERB isn't merely shutting down (a shutdown suspends the tree; it resumes after the restart).
     pub fn stopped(&self, tree: &Arc<Tree>) -> bool {
-        !tree.lock().stop.is_empty() && !self.live().suspending
+        // the tree's lock is let go before `live` is taken: `live` is never asked for under a tree's (lock order:
+        // `live`, then a tree; a stop runs both at once, and the opposite order deadlocked)
+        let stopped = !tree.lock().stop.is_empty();
+        stopped && !self.live().suspending
     }
 
     /// `tree.stop`: any stop words, a shutdown's included (the attempt loop's own check).
@@ -1792,13 +1798,15 @@ impl Inner {
             Err(e) => Err(e),
             Ok(out) => {
                 let status = self.finish_step(&member, &out);
+                // the member's lock is let go before the tree's is taken
+                let switch = member.lock().runtime_switch.clone();
                 {
                     let mut st = tree.lock();
                     st.ran.push((step.id.clone(), member.clone()));
                     if answering.contains(&step.id) {
                         st.answers.push((step.id.clone(), member.clone()));
                     }
-                    if let Some(sw) = member.lock().runtime_switch.clone() {
+                    if let Some(sw) = switch {
                         st.runtime_switch = Some(sw);
                     }
                 }

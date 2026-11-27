@@ -2855,3 +2855,14 @@ status = "active"
 rule = "For APP-1146. chat.send takes optional reply_to (an entry id of the same conversation with shown text); an unknown, other-conversation, deleted or textless one is dropped (chat.reply_to_dropped) and the message still goes. The message entry body, the ack and the chat.message row carry {entry_id, kind, who, excerpt: the shown text redacted, 160 characters}. The front door and the planner read a block before Layer 5 naming it ([cN] when tagged) as data, not his new words. Deleting a turn removes later quotes of it."
 why = "The owner points at which message he means; code says so to the models without changing his words or the quote checks."
 paths = ["engine/crates/ferb-supervisor/src/flow/chat.rs", "engine/crates/ferb-core/src/chat_entry.rs", "engine/crates/ferb-supervisor/src/planner.rs"]
+
+[ORCH-751]
+title = "A wait on an event FERB never sends is told back with the ask step for the owner's go"
+by = "owner"
+date = 2026-11-28
+status = "active"
+words = "ok for prompt suggestion"
+words_source = "Owner 2026-11-28, to the sentence shown to him after a plan that waited for his go on an event FERB never sends (owner_message) was refused twice."
+rule = "waits.rs's repair note for a wait on an event FERB never publishes ends with that sentence, word for word."
+paths = ["engine/crates/ferb-orchestrator/src/waits.rs"]
+untestable = "Exact model-facing wording is not tested (TEST-500); the note's start and event list are."

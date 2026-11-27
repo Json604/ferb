@@ -136,7 +136,8 @@ impl Transport for ForeignMac {
         Ok(id)
     }
     fn close_watch(&self, watch_id: u64) {
-        if let Some(h) = self.watches.lock().unwrap().remove(&watch_id) {
+        let h = self.watches.lock().unwrap().remove(&watch_id);
+        if let Some(h) = h {
             h.close();
         }
     }

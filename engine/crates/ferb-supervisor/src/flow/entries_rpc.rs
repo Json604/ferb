@@ -16,7 +16,7 @@
 //! acked, so a result one client acknowledged still reaches every other client's history. A client's marks
 //! (`delivered_seq`, `read_pos`) are its own reading position, not a notification flag.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -27,7 +27,7 @@ use ferb_rpc::wire::Params;
 use ferb_store::chat_entries as store;
 use serde_json::{json, Map, Value};
 
-use super::chat_log::{Watch, Watched};
+use super::chat_log::{self, Watch, Watched};
 use super::Inner;
 
 /// A page's default and largest size (entries).
@@ -375,6 +375,7 @@ pub fn watch(inner: &Arc<Inner>, params: &Params) -> Result<Box<dyn EventStream>
             watch,
             inner: inner.clone(),
             sent,
+            steps_sent: HashMap::new(),
             cap,
             ended: false,
             conversation: c,
@@ -406,6 +407,7 @@ pub fn watch(inner: &Arc<Inner>, params: &Params) -> Result<Box<dyn EventStream>
                 watch: None,
                 inner: inner.clone(),
                 sent: 0,
+                steps_sent: HashMap::new(),
                 cap,
                 ended: false,
                 conversation: c,
@@ -429,11 +431,25 @@ pub fn watch(inner: &Arc<Inner>, params: &Params) -> Result<Box<dyn EventStream>
     first.push_back(
         json!({"type": "caught_up", "conversation": c, "epoch": stream.epoch, "head": sent}),
     );
+    // what is live now and never stored: each running task's steps as they stand, so a watcher that starts mid-task
+    // (a phone paired or back in range) shows them at once, not only from each step's next change
+    let mut steps_sent = HashMap::new();
+    for (request_id, frame) in inner.chat_log.live_steps(&c) {
+        let v = json!({"type": "live", "request_id": request_id, "frame": frame});
+        if cap.is_some_and(|m| v.to_string().len() > m) {
+            continue;
+        }
+        if let Some((task, step, seq)) = chat_log::step_of(&frame) {
+            steps_sent.insert((task, step), seq);
+        }
+        first.push_back(v);
+    }
     Ok(Box::new(Frames {
         first,
         watch: Some(watch),
         inner: inner.clone(),
         sent,
+        steps_sent,
         cap,
         ended: false,
         conversation: c,
@@ -447,6 +463,8 @@ struct Frames {
     inner: Arc<Inner>,
     /// The highest seq sent: a change at or below it was sent already.
     sent: u64,
+    /// The step states sent with the catch-up (task, step) -> their seq: an older one coming live after is left out.
+    steps_sent: HashMap<(String, String), String>,
     cap: Option<usize>,
     ended: bool,
     /// The conversation watched (said in its `ended` frame).
@@ -478,6 +496,15 @@ impl EventStream for Frames {
                         return Some(Ok(obj(v)));
                     }
                     Some(Watched::Live { request_id, frame }) => {
+                        if let Some((task, step, seq)) = chat_log::step_of(&frame) {
+                            if self
+                                .steps_sent
+                                .get(&(task, step))
+                                .is_some_and(|s| seq <= *s)
+                            {
+                                continue; // the catch-up already sent this state or a later one
+                            }
+                        }
                         let v = json!({"type": "live", "request_id": request_id, "frame": frame});
                         if self.cap.is_some_and(|m| v.to_string().len() > m) {
                             continue; // a live frame too big for the link is left out: it is never stored anyway

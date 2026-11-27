@@ -351,7 +351,8 @@ impl ClaudeSignIn {
                 libc::kill(pid, libc::SIGTERM);
             }
         }
-        if let Some(task) = self.follow.lock().await.take() {
+        let task = self.follow.lock().await.take();
+        if let Some(task) = task {
             let _ = task.await;
         }
         let mut i = self.inner();

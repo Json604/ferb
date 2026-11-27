@@ -1192,20 +1192,19 @@ impl Driver {
     /// `_live`: this driver's tab with that browser id, driven by a task still running (not a loop's
     /// borrowed tab resting between rounds).
     pub(crate) fn live(&self, br: &Arc<Bridge>, chrome_id: i64) -> Option<Tab> {
-        self.st()
+        // the candidates are copied out first: `running` and `resting` ask the supervisor, never under the driver's lock
+        let found: Vec<Tab> = self
+            .st()
             .tabs
             .values()
-            .find(|t| {
-                Arc::ptr_eq(&t.bridge, br)
-                    && t.chrome_id == chrome_id
-                    && !t.closed
-                    && t.owner.as_deref().is_some_and(|o| {
-                        !o.is_empty()
-                            && (self.tasks.running)(o)
-                            && !(t.attached && (self.tasks.resting)(o))
-                    })
-            })
+            .filter(|t| Arc::ptr_eq(&t.bridge, br) && t.chrome_id == chrome_id && !t.closed)
             .cloned()
+            .collect();
+        found.into_iter().find(|t| {
+            t.owner.as_deref().is_some_and(|o| {
+                !o.is_empty() && (self.tasks.running)(o) && !(t.attached && (self.tasks.resting)(o))
+            })
+        })
     }
 
     /// `_closed_news` (HAND-511): told in the next result of the tab that opened it, else of the task's first tab.
@@ -1609,7 +1608,8 @@ impl Driver {
     /// The tab is no longer the task's: forgotten, and what FERB held for it let go.
     fn forget_tab(&self, tab_id: &str) {
         if let Some(n) = alias_number(tab_id) {
-            if let Some(mut gone) = self.st().tabs.remove(&n) {
+            let gone = self.st().tabs.remove(&n);
+            if let Some(mut gone) = gone {
                 self.unhold(&mut gone);
             }
         }

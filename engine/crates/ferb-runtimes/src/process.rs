@@ -118,7 +118,8 @@ impl ProcControl for OsControl {
         let mut rx = self.status.clone();
         Box::pin(async move {
             loop {
-                if let Some(code) = *rx.borrow_and_update() {
+                let code = *rx.borrow_and_update();
+                if let Some(code) = code {
                     return code;
                 }
                 if rx.changed().await.is_err() {

@@ -19,10 +19,10 @@ case "${1:-}" in
     exec cargo fmt --all -- --check ;;
   lint)
     ./patches/apply.sh >/dev/null
-    cargo clippy --manifest-path crates/ferb-link/Cargo.toml --target-dir "$PT" --all-targets --features devrelay --locked -- -D warnings
-    cargo clippy --manifest-path crates/ferb-mobile/Cargo.toml --target-dir "$PT" --all-targets --locked -- -D warnings
-    cargo clippy --manifest-path crates/ferb-mobile-ffi/Cargo.toml --target-dir "$PT" --all-targets --locked -- -D warnings
-    exec cargo clippy --workspace --all-targets --locked -- -D warnings ;;
+    cargo clippy --manifest-path crates/ferb-link/Cargo.toml --target-dir "$PT" --all-targets --features devrelay --locked -- -D warnings -D clippy::significant_drop_in_scrutinee
+    cargo clippy --manifest-path crates/ferb-mobile/Cargo.toml --target-dir "$PT" --all-targets --locked -- -D warnings -D clippy::significant_drop_in_scrutinee
+    cargo clippy --manifest-path crates/ferb-mobile-ffi/Cargo.toml --target-dir "$PT" --all-targets --locked -- -D warnings -D clippy::significant_drop_in_scrutinee
+    exec cargo clippy --workspace --all-targets --locked -- -D warnings -D clippy::significant_drop_in_scrutinee ;;
   # TEST-504 in Rust (T-1109): every test binary runs through ferb-test-guard (cargo's target runner), which runs it
   # in a sandbox that ends it on a connection beyond loopback, the Keychain, or a read or write in ~/.ferb, the Trash,
   # a model program's home or a browser's folders, and ends and names a test past FERB_TEST_TIMEOUT_S (300) or a

@@ -955,7 +955,8 @@ impl Phone {
     }
     /// The app's answer to a `prove` event: the device key's signature over that event's payload (None: it has none).
     pub fn proof(&self, id: u64, sig: Option<String>) {
-        if let Some(tx) = self.inner.proofs.lock().unwrap().remove(&id) {
+        let tx = self.inner.proofs.lock().unwrap().remove(&id);
+        if let Some(tx) = tx {
             let _ = tx.send(sig);
         }
     }
@@ -1006,7 +1007,8 @@ impl Phone {
         self.inner.wake.notify_one();
     }
     fn drop_conn(&self) {
-        if let Some(o) = self.inner.online.lock().unwrap().take() {
+        let online = self.inner.online.lock().unwrap().take();
+        if let Some(o) = online {
             o.conn.close(0u32.into(), b"bye");
         }
     }

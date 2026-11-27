@@ -281,12 +281,12 @@ impl LinkClient {
                 // stop a running get or put (pause): what a file fetch already wrote stays, to go on later with
                 // `offset`; or a call: its streams are dropped, so the Mac ends the call at its next event (bridge
                 // `forward_stream`), and no result or error event follows for its id
-                if let Some(h) = self
+                let h = self
                     .running
                     .lock()
                     .unwrap()
-                    .remove(c["target"].as_str().unwrap_or_default())
-                {
+                    .remove(c["target"].as_str().unwrap_or_default());
+                if let Some(h) = h {
                     h.abort();
                 }
             }
@@ -515,7 +515,8 @@ pub fn start(config: &str) -> String {
     })
 }
 pub fn command(text: &str) -> String {
-    match *legacy().lock().unwrap_or_else(|p| p.into_inner()) {
+    let h = *legacy().lock().unwrap_or_else(|p| p.into_inner());
+    match h {
         Some(h) => client_command(h, text),
         None => err(LinkError::new(errors::BAD_REQUEST, "start was not called")),
     }

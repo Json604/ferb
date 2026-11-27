@@ -244,7 +244,8 @@ impl Wake for FakeWake {
             .iter()
             .find(|(i, _)| i == install)
             .map(|(_, t)| t.clone());
-        if let (Some(tabs), Some(ext)) = (tabs, self.ext.lock().unwrap().clone()) {
+        let ext = self.ext.lock().unwrap().clone();
+        if let (Some(tabs), Some(ext)) = (tabs, ext) {
             // the profile loads (no window) and its extension says hello a moment later
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_secs(3)).await;

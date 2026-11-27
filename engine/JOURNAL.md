@@ -15196,3 +15196,56 @@ before), front_door_replay 10, every_method_answers 2; clippy --tests -D warning
 id names no stored entry of its conversation, so it is dropped). A delete leaves the quoted words in the quoting
 chat.message row (append-only), and the excerpt of a plan, question, post or error quote (no line) still shows in
 that message's conversation line after its turn is deleted. FERB.app's delete summary doesn't name `quotes_removed`.
+
+## 2026-11-28 · 281 · No lock is held while calling out: the night's freeze, the audit's finds, a watchdog and symbols
+
+**Why (owner, 2026-11-28).** The owner's daemon (build 202611271702) stayed alive but answered nothing from 00:34 to
+03:47: FERB.app said "Connection to FERB was interrupted" and the phone said FERB wasn't running. A `sample` of the
+stuck process, read with a byte-identical rebuild's linker map, showed an AB/BA deadlock: a `tasks.preview` request held
+TaskPreviews' `state` while its status closure asked the supervisor (`preview_status` → `task_paused` → `plans()`,
+the shared database), and the resource sampler held the database while `ResourceLog::sample` read the previews'
+counters (`snapshot`, `state`). Every other worker then queued on one of the two. The owner: "lets fix this ensuring
+that there isnt any otehr code flaw we have"; to the watchdog: "yes to watchdog".
+
+**What.**
+- The two sides: `frame_inner` reads `status` with none of the previews' locks held, then picks the step again under
+  `state` (a step gone meanwhile answers "No window to show yet"); `ResourceLog::sample` takes the database through a
+  closure, after every reading and count (perception's and the previews').
+- A four-way audit of every lock in the engine (supervisor/orchestrator, daemon/ferbd/gateway/link, the shared
+  database, sense/hands/browser/shell) found, and this fixes: `Phones::sweep_unused` journaled and published under the
+  database (a std lock taken twice by its thread: a certain freeze once a paired phone was 30 days unused); the stop
+  checks `stopped`/`halted` and scheduled's pause check took `live` under a tree's lock while `call_off_restart` and
+  `running_trees` take them the other way (a stop runs both); the planner's task view and the checker's reads called
+  the database and the daemon under a tree's lock; the browser driver's `live` asked the supervisor (`resting`) under
+  its state; downloads called `task_root` under its hooks; the phone pairing's journal writes under `pairing`.
+- `clippy::significant_drop_in_scrutinee` is an error in gate.sh's lint (all four clippy lines): in edition 2021 a
+  guard in an `if let`/`match`/`for` scrutinee lives through the body. Its 54 hits (42 workspace, 12 phone crates) are
+  fixed by taking the value into a `let` first; 14 of them called out under the lock (attempt.rs `live` then a root,
+  tree.rs a tree then its card and its member, chat_log's trace sink, compose's `rebuilt` over a journal note, the
+  driver's `forget_tab` into the bridge, the shell's `on_received`, sign-in's `follow` across an await, ferb-link's
+  `command` and `cut`, ferb-mobile-ffi's `detach`, and four test harnesses).
+- The watchdog (DMN-621, ferbd/src/watchdog.rs): a thread outside the runtime hands it a job that takes the database
+  every 10 s; none finished for 60 s (Instant: a sleeping Mac is never a hang) → `sample` of itself to
+  logs/hang-<time>.txt (newest 5), run/hung.json, exit 70, and launchd starts it again; the next start journals
+  `daemon.hung`. A stop on purpose stops the watchdog first. `daemon.hung` is kept (not an operational kind).
+- Symbols (REL-455): build-app-rust.sh links ferbd with `-Wl,-map` (same code; it ships stripped) and keeps
+  symbols/ferbd-<UUID>.map.gz (ten newest); scripts/symbolicate-hang.py names a hang report's frames. Checked on the
+  night's real report: `Daemon::sample_resources`, `TaskPreviews::frame_inner`, `owner_wait::Inner::task_paused`.
+- A watch that starts mid-task (ENG-25): ChatLog keeps each running step's last live frame per conversation (memory
+  only, dropped at the task's task.result); chat.entries.watch sends them right after caught_up and leaves out an
+  older state that comes live later. The owner paired his phone again mid-task and its card showed no states.
+- ORCH-751: waits.rs's note for a wait on an event FERB never sends ends with the owner's approved sentence pointing
+  to an ask step (the planner had waited for his go on `owner_message`, twice).
+
+**Evidence.** preview_lock_order.rs: hangs (10 s limit, failed) on the old frame_inner, passes now. phone.rs: the
+seams refuse a journal or publish with the database held; failed on the old sweep_unused, 18 pass. resources
+a_sample_asks_for_every_count_before_it_takes_the_database. tests/watchdog.rs (4). live_steps_watch.rs. scripts
+test_symbolicate_hang (2). The lint agent's per-crate runs after its fixes: browser 90, clock 27, fs 44, mac-hands 81,
+orchestrator 42, runtimes 65, sense 31, shell 83, daemon 259, supervisor 288, ferbd 207, mobile 112, mobile-ffi 23,
+link 77 (one failure on its first run, not identified; the rerun passed). The gate's push checks before the commit.
+
+**Open / unverified.** No live hang has been seen with the watchdog on; its exit and restart are tested only in
+parts (the hang decision with a held lock; the report and note files). Insomnia's `look` still journals under its own
+lock (no reverse edge found). A lock held across a long blocking call remains in places the audit ranked low: the
+Turn lock over area A's `call_blocking` (turn.rs), the steering lock over a stdin write, `task.evidence` and
+`trace.get` holding the database through long reads, the owner-secrets write lock across the helper process.

@@ -129,7 +129,13 @@ export RUSTFLAGS CARGO_TARGET_DIR="$WORK/cargo" MACOSX_DEPLOYMENT_TARGET
 # ferbd is a workspace member: the workspace's Cargo.lock locks it and ferb-native-host alike
 [[ -f "$ROOT/engine/Cargo.lock" ]] || die "engine/Cargo.lock is missing: a release builds only locked dependencies"
 rustup_here cargo build --release --locked --target "$FERB_RUST_TARGET" \
-  --manifest-path "$ROOT/engine/crates/ferbd/Cargo.toml" --bin ferbd --bin ferb
+  --manifest-path "$ROOT/engine/crates/ferbd/Cargo.toml" --bin ferb
+# ferbd linked with a map of its symbols (the code is the same with or without it: only the linker writes the map).
+# What ships stays stripped; the map stays in this build folder, named by the binary's UUID, which a hang report
+# (`sample`, the daemon's watchdog) prints in its Binary Images: scripts/symbolicate-hang.py reads the two together.
+MAP="$WORK/ferbd.map"   # rewritten whenever ferbd is linked again, so it always matches the ferbd built
+rustup_here cargo rustc --release --locked --target "$FERB_RUST_TARGET" \
+  --manifest-path "$ROOT/engine/crates/ferbd/Cargo.toml" --bin ferbd -- -C "link-arg=-Wl,-map,$MAP"
 rustup_here cargo build --release --locked --target "$FERB_RUST_TARGET" --manifest-path "$ROOT/engine/Cargo.toml" \
   -p ferb-native-host
 # APP-986: the root helper (a workspace member: the same lock)
@@ -149,6 +155,14 @@ for program in ferbd ferb ferb-native-host ferb-link ferb-power; do
   # only the system's libraries, by absolute path: nothing for dyld to look up through an @rpath
   ! otool -L "$BUILT/$program" | tail -n +2 | grep -q '@rpath' || die "$program links a library by @rpath"
 done
+[[ -s "$MAP" ]] || die "the linker wrote no symbol map for ferbd"
+FERBD_UUID=$(dwarfdump --uuid "$BUILT/ferbd" | awk '{print $2; exit}')
+[[ -n "$FERBD_UUID" ]] || die "ferbd has no UUID"
+mkdir -p "$OUT/symbols"
+gzip -9c "$MAP" > "$OUT/symbols/ferbd-$FERBD_UUID.map.gz"
+# the ten newest maps stay (a build folder's, never shipped): older builds' hangs are no longer read
+ls -t "$OUT/symbols"/ferbd-*.map.gz | tail -n +11 | while read -r old; do rm -f "$old"; done
+print "    ferbd $FERBD_UUID: its symbol map is symbols/ferbd-$FERBD_UUID.map.gz"
 
 print "==> FERB agent app (runs the daemon: ferbd as com.ferb.daemon's executable)"
 AGENT="$CONTENTS/Helpers/FERB.app"

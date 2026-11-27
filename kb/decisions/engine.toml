@@ -227,3 +227,22 @@ rule = "For ENG-9, STORE-424. ChatProjector::restore fills nothing back from a d
 why = "S6's deleted-turn scenarios: the rebuilt projector ended the chat on the deleted answer (an earlier turn's end went below; FERB.app puts it inline) and, with no session for a turn still streaming, dropped that turn's reply: no answer was stored."
 evidence = "chat_entries.rs a_deleted_last_turn_no_longer_ends_the_chat (placement below before the fix) and a_reply_on_a_stream_still_open_when_another_turn_was_deleted (0 answers before); EntryFoldTests deleted_last_turn app == fold."
 paths = ["engine/crates/ferb-supervisor/src/flow/entries.rs::ChatProjector.restore", "engine/crates/ferb-supervisor/src/flow/entries.rs::ChatProjector.streams_open", "engine/crates/ferb-supervisor/src/flow/chat_log.rs"]
+
+[ENG-24]
+title = "No lock is held while calling out; the database is taken last; the scrutinee lint is an error"
+by = "agent"
+date = 2026-11-28
+status = "active"
+rule = "Code never calls a closure, a trait object, another part, the journal or the bus while it holds a std lock: it copies what it needs, lets the lock go, then calls. The shared database is taken after every other read a step needs (the resource sample asks the previews and perception first). In the supervisor `live` is taken before a tree's lock, never under it. gate.sh lints with -D clippy::significant_drop_in_scrutinee (a guard in an if let, match or for scrutinee lives through the body in edition 2021)."
+why = "2026-11-28 the daemon froze for hours: tasks.preview held the previews' state while asking the database, the resource sampler the reverse. The audit found two more: a phone sweep journaling under the database, stop checks taking `live` under a tree's lock."
+evidence = "preview_lock_order.rs hangs on the old frame_inner and passes now; phone.rs's seams refuse a journal or publish under the database (failed on the old sweep_unused); resources a_sample_asks_for_every_count_before_it_takes_the_database."
+paths = ["engine/crates/ferb-daemon/src/areas_b/task_preview.rs", "engine/crates/ferbd/src/resources.rs", "engine/crates/ferb-daemon/src/phone/mod.rs", "engine/crates/ferb-supervisor/src/flow/tree.rs::Inner.stopped", "engine/crates/ferb-supervisor/src/flow/owner_wait.rs", "engine/gate.sh"]
+
+[ENG-25]
+title = "A watch that starts mid-task gets each running step's state after its catch-up"
+by = "agent"
+date = 2026-11-28
+status = "active"
+rule = "For ENG-14, ENG-8. ChatLog keeps, per conversation and in memory only, the last live frame of each step of a running task (a step frame or task.step event), dropped at that task's task.result. chat.entries.watch sends them as live frames right after caught_up; a step's older state arriving live after that is left out (its seq is not greater)."
+why = "2026-11-28 the owner paired his phone again mid-task: its card showed no step states until each step next changed, since live state is never stored and the catch-up has only entries."
+paths = ["engine/crates/ferb-supervisor/src/flow/chat_log.rs", "engine/crates/ferb-supervisor/src/flow/entries_rpc.rs"]

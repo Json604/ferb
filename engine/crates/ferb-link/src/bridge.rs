@@ -709,7 +709,8 @@ impl Bridge {
     }
     /// Closes every connection of a phone the daemon removed; a call already running gets no reply.
     pub fn cut(&self, id: &str) {
-        if let Some(conns) = self.inner.live.lock().unwrap().remove(id) {
+        let conns = self.inner.live.lock().unwrap().remove(id);
+        if let Some(conns) = conns {
             for c in conns {
                 c.lock().unwrap().conn.close(
                     close_code(errors::DEVICE_REVOKED).into(),

@@ -215,7 +215,8 @@ impl ProcControl for FakeControl {
         let mut rx = self.status.subscribe();
         Box::pin(async move {
             loop {
-                if let Some(c) = *rx.borrow_and_update() {
+                let c = *rx.borrow_and_update();
+                if let Some(c) = c {
                     return c;
                 }
                 if rx.changed().await.is_err() {

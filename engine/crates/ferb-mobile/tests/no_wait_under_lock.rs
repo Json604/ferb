@@ -214,7 +214,8 @@ impl LinkDoor for StormDoor {
                 *self.marks.lock().unwrap() += 1;
                 // ahead of the mark's answer: the watch's first frame, a live frame, the Mac's pushed status and a
                 // change of path (each needs the core's state on the pump's thread)
-                if let Some(w) = self.watch.lock().unwrap().clone() {
+                let watch = self.watch.lock().unwrap().clone();
+                if let Some(w) = watch {
                     self.push(json!({"type": "event", "id": w, "event": {"type": "caught_up", "epoch": "E1", "head": 1}}));
                     self.push(json!({"type": "event", "id": w, "event":
                         {"type": "live", "request_id": "r-9", "frame": {"type": "status", "text": "Working"}}}));

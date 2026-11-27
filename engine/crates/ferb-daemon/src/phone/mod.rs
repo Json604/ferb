@@ -438,27 +438,37 @@ impl Phones {
         let inner = &self.inner;
         let now = inner.seams.clock.now();
         let cutoff = now - chrono::Duration::days(inner.limits.device_unused_days);
-        let db = lock(&inner.seams.db);
-        let Ok(phones) = table::live(db.conn()) else {
-            return Vec::new();
+        // marked under the database's lock, journaled and published after it: both take the same database (the
+        // journal writes a row, a consumer of the bus reads plans), and a std lock taken twice waits on itself
+        let due = {
+            let db = lock(&inner.seams.db);
+            let Ok(phones) = table::live(db.conn()) else {
+                return Vec::new();
+            };
+            let mut due = Vec::new();
+            for p in phones {
+                let unused =
+                    ferb_core::when::parse(&p.last_seen).is_some_and(|seen| seen <= cutoff);
+                if unused && p.warned_at.is_none() {
+                    let _ = table::mark_warned(db.conn(), p.id, &inner.now_iso());
+                    due.push(p);
+                }
+            }
+            due
         };
         let mut warned = Vec::new();
-        for p in phones {
-            let unused = ferb_core::when::parse(&p.last_seen).is_some_and(|seen| seen <= cutoff);
-            if unused && p.warned_at.is_none() {
-                let _ = table::mark_warned(db.conn(), p.id, &inner.now_iso());
-                (inner.seams.journal)(
-                    "phone.unused_warning",
-                    json!({"phone": p.endpoint, "last_seen": p.last_seen}),
-                );
-                let mut ev = Map::new();
-                ev.insert("phone".into(), json!(p.endpoint));
-                ev.insert("name".into(), json!(p.name));
-                ev.insert("last_seen".into(), json!(p.last_seen));
-                ev.insert("days".into(), json!(inner.limits.device_unused_days));
-                (inner.seams.publish)("phone.unused", ev);
-                warned.push(p.endpoint);
-            }
+        for p in due {
+            (inner.seams.journal)(
+                "phone.unused_warning",
+                json!({"phone": p.endpoint, "last_seen": p.last_seen}),
+            );
+            let mut ev = Map::new();
+            ev.insert("phone".into(), json!(p.endpoint));
+            ev.insert("name".into(), json!(p.name));
+            ev.insert("last_seen".into(), json!(p.last_seen));
+            ev.insert("days".into(), json!(inner.limits.device_unused_days));
+            (inner.seams.publish)("phone.unused", ev);
+            warned.push(p.endpoint);
         }
         warned
     }
@@ -981,7 +991,9 @@ impl Phones {
             made: inner.mono(),
             decided: None,
         };
-        if let Some(old) = lock(&inner.pairing).replace(pending) {
+        // journaled and published once the pairing's lock is let go (both take the database)
+        let replaced = lock(&inner.pairing).replace(pending);
+        if let Some(old) = replaced {
             if old.decided.is_none() {
                 inner.pair_ended(
                     json!({"phone": old.new.endpoint, "paired": false, "why": "replaced"}),
@@ -1107,15 +1119,18 @@ impl Phones {
                 }
             };
             if left <= 0.0 {
-                let mut pairing = lock(&inner.pairing);
-                if let Some(p) = pairing
-                    .as_mut()
-                    .filter(|p| p.id == id && p.decided.is_none())
-                {
-                    p.decided = Some(false);
-                    inner.pair_ended(
-                        json!({"phone": p.new.endpoint, "paired": false, "why": "no answer"}),
-                    );
+                let ended = {
+                    let mut pairing = lock(&inner.pairing);
+                    pairing
+                        .as_mut()
+                        .filter(|p| p.id == id && p.decided.is_none())
+                        .map(|p| {
+                            p.decided = Some(false);
+                            json!({"phone": p.new.endpoint, "paired": false, "why": "no answer"})
+                        })
+                };
+                if let Some(ended) = ended {
+                    inner.pair_ended(ended);
                 }
                 return Ok(paired_json(false, None));
             }
@@ -1132,14 +1147,12 @@ impl Phones {
         let cancelled = pairing
             .as_ref()
             .is_some_and(|p| p.id == id && p.decided.is_none());
-        if cancelled {
-            if let Some(p) = pairing.take() {
-                inner.pair_ended(
-                    json!({"phone": p.new.endpoint, "paired": false, "why": "phone left"}),
-                );
-            }
-        }
+        let taken = if cancelled { pairing.take() } else { None };
         drop(pairing);
+        if let Some(p) = taken {
+            inner
+                .pair_ended(json!({"phone": p.new.endpoint, "paired": false, "why": "phone left"}));
+        }
         inner.decided.notify_waiters();
         let mut out = Params::new();
         out.insert("cancelled".into(), json!(cancelled));
@@ -1264,6 +1277,7 @@ impl Inner {
 
     /// A pairing ended (paired, denied, replaced, timed out, the phone left): journaled, and on the bus so FERB.app stops
     /// its countdown (S4).
+    /// Journals and publishes: never called under the pairing's (or any) lock, as both take the database.
     fn pair_ended(&self, data: Value) {
         (self.seams.journal)("phone.pair_ended", data.clone());
         if let Value::Object(m) = data {

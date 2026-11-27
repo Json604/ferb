@@ -608,7 +608,8 @@ impl TestDaemon {
 
     /// The owner's file a `note` step names, written when its moment comes.
     fn apply_note(&self) {
-        if let Some((path, text)) = self.note.lock().unwrap().take() {
+        let note = self.note.lock().unwrap().take();
+        if let Some((path, text)) = note {
             std::fs::write(path, text).unwrap();
         }
     }

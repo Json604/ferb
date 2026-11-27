@@ -409,7 +409,8 @@ impl TaskPreviews {
         }
     }
 
-    /// Sets what the task is doing now (the supervisor's `preview_status`). It must not call back into the previews.
+    /// Sets what the task is doing now (the supervisor's `preview_status`). It must not call back into the previews,
+    /// and it is called with none of their locks held (it reads the database).
     pub fn set_status(&self, status: Status) {
         *lock(&self.inner.status) = status;
     }
@@ -530,34 +531,33 @@ impl TaskPreviews {
         let inner = &self.inner;
         let status = self.status();
         let mono = inner.clock.monotonic();
+        let none = || PreviewAnswer::new(json!({"state": "none", "line": "No window to show yet"}));
+        // The supervisor's records (`status`) are read with no lock of ours held: they lock the database, and the
+        // resource sampler holds the database while it reads our counters (`snapshot`). Asking under `state` froze
+        // the daemon (2026-11-28, an AB/BA deadlock).
+        let doing = status(root, worker.unwrap_or(""));
+        if let Some((s, l)) = &doing {
+            if s == "done" {
+                return PreviewAnswer::new(json!({"state": "done", "line": l}));
+            }
+        }
+        let Some(key) = Self::pick(&lock(&inner.state), root, worker).map(|(k, _)| k) else {
+            return none();
+        };
+        let at_key = if worker == Some(key.as_str()) {
+            doing
+        } else {
+            status(root, &key)
+        };
         // the first part, as Python runs it with no await
         let (key, w, surface, line, kind, job_id, mut rx, phase) = {
             let mut st = lock(&inner.state);
-            let doing = status(root, worker.unwrap_or(""));
-            if let Some((s, l)) = &doing {
-                if s == "done" {
-                    return PreviewAnswer::new(json!({"state": "done", "line": l}));
-                }
-            }
-            let Some(workers) = st.workers(root).filter(|w| !w.is_empty()) else {
-                return PreviewAnswer::new(
-                    json!({"state": "none", "line": "No window to show yet"}),
-                );
+            // the step picked above, unless it went while its records were read
+            let Some((key, w)) = Self::pick(&st, root, Some(&key)).filter(|(k, _)| *k == key)
+            else {
+                return none();
             };
-            let (key, w) = match worker.and_then(|k| workers.iter().find(|(x, _)| x == k)) {
-                Some((k, w)) => (k.clone(), w.clone()),
-                None => workers
-                    .iter()
-                    .rev()
-                    .find(|(_, w)| {
-                        let w = lock(w);
-                        w.current.is_some() && w.surface.is_some()
-                    })
-                    .or_else(|| workers.last())
-                    .map(|(k, w)| (k.clone(), w.clone()))
-                    .expect("a worker"),
-            };
-            if let Some((s, l)) = status(root, &key) {
+            if let Some((s, l)) = at_key {
                 // asking, waiting, paused, or this step isn't running: frozen
                 return self.answer(&mut st, &key, &w, &s, &l, false, false, false);
             }
@@ -713,6 +713,21 @@ impl TaskPreviews {
             ended == Ended::Busy,
             slow,
         )
+    }
+
+    /// The step a request shows: the one it names, else the latest working on a surface, else the latest.
+    fn pick(st: &State, root: &str, worker: Option<&str>) -> Option<(String, Wk)> {
+        let workers = st.workers(root).filter(|w| !w.is_empty())?;
+        let found = worker.and_then(|k| workers.iter().find(|(x, _)| x == k));
+        found
+            .or_else(|| {
+                workers.iter().rev().find(|(_, w)| {
+                    let w = lock(w);
+                    w.current.is_some() && w.surface.is_some()
+                })
+            })
+            .or_else(|| workers.last())
+            .map(|(k, w)| (k.clone(), w.clone()))
     }
 
     fn tell(&self, notes: Vec<(String, Value)>) {

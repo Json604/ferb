@@ -175,12 +175,12 @@ impl Capture {
 
     /// text_input.py:153 `flush`.
     fn flush(&self) -> Result<(), String> {
-        if let Some(kind) = self
+        let failure = self
             .failure
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
-        {
+            .clone();
+        if let Some(kind) = failure {
             return Err(format!("RuntimeError: text capture adapter failed: {kind}"));
         }
         if !self.fields.holding() {

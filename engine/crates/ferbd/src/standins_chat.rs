@@ -657,7 +657,8 @@ impl Script {
 
     /// The owner's file, written when its moment comes (the first checker's answer, or a `note` step).
     pub fn apply_note(&self) {
-        if let Some((path, text)) = lock(&self.note).take() {
+        let note = lock(&self.note).take();
+        if let Some((path, text)) = note {
             let _ = std::fs::write(path, text);
         }
     }

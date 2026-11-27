@@ -338,13 +338,25 @@ async fn world_at(
         redact: Arc::new(|v: &Value| v.clone()),
         questions: questions.clone(),
         prompts,
+        // the daemon's journal writes to this same database and the bus's consumers read it: neither may be called
+        // with it held (a std lock taken twice waits on itself; `sweep_unused` did, 2026-11-28)
         journal: {
-            let j = journal.clone();
-            Arc::new(move |k: &str, v: Value| j.lock().unwrap().push((k.to_owned(), v)))
+            let (j, db) = (journal.clone(), db.clone());
+            Arc::new(move |k: &str, v: Value| {
+                assert!(
+                    db.try_lock().is_ok(),
+                    "{k} journaled with the database held"
+                );
+                j.lock().unwrap().push((k.to_owned(), v))
+            })
         },
         publish: {
-            let p = published.clone();
+            let (p, db) = (published.clone(), db.clone());
             Arc::new(move |k: &str, v: Map<String, Value>| {
+                assert!(
+                    db.try_lock().is_ok(),
+                    "{k} published with the database held"
+                );
                 p.lock().unwrap().push((k.to_owned(), Value::Object(v)))
             })
         },

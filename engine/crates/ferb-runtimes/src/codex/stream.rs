@@ -1232,7 +1232,8 @@ async fn finish_trace(run: &CodexRun) -> Result<(), RuntimeError> {
     if let Some(w) = watcher {
         let _ = w.await;
     }
-    if let Some(crash) = run.lock().watcher_crash.take() {
+    let crash = run.lock().watcher_crash.take();
+    if let Some(crash) = crash {
         return Err(RuntimeError::Raised(crash));
     }
     Ok(())

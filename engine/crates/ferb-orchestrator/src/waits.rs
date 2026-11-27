@@ -144,7 +144,9 @@ pub fn problems(plan: &Plan) -> Vec<String> {
             None => out.push(format!(
                 "{}: FERB never publishes an event named {}, so this wait would never end. A wait's event is one of: \
                  {}. To wait for another task, use {TASK_FINISHED} with event_match [{{\"field\": \"task_id\", \
-                 \"value\": <its task id>}}]; an earlier result already shown needs no wait (earlier_results).",
+                 \"value\": <its task id>}}]; an earlier result already shown needs no wait (earlier_results). To \
+                 wait for the owner's go or his answer, use an ask step: the steps after it depend on it and run \
+                 once he answers.",
                 step.id,
                 crate::py::repr_str(topic),
                 listed()

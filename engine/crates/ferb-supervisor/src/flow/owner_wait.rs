@@ -235,7 +235,8 @@ impl Inner {
     /// supervisor.py:1778 `_stopped`: the task was stopped, and FERB isn't merely shutting down (a shutdown suspends
     /// the tree; it resumes after the restart).
     pub fn halted(&self, tree: &Tree) -> bool {
-        !tree.lock().stop.is_empty() && !self.live().suspending
+        let stopped = !tree.lock().stop.is_empty(); // let go before `live` (see `stopped`)
+        stopped && !self.live().suspending
     }
 
     /// supervisor.py:1788 `_unattended`: `request_id in state.approvals.unattended`.
@@ -377,7 +378,8 @@ impl Inner {
         let opened = std::mem::replace(&mut wait.lock().opened, true);
         let reply = if opened {
             loop {
-                if wait.lock().done || self.halted(tree) {
+                let done = wait.lock().done; // let go before the tree's and `live` (see `stopped`)
+                if done || self.halted(tree) {
                     break;
                 }
                 tokio::time::sleep(self.poll()).await;
@@ -732,7 +734,8 @@ impl Inner {
         if paused {
             self.set_status(&tree.id, "running", None);
             let mut data = obj(json!({"task_id": tree.id}));
-            if let Some(s) = tree.lock().schedule_id.clone() {
+            let schedule = tree.lock().schedule_id.clone();
+            if let Some(s) = schedule {
                 data.insert("schedule_id".into(), json!(s));
             }
             self.deps

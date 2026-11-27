@@ -227,7 +227,8 @@ impl Hearing {
     async fn wait_started(listen: &Listening) -> std::result::Result<Arc<dyn Running>, HandError> {
         let mut rx = listen.handle.clone();
         loop {
-            if let Some(r) = rx.borrow().clone() {
+            let r = rx.borrow().clone();
+            if let Some(r) = r {
                 return r;
             }
             if rx.changed().await.is_err() {
@@ -264,7 +265,8 @@ impl Hearing {
             }
         };
         loop {
-            if let Some(f) = rx.borrow().clone() {
+            let f = rx.borrow().clone();
+            if let Some(f) = f {
                 return f;
             }
             if rx.changed().await.is_err() {

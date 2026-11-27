@@ -443,7 +443,8 @@ impl Apps for FakeApps {
         if left > 0 {
             self.rebound.store(left - 1, Ordering::SeqCst);
             if left == 1 {
-                if let Some((pid, _)) = *self.bounce.lock().unwrap() {
+                let bounce = *self.bounce.lock().unwrap();
+                if let Some((pid, _)) = bounce {
                     *self.front.lock().unwrap() = pid;
                 }
             }

@@ -577,11 +577,8 @@ impl Inner {
             let tree = self.live().tree_of.get(&tree_id).cloned();
             let Some(tree) = tree else { continue };
             let opened = wait.lock().opened;
-            if !tree.lock().stop.is_empty()
-                || !wait.question.is_empty()
-                || !opened
-                || self.live().suspending
-            {
+            let stopped = !tree.lock().stop.is_empty(); // let go before `live` (see `stopped`)
+            if stopped || !wait.question.is_empty() || !opened || self.live().suspending {
                 continue;
             }
             let mentioned = wait.lock().extra.get("mention").map(ferb_py::value::py_str);

@@ -294,7 +294,8 @@ impl AutomationChecks {
             }
         };
         loop {
-            if let Some(s) = *rx.borrow() {
+            let s = *rx.borrow();
+            if let Some(s) = s {
                 return s;
             }
             if rx.changed().await.is_err() {

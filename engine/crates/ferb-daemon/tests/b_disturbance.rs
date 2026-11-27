@@ -114,15 +114,21 @@ async fn run(sc: &Value) -> Vec<String> {
     });
     let mut seams = Seams::new(read, record);
     let wo = w.clone();
-    seams.owner_input = Arc::new(move || match wo.lock().unwrap().owner.clone() {
-        Value::String(s) => Err(py_err(&s)),
-        other => Ok(obj(&other)),
+    seams.owner_input = Arc::new(move || {
+        let owner = wo.lock().unwrap().owner.clone();
+        match owner {
+            Value::String(s) => Err(py_err(&s)),
+            other => Ok(obj(&other)),
+        }
     });
     let wp = w.clone();
-    seams.processes = Arc::new(move || match wp.lock().unwrap().procs.clone() {
-        Value::String(s) => Err(py_err(&s)),
-        Value::Array(a) => Ok(a),
-        _ => Ok(vec![]),
+    seams.processes = Arc::new(move || {
+        let procs = wp.lock().unwrap().procs.clone();
+        match procs {
+            Value::String(s) => Err(py_err(&s)),
+            Value::Array(a) => Ok(a),
+            _ => Ok(vec![]),
+        }
     });
     let wn = w.clone();
     seams.now = Arc::new(move || wn.lock().unwrap().now.unwrap());
