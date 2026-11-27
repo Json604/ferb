@@ -226,9 +226,9 @@ pub struct RealFactory {
     pub keeper: Option<ferb_runtimes::keep::Keeper>,
 }
 
-/// T-1343: the runtimes whose front door and planner programs are kept ready (5 idle minutes, owner). Claude Code
-/// first: checked live on the owner's build; Codex and the API loop join after their own live check (journal 273).
-pub const KEPT_RUNTIMES: &[&str] = &["claude"];
+/// T-1343: the runtimes whose front door and planner programs are kept ready (5 idle minutes): every runtime (owner:
+/// one mechanism for every AI).
+pub const KEPT_RUNTIMES: &[&str] = &["codex", "claude", "anthropic", "openai", "google"];
 
 impl RealFactory {
     /// The adapter a role's calls go through: the keeper's for the chat's front door and planner ("orchestrator") on a
@@ -297,7 +297,7 @@ impl Factory for RealFactory {
                 }
                 rt.effort = b.effort.clone();
                 Ok(Built {
-                    adapter: Arc::new(rt),
+                    adapter: self.kept(b, "codex", Arc::new(rt)),
                     retried: none(),
                 })
             }
@@ -365,7 +365,7 @@ impl Factory for RealFactory {
                 rt.compaction = compaction();
                 let retried = rt.retried.clone();
                 Ok(Built {
-                    adapter: Arc::new(rt),
+                    adapter: self.kept(b, provider, Arc::new(rt)),
                     retried: Arc::new(move || {
                         retried.lock().map(|v| v.clone()).unwrap_or_default()
                     }),

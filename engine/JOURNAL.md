@@ -14844,3 +14844,6 @@ holds its `initialize` until the message's token is written (a program made ahea
 is checked live on the owner's build before he tests; Codex and the API loop join after their own live check. A
 model, effort, tool-list or sign-in change already ends a ready program (271); a runtime switch leaves the old one to
 its 5 idle minutes. Not wired yet: preparing while he types (needs the app's side), `end_idle` on a settings change.
+Corrected the same day: `KEPT_RUNTIMES` is every runtime (Codex, Claude Code, the API loop). Keeping Codex and the API
+loop off until a live check was the coordinator's call against the owner's decision ("lets make teh 'keeping a program
+running' universal, so that we dont miss any AI"); each runtime is now checked live on his build instead.
