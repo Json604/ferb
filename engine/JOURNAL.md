@@ -14688,3 +14688,54 @@ planner that asks or replies instead is heard. ORCH-741's empty-plan rule goes (
 recorded planner call; the same task rows as the planner's path; the trace shows the front door's line then the
 planner's. **Open.** ferbd: the tool's schema and description in the catalog, the replay's converter (journal 270).
 The hand-off's description changes ("goal" in place of "task"): model-facing text, told to the owner.
+
+## 2026-11-27 · 270 · The hand-off's tool takes its ack and goal; the replay plays the planner writing the task
+
+**Why (ORCH-743, second half of journal 269).** The supervisor's hand-off now carries only an ack and a goal and the
+planner writes the task; the gateway's catalog still offered the whole task form, and ferbd's replay still converted a
+recorded task answer into that form.
+
+**What.**
+- ferb-gateway `catalog_additions.json`, `chat.dispatch_task`: `input_schema` {ack: string, goal: string,
+  answers_question: boolean, default false; required ack, goal; the gateway's `why`; title Input, as the other five},
+  description "Start one task on the Mac, the web or in an app. ack comes first: the one line the owner reads while it
+  starts, in their words. FERB shows it once the task is accepted. goal is what the task must do and for whom, with
+  every detail the owner gave; FERB then works out how. Set answers_question when this message answers FERB's previous
+  question." The other five tools are unchanged. `tests/front_door_tools.rs`: the five still derived from
+  `supervisor_schema()` and compared byte for byte; dispatch compared with its own schema; the argument model gives
+  ack and goal back, fills `answers_question` false when left out, and refuses a missing ack, a missing goal and the
+  old `task` field.
+- ferbd `tests/front_door_replay.rs`: a recorded task answer is sent as `chat.dispatch_task` {ack, goal: the recorded
+  task's goal, answers_question}. Once a message's run hands off, the recorded planner call of that answer follows the
+  front door's call unchanged (and so does each recorded repair after it), so the planner writes the task with its
+  form, checks and repair as in the recording; those calls are marked `handoff_planner`, which a recorded wait for the
+  nth planner call skips. The recorded reads follow (`reads_as`, replacing `repairs`/`without_repairs`): a hand-off's
+  `supervise` and `system` records are read twice (the front door's call, then the planner's), a repair merged into
+  the front door's run never, every other record once. The recorded `plan_event` data and `runtime_switch` task id are
+  sent through the stand-in's `translate` in the front door run (the planner's call writes records of its own, so the
+  task's id is no longer the recording's: owner_closed_tab never got its approval, runtime_switch_tap switched no
+  task). `every_tool_through_the_program.rs`: dispatch's new arguments. chat_replay.rs unchanged.
+
+**Expected differences (front_door_replay's EXPECTED).** `episodes.steps_json` now names 50 scenarios (was 2): a
+hand-off's episode has the front door's Planner line ("task — <ack>") before the planner's ("task — <goal>"), and each
+later "verified in step N" counts one further; plan_repair and unbacked_part have three Planner lines to the planner
+run's two. `refused chat.dispatch_task` (plan_repair, unbacked_part, inventory_walk) is gone: the hand-off is accepted
+at once and the planner writing the task repairs its own answer. inventory_walk's `frames +reply_delta -plan_abort`
+became `frames +plan_delta +plan_end -progress -plan_abort`: the ack is shown, the planner's answer is refused and
+repaired into a reply, which stands; that planner call has no live stream, so the walk of the plan's folders
+(`progress`) and the withdrawal (`plan_abort`) are not shown. Every other entry is unchanged and still found.
+
+**Evidence.** Through ferb-test-guard: `cargo test -p ferb-gateway`: 19 test binaries, 184 passed, 0 failed.
+front_door_replay: 10 passed (57 scenarios, 4 skipped as before), 143 s; before the table's update it failed with
+exactly the differences above unnamed. `cargo test -p ferbd`: 41 test binaries, 202 passed, 0 failed, 6 ignored
+(chat_replay unchanged and passing). clippy `--tests -D warnings` and fmt clean for both crates. ferb-supervisor
+tests/front_door.rs (reads the same catalog): 14 passed; its full suite not run here.
+
+**For the coordinator.** inventory_walk: after the front door's ack, the owner sees no live line while the planner
+writes the task (its folder walk's `progress`), and an ack that announced a task is followed by a reply when the
+planner replies instead. ferb-supervisor's tests/front_door.rs `run` duplicates only the `supervise` queue for a
+hand-off; its `systems` queue (role instructions) answers `{}` when read past its end, so a later role there may read
+the instructions one early (inferred from the code, not run; not this brief's crate).
+
+**Unverified.** No real runtime has called the new `chat.dispatch_task`; the description is model-facing text new in
+this build.

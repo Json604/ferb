@@ -6,11 +6,13 @@
 //! part of the answer to its `chat.*` tool, the side entries first and the hand-off or question last, made through the
 //! socket as the tool bridge makes them, with the run's token; a reply's text streamed as plain text). A repair (a
 //! second planner call for the same message) becomes the same run's next calls, as the front door repairs inside its
-//! run. The effects are compared: the store's rows (tasks and their fields, plans, results, timers, schedules, memory,
-//! the questions, cards answered, the conversation, the episodes), each table's ids numbered afresh by first
-//! appearance, the journal's records, every later model call (the worker's and the checker's input: what the hand-off
-//! started), the memory and browser ports' calls, the recorded tool calls' replies, every front call's verdict, and the
-//! kinds of the frames each chat stream carried.
+//! run. A hand-off carries its ack and the task's goal (ORCH-743): the recorded planner call (and its repair, if any)
+//! then writes the task, as the planner does after an accepted hand-off, reading its recorded live facts and role
+//! instructions a second time. The effects are compared: the store's rows (tasks and their fields, plans, results,
+//! timers, schedules, memory, the questions, cards answered, the conversation, the episodes), each table's ids numbered
+//! afresh by first appearance, the journal's records, every later model call (the worker's and the checker's input:
+//! what the hand-off started), the memory and browser ports' calls, the recorded tool calls' replies, every front
+//! call's verdict, and the kinds of the frames each chat stream carried.
 //!
 //! The front door's turn writes records the planner's didn't (each call's span, ...), so the store hands out later ids
 //! that differ from the recording's. In the front door's run the stand-in writes each recorded id that recorded
@@ -24,7 +26,7 @@
 //! `FRONT_REPLAY_DEBUG=1` prints the differences in full and each run's model calls and front calls;
 //! `FRONT_REPLAY_IDS=1` lists each run's ids by record; `FRONT_REPLAY_KEEP=1` keeps both runs' folders.
 //!
-//! decision: ORCH-735, ORCH-736, ORCH-737
+//! decision: ORCH-735, ORCH-736, ORCH-737, ORCH-743
 
 mod support;
 // the deliberate prompt changes since the recording (ENG-6), as chat_replay applies them to the recorded journal rows
@@ -329,11 +331,10 @@ fn convert(answer: &Value, question_open: bool) -> (Vec<(String, Value)>, String
     );
     let text = s(&answer["text"]);
     match answer["kind"].as_str() {
+        // ORCH-743: the hand-off carries its ack and the task's goal; the planner then writes the task (the recorded
+        // planner call after it, [`front_calls`])
         Some("task") => {
-            let mut args = json!({"ack": text, "task": answer["task"]});
-            if aq {
-                args["answers_question"] = json!(true);
-            }
+            let args = json!({"ack": text, "goal": answer["task"]["goal"], "answers_question": aq});
             calls.push(("chat.dispatch_task".into(), args));
             (calls, String::new())
         }
@@ -371,11 +372,27 @@ fn not_today_s_form(sc: &Value) -> Option<String> {
 /// The recorded calls with each planner call's events replaced by its converted calls. A repair (a second planner
 /// call for the same message, after code refused the first answer) becomes part of the same run, as the front door
 /// repairs inside its run: the first answer's calls (refused), then the second's; the repair's call is taken out.
-fn front_calls(calls: &[Value]) -> Vec<Value> {
+/// ORCH-743: once the message's run hands off (an answer that was a task), the recorded planner call of that answer
+/// follows the front door's, unchanged, and so does each recorded repair after it: the planner writes the task with
+/// its own form, checks and repair, as it did in the recording (marked `handoff_planner`, so a recorded wait for the
+/// nth planner call still means the nth front door call).
+///
+/// With the calls, how many times the front door's run reads each recorded planner call's reads (by its order among
+/// the planner calls): the message's front door call reads its first call's, and each planner call writing the task
+/// reads its own; a repair merged into the front door's run is read never.
+fn front_calls(calls: &[Value]) -> (Vec<Value>, Vec<usize>) {
     let mut out: Vec<Value> = Vec::new();
+    let mut reads: Vec<usize> = Vec::new();
     // whether FERB's question was open when the message came (a repair answers the same message)
     let (mut question_open, mut open_at_message) = (false, false);
     let mut last_request: Option<String> = None;
+    // whether this message's front door run handed off: its later recorded calls are the planner's
+    let mut handed = false;
+    let planner_writes = |c: &Value| {
+        let mut call = c.clone();
+        call["handoff_planner"] = json!(true);
+        call
+    };
     for c in calls {
         if !planner_call(c) {
             out.push(c.clone());
@@ -386,8 +403,18 @@ fn front_calls(calls: &[Value]) -> Vec<Value> {
         let repair = last_request.as_deref() == Some(request.as_str());
         if !repair {
             open_at_message = question_open;
+            handed = false;
+        }
+        question_open = answer["kind"] == "clarify";
+        last_request = Some(request);
+        if handed {
+            // the planner's repair of the task it writes for the hand-off
+            out.push(planner_writes(c));
+            reads.push(1);
+            continue;
         }
         let (calls, text) = convert(&answer, open_at_message);
+        let hands_off = calls.iter().any(|(name, _)| name == "chat.dispatch_task");
         let mut events: Vec<Value> = calls
             .iter()
             .map(|(name, args)| json!({"kind": "front_call", "name": name, "arguments": args}))
@@ -413,15 +440,21 @@ fn front_calls(calls: &[Value]) -> Vec<Value> {
             all.retain(|e| e["kind"] == "front_call");
             all.extend(events);
             prev["events"] = json!(all);
+            reads.push(0);
         } else {
             let mut call = c.clone();
             call["events"] = json!(events);
             out.push(call);
+            reads.push(1);
         }
-        question_open = answer["kind"] == "clarify";
-        last_request = Some(request);
+        if hands_off {
+            // ORCH-743: the accepted hand-off ends the run; the planner writes its task, as this call answered
+            handed = true;
+            out.push(planner_writes(c));
+            *reads.last_mut().unwrap() += 1;
+        }
     }
-    out
+    (out, reads)
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -475,35 +508,25 @@ fn recorded_ids(sc: &Value) -> Value {
     json!({"tables": tables, "journal": journal})
 }
 
-/// The planner calls (by their order among the planner calls) that repair the one before them: a second call for the
-/// same message.
-fn repairs(calls: &[Value]) -> BTreeSet<usize> {
-    let planner: Vec<String> = calls
-        .iter()
-        .filter(|c| planner_call(c))
-        .map(|c| s(&c["task_id"]))
-        .collect();
-    (1..planner.len())
-        .filter(|i| planner[*i] == planner[i - 1])
-        .collect()
-}
-
-/// The recorded reads without those of the repair calls the front door's run doesn't make: each planner call read
-/// its `supervise` record, then its `system` record.
-fn without_repairs(recs: &[Value], repaired: &BTreeSet<usize>) -> Vec<Value> {
-    let (mut out, mut nth, mut skip_system) = (Vec::new(), 0, false);
+/// The recorded reads as the front door's run reads them ([`front_calls`]' counts): each planner call read its
+/// `supervise` record, then its `system` record; each such pair is read as often as its count says (none for a repair
+/// merged into the front door's run, twice for a hand-off's call: the front door's, then the planner's writing the
+/// task). Every other record once.
+fn reads_as(recs: &[Value], reads: &[usize]) -> Vec<Value> {
+    let (mut out, mut nth, mut system_times) = (Vec::new(), 0, None);
     for r in recs {
         if r["kind"] == "supervise" {
-            let repair = repaired.contains(&nth);
+            let times = reads.get(nth).copied().unwrap_or(1);
             nth += 1;
-            if repair {
-                skip_system = true;
+            system_times = Some(times);
+            out.extend(std::iter::repeat_n(r.clone(), times));
+            continue;
+        }
+        if r["kind"] == "system" {
+            if let Some(times) = system_times.take() {
+                out.extend(std::iter::repeat_n(r.clone(), times));
                 continue;
             }
-        }
-        if r["kind"] == "system" && skip_system {
-            skip_system = false;
-            continue;
         }
         out.push(r.clone());
     }
@@ -513,12 +536,19 @@ fn without_repairs(recs: &[Value], repaired: &BTreeSet<usize>) -> Vec<Value> {
 fn script_of(r: &Recorded, home: &Path, front: bool) -> Script {
     let workspace = &home.join("workspace").to_string_lossy().to_string();
     let (sc, catalogs) = (&r.sc, &r.catalogs);
-    let repaired = if front {
-        repairs(sc["model_calls"].as_array().unwrap())
+    let recorded: Vec<Value> = sc["model_calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(resolve)
+        .collect();
+    let (calls, recs) = if front {
+        let (calls, reads) = front_calls(&recorded);
+        (calls, reads_as(&r.recs, &reads))
     } else {
-        BTreeSet::new()
+        (recorded, r.recs.clone())
     };
-    let recs = &without_repairs(&r.recs, &repaired);
+    let recs = &recs;
     let of = |k: &str| -> Vec<Value> { recs.iter().filter(|r| r["kind"] == k).cloned().collect() };
     let catalog_line = |v: &Value| -> String {
         let c = catalogs[s(&v["catalog"])]
@@ -541,17 +571,6 @@ fn script_of(r: &Recorded, home: &Path, front: bool) -> Script {
         .first()
         .map(|r| s(&r["inputs"]["capabilities"]))
         .unwrap_or_default();
-    let recorded: Vec<Value> = sc["model_calls"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(resolve)
-        .collect();
-    let calls = if front {
-        front_calls(&recorded)
-    } else {
-        recorded
-    };
     let mut gated = BTreeSet::new();
     let mut last_wait = None;
     for st in sc["steps"].as_array().unwrap() {
@@ -605,10 +624,11 @@ fn model_wait(calls: &[Value], until: &str) -> Option<usize> {
     let (key, n) = rest.rsplit_once(" (")?;
     let key = key.trim_matches('\'');
     let n: usize = n.trim_end_matches(')').parse().ok()?;
+    // ORCH-743: the planner's call writing a hand-off's task is no recorded call of its own
     calls
         .iter()
         .enumerate()
-        .filter(|(_, m)| m["key"] == key)
+        .filter(|(_, m)| m["key"] == key && m["handoff_planner"] != json!(true))
         .nth(n.checked_sub(1)?)
         .map(|(i, _)| i)
 }
@@ -897,6 +917,14 @@ fn run_scenario(r: &Recorded, run_root: &RunRoot, front: bool) -> Outcome {
         let got = run.control(json!({"do": "translate", "value": line}));
         got.as_str().map(str::to_string).unwrap_or(line)
     };
+    // and so does a recorded event or tap that names a task (ORCH-743: the planner's call after a hand-off writes
+    // records of its own, so the task's id here is not the recording's)
+    let sent_value = |run: &Run, v: &Value| -> Value {
+        if !front {
+            return v.clone();
+        }
+        run.control(json!({"do": "translate", "value": v}))
+    };
     for st in sc["steps"].as_array().unwrap() {
         let conn = s(&st["conn"]);
         match st["do"].as_str().unwrap() {
@@ -1064,11 +1092,13 @@ fn run_scenario(r: &Recorded, run_root: &RunRoot, front: bool) -> Outcome {
                 settle(&run);
             }
             "plan_event" => {
-                run.control(json!({"do": "plan_event", "topic": st["topic"], "data": st["data"]}));
+                let data = sent_value(&run, &st["data"]);
+                run.control(json!({"do": "plan_event", "topic": st["topic"], "data": data}));
                 settle(&run);
             }
             "runtime_switch" => {
-                let got = run.control(json!({"do": "runtime_switch", "task_id": st["task_id"],
+                let task_id = sent_value(&run, &st["task_id"]);
+                let got = run.control(json!({"do": "runtime_switch", "task_id": task_id,
                                              "runtime": st["runtime"]}));
                 streams.push(("runtime_switch".into(), vec![got]));
                 settle(&run);
@@ -1478,13 +1508,8 @@ const EXPECTED: &[(&str, &[&str], &str)] = &[
     ),
     (
         "episodes.steps_json",
-        &["plan_repair", "unbacked_part"],
-        "The planner's run made two planner calls (the refused answer, then its repair), so its episode has two Planner lines; the front door repairs inside its one run (the refused call above), so its episode has one.",
-    ),
-    (
-        "refused chat.dispatch_task",
-        &["plan_repair", "unbacked_part", "inventory_walk"],
-        "The recorded first answer, which code refused in the planner's run too before a second call repaired it, is refused as the call and repaired by the next call in the same run (kb/plans/front-door.md: no repair round).",
+        &["answer_in_chat", "ask_step", "attachment_and_bad_params", "browse_as_corrected", "check_in_after_five", "checker_findings_fix", "checker_rejects", "checker_runtime_down", "checker_skips_change_records", "checklist_single", "clarify_then_answer", "confirm_no", "confirm_stop_pending", "confirm_yes", "conversation_change", "conversation_handover", "conversation_resume", "correct_pending_check", "earlier_result", "event_wait", "global_stop", "login_sites", "loop_pause_stop", "loop_steer_finish", "mention_paused", "multi_step_plan", "one_step_task", "one_step_with_tools", "owner_closed_tab", "pause_steer_resume", "plan_parts_checklist", "probe_watch", "reason_findings", "restart_mid_task", "restart_with_open_question", "route_question", "runtime_switch_tap", "schedule_created_and_fired", "several_asks", "stated_scope", "steer_running_task", "stop_by_chat", "stop_by_task_stop", "stop_plus_new_task", "tool_failure_then_retry", "wait_for_time", "wait_step", "worker_question_answered", "plan_repair", "unbacked_part"],
+        "A hand-off's turn makes two planner calls (ORCH-743): the front door's, whose Planner line is its ack (\"task — On it.\"), then the planner's writing the task, whose line is the planner run's (\"task — <goal>\"); so the episode has one Planner line more, and each later line's \"verified in step N\" counts one further. In plan_repair and unbacked_part the planner's run repaired its first answer (two Planner lines); the front door hands off at once and the planner writing the task repairs it the same way (three).",
     ),
     (
         "frames +plan_delta +plan_end -plan_abort",
@@ -1497,9 +1522,9 @@ const EXPECTED: &[(&str, &[&str], &str)] = &[
         "The recorded answer pauses the chat in the owner's words and closes it quoting words he never wrote, and its repair repeats them. As in the planner's run, the pause is applied and the close refused (ORCH-739: the call keeps its good entry and its error names the refused one), so the call shows as refused in the trace.",
     ),
     (
-        "frames +reply_delta -plan_abort",
+        "frames +plan_delta +plan_end -progress -plan_abort",
         &["inventory_walk"],
-        "The planner's run showed the refused plan and withdrew it (plan_abort) before its repaired answer, a reply; the front door shows nothing for a refused call and streams the reply.",
+        "The front door hands off at once (its ack shown: plan_delta, plan_end); the planner writing the task then gives a plan code refuses and repairs it into a reply, which stands (ORCH-743: a planner that replies instead is heard). That planner call has no live stream, so the owner sees neither the walk of the plan's folders (progress) nor the plan's withdrawal (plan_abort): the ack, then the reply.",
     ),
 ];
 

@@ -1,8 +1,10 @@
-//! The front door's six tools (kb/plans/front-door.md, step 5; ORCH-736): each one's arguments are the matching part of
-//! the planner's answer form (`ferb_context::schemas::supervisor_schema()`), field for field, so every check of a
-//! call stays today's. The rows in `catalog_additions.json` are written by hand; this derives each one's schema from
-//! the answer form as it is now and compares the bytes, so the two can never drift apart. And they are offered and
-//! admitted only to a grant that names them (the front door's), never to a worker, the checker or the planner.
+//! The front door's six tools (kb/plans/front-door.md, step 5; ORCH-736): five take the matching part of the planner's
+//! answer form (`ferb_context::schemas::supervisor_schema()`), field for field, so every check of a call stays
+//! today's; the hand-off (ORCH-743) takes only its ack and goal, and the planner writes the task. The rows in
+//! `catalog_additions.json` are written by hand; this derives each of the five's schema from the answer form as it is
+//! now and compares the bytes, so the two can never drift apart, and compares the hand-off's with its own. And they
+//! are offered and admitted only to a grant that names them (the front door's), never to a worker, the checker or the
+//! planner.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -16,9 +18,9 @@ use ferb_orchestrator::lookups::{FRONT_SCOPES, FRONT_TOOLS, PLANNER_SCOPES, PLAN
 use ferb_rpc::auth::{Identity, RunGrant};
 use serde_json::{json, Map, Value};
 
-/// Each front tool's arguments, in order: the answer form's field each one is (`ack` is a hand-off's `text`, `question`
-/// a question's), and the ones a call must give.
-const ARGUMENTS: [(&str, &[&str], &[&str]); 6] = [
+/// Each front tool's arguments but the hand-off's, in order: the answer form's field each one is (`question` is a
+/// question's `text`), and the ones a call must give.
+const ARGUMENTS: [(&str, &[&str], &[&str]); 5] = [
     ("chat.ask", &["question"], &["question"]),
     (
         "chat.control_task",
@@ -29,11 +31,6 @@ const ARGUMENTS: [(&str, &[&str], &[&str]); 6] = [
             "answers_question",
         ],
         &[],
-    ),
-    (
-        "chat.dispatch_task",
-        &["ack", "task", "answers_question"],
-        &["ack"],
     ),
     (
         "chat.remember",
@@ -58,7 +55,7 @@ const ARGUMENTS: [(&str, &[&str], &[&str]); 6] = [
 ];
 
 /// A front tool's `Input` schema as derived from the answer form now: each field from the form's top level or its
-/// side entries (`ack` and `question` are the form's `text`, a string), the form's `$defs` carried when it has any,
+/// side entries (`question` is the form's `text`, a string), the form's `$defs` carried when it has any,
 /// then the `why` the gateway adds to every tool.
 fn derived(fields: &[&str], required: &[&str]) -> Value {
     let form = ferb_context::schemas::supervisor_schema();
@@ -74,7 +71,7 @@ fn derived(fields: &[&str], required: &[&str]) -> Value {
     let mut props = Map::new();
     for f in fields {
         let field = match *f {
-            "ack" | "question" => top["text"].clone(),
+            "question" => top["text"].clone(),
             _ => top
                 .get(*f)
                 .or_else(|| side.get(*f))
@@ -98,7 +95,24 @@ fn derived(fields: &[&str], required: &[&str]) -> Value {
     Value::Object(schema)
 }
 
-// decision: ORCH-736
+/// The hand-off's `Input` schema (ORCH-743): the line the owner reads and the goal, nothing of the task form, then
+/// the `why` the gateway adds to every tool.
+fn dispatch_schema() -> Value {
+    json!({
+        "additionalProperties": false,
+        "properties": {
+            "ack": {"type": "string"},
+            "goal": {"type": "string"},
+            "answers_question": {"type": "boolean", "default": false},
+            "why": catalog::why_property(),
+        },
+        "required": ["ack", "goal"],
+        "title": "Input",
+        "type": "object",
+    })
+}
+
+// decision: ORCH-736, ORCH-743
 #[test]
 fn each_front_tool_takes_the_matching_part_of_the_answer_form() {
     let mine: Vec<&catalog::Addition> = catalog::additions()
@@ -110,13 +124,25 @@ fn each_front_tool_takes_the_matching_part_of_the_answer_form() {
         FRONT_TOOLS,
         "the six, in FRONT_TOOLS' order"
     );
-    for (name, fields, required) in ARGUMENTS {
+    let dispatch = mine
+        .iter()
+        .find(|a| a.name == "chat.dispatch_task")
+        .unwrap();
+    assert_eq!(
+        ferb_py::json::dumps(&dispatch.row["input_schema"]),
+        ferb_py::json::dumps(&dispatch_schema()),
+        "chat.dispatch_task: its schema is no longer the hand-off's"
+    );
+    let parts = ARGUMENTS.map(|(name, fields, required)| (name, Some(derived(fields, required))));
+    for (name, schema) in parts.into_iter().chain([("chat.dispatch_task", None)]) {
         let a = mine.iter().find(|a| a.name == name).unwrap();
-        assert_eq!(
-            ferb_py::json::dumps(&a.row["input_schema"]),
-            ferb_py::json::dumps(&derived(fields, required)),
-            "{name}: its schema is no longer the answer form's part"
-        );
+        if let Some(schema) = schema {
+            assert_eq!(
+                ferb_py::json::dumps(&a.row["input_schema"]),
+                ferb_py::json::dumps(&schema),
+                "{name}: its schema is no longer the answer form's part"
+            );
+        }
         assert_eq!(a.decision, "ORCH-736");
         assert_eq!(a.after, "chat.history");
         assert_eq!(a.row["identities"], json!(["owner"]));
@@ -230,9 +256,9 @@ fn the_front_tools_are_offered_and_admitted_only_to_the_front_door() {
         .any(|n| n.starts_with("chat.") && n != "chat.history"));
 }
 
-/// The gateway's argument model takes a recorded hand-off as the planner wrote it (the answer form's task, strict) and
-/// gives the same values back; `answers_question` left out is null in what the tool is handed (it means false).
-// decision: ORCH-736
+/// The gateway's argument model takes a hand-off (ORCH-743: its ack and goal) and gives the same values back;
+/// `answers_question` left out is false in what the tool is handed, and the old task form is refused.
+// decision: ORCH-736, ORCH-743
 #[test]
 fn a_hand_off_passes_the_argument_model_unchanged() {
     let r = {
@@ -241,26 +267,24 @@ fn a_hand_off_passes_the_argument_model_unchanged() {
         r
     };
     let tool = r.get("chat.dispatch_task").unwrap();
-    let task = json!({
-        "goal": "Write hello into a.txt", "name": "Write hello", "identity": "owner", "worker_type": "default",
-        "targets": [], "success_conditions": [], "plan": null, "folders": [], "keep_tabs_open": false,
-        "parts": [], "earlier_results": [], "profiles": []
-    });
-    let args = json!({"ack": "On it.", "task": task});
+    let goal = "Write hello into a.txt in my Documents folder";
+    let args = json!({"ack": "On it.", "goal": goal});
     let checked = ferb_gateway::args::check(tool.as_ref(), args.as_object().unwrap());
     match checked {
         Ok(c) => {
             assert_eq!(c.args["ack"], json!("On it."));
-            assert_eq!(c.args["answers_question"], Value::Null);
-            // the strict task form: every field given back as written
-            for (k, v) in task.as_object().unwrap() {
-                assert_eq!(&c.args["task"][k], v, "{k}");
-            }
+            assert_eq!(c.args["goal"], json!(goal));
+            assert_eq!(c.args["answers_question"], json!(false));
         }
         Err(e) => panic!("refused: {e:?}"),
     }
-    // a missing ack is the argument model's own error
-    let refused =
-        ferb_gateway::args::check(tool.as_ref(), json!({"task": task}).as_object().unwrap());
-    assert!(refused.is_err());
+    let check =
+        |v: Value| ferb_gateway::args::check(tool.as_ref(), v.as_object().unwrap()).is_err();
+    // a missing ack or goal is the argument model's own error
+    assert!(check(json!({"goal": goal})));
+    assert!(check(json!({"ack": "On it."})));
+    // the task form is no longer the hand-off's
+    assert!(check(
+        json!({"ack": "On it.", "goal": goal, "task": {"goal": goal}})
+    ));
 }
