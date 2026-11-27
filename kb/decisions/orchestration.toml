@@ -2825,3 +2825,15 @@ words = "yes yes, but just make the line like an indicator not frozen, have a fe
 words_source = "Owner 2026-11-27, on a live line under the ack while the planner writes a handed-off task (it took 11-28 s live)."
 rule = "For ORCH-743. The front door's accepted ack ends with plan_end {accepted: true, text: what the chat was shown, redacted}. While the planner writes the task FERB sends progress {planning: true} lines under it, one start time, the words changing every 2.5 s through words::PLANNING_LINES, until the plan comes."
 paths = ["engine/crates/ferb-orchestrator/src/reply_stream.rs", "engine/crates/ferb-supervisor/src/flow/turn.rs", "engine/crates/ferb-supervisor/src/words.rs"]
+
+[ORCH-748]
+title = "Planning lines of one length; the hand-off note says the goal is the front door's, never the owner's"
+by = "owner"
+date = 2026-11-27
+status = "active"
+words = "YES TO ALLL."
+words_source = "Owner 2026-11-27, to shorter planning lines of one length ('they shoudln all me samle length'), the hand-off note's new sentence, and starting step 7."
+rule = "For ORCH-747 and ORCH-743. The planning lines are \"Planning steps…\", \"Choosing tools…\" and \"Setting checks…\". The planner's hand-off note (words::HANDOFF) says the goal is the front door's summary, never the owner's words, and every quote in the task comes from the owner's own messages."
+why = "Live 2026-11-27 (request 05dab964): the planner quoted the front door's first-person goal as the owner's words, code refused the parts twice and the task never started."
+paths = ["engine/crates/ferb-supervisor/src/words.rs"]
+untestable = "Model-facing and owner-facing wording (TEST-500); the planning line's frames are tested under ORCH-747."

@@ -465,19 +465,16 @@ pub const NEW_MESSAGES: &str =
 together; the last one is the most recent):\n";
 pub const NEW_MESSAGE: &str = "Layer 5 — owner's complete new message:\n";
 pub const PLAN_REPAIR: &str = "Layer 6 — plan repair:\n";
-/// ORCH-747: the live line while the planner writes a handed-off task, changing every few seconds (owner: "like an
-/// indicator not frozen, have a few words that keep changing").
-pub const PLANNING_LINES: [&str; 3] = [
-    "Working out the steps…",
-    "Picking where to look…",
-    "Deciding what counts as done…",
-];
+/// ORCH-747, ORCH-748: the live line while the planner writes a handed-off task, changing every few seconds, each the
+/// same length (owner: "they shoudln all me samle length").
+pub const PLANNING_LINES: [&str; 3] = ["Planning steps…", "Choosing tools…", "Setting checks…"];
 /// How long each planning line shows before the next.
 pub const PLANNING_LINE_S: f64 = 2.5;
 /// ORCH-743: the planner's note when the front door handed the message off: it writes that task.
 pub const HANDOFF: &str = "Layer 6 — the front door's hand-off:\nThe front door handed this message off as a task, \
-and the owner has already read its first line. Answer with kind \"task\": the whole task for this goal, quoting the \
-owner's own words. The front door's goal: ";
+and the owner has already read its first line. Answer with kind \"task\": the whole task for this goal. The goal is the \
+front door's summary, never the owner's words: every quote in the task comes from the owner's own messages in the \
+conversation above. The front door's goal: ";
 pub const SNAPSHOT: &str =
     "; original planner snapshot: task.evidence kind=context.source query=planner-context";
 pub const LOOKUP_REFERENCE: &str =

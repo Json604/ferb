@@ -368,6 +368,29 @@ second message within 2 s on Codex.
 validation; `simple` skips it. Test: every existing plan-validation test passes on the architect's output; a simple
 task's worker starts with no plan step. Number: a simple task's worker starts within 1 s of the ack.
 
+*Step 7 in detail (agent, 2026-11-27; owner: "YES TO ALLL" to starting step 7).*
+
+- **The hand-off says which kind it is.** `chat.dispatch_task` gains `complexity` ("simple" or "complex"), and for a
+  simple one the few fields code enforces, all flat: `quote` (the owner's exact words for the task), `name` (two to
+  five words, PRM-328), `done_when` (one plain sentence: what the result must show), and when his words name them
+  `profiles`, `folders`, `earlier_results` (result tags cN). Simple = one ask a worker can do in one go; complex =
+  several dependent parts, a batch of files, a loop or wait, a delegated conversation, parallel work (the plan's own
+  list). The Concierge decides (rule 4: a model judges intent); code checks every field as today.
+- **Simple: no planner.** Code builds the TaskSpec from those fields: goal, name, identity owner, the default worker
+  type, one part {quote}, one condition {text: done_when, layer outcome}, no plan, the profiles/folders/results named.
+  `problems()` runs on it unchanged (the quote against his messages, folders, results, profiles), inside the call: a
+  refusal goes back to the Concierge in the same run, as every call's does. Then `route` starts it: the worker starts
+  right after the ack. No planner call; no planning line.
+- **Complex: the architect.** Today's planner path (ORCH-743) with the planning line (ORCH-747), until the
+  architect's own instructions land: the plan half of supervisor.md and of the answer form, reading the owner's own
+  messages for quotes and the Concierge's goal as a summary (the stopgap HANDOFF sentence, owner-approved, says so now).
+- **Model-facing text shown to the owner before it lands:** the concierge.md lines on simple vs complex and the four
+  fields; chat.dispatch_task's description; later the architect's instructions.
+- **Test:** every recorded single-ask hand-off replayed as simple starts the same task row fields that matter (goal,
+  quote, profiles, folders) with no planner call; every multi-part one as complex runs as today; a simple hand-off
+  with a quote he never wrote is refused in the run.
+- **Number:** a simple task's worker starts within about 1 s of the ack (plan target).
+
 **8. The library and the Librarian.** ORCH-719's T-1337 as designed, plus the table of contents and the Librarian
 as decided (code's list, the daily call, the monthly line; the running summary and its fold removed). Test: the index's size on an invented five-year store; byte-stable within a day.
 
