@@ -379,6 +379,34 @@ extension NotchModel {
         return false
     }
 
+    // MARK: ids of what history shows
+
+    /// A day of the saved chat came from FERB's database: its entries are read (`chat.entries.page` for that day) and
+    /// each id is kept on what shows it, so a message sent before this app knew entry ids can be quoted too (APP-1146).
+    /// Only ids (and a message's quote as the engine kept it) change; nothing is drawn, nothing is said.
+    func noteEntryIDs(day: String) async {
+        guard entryWatch.supported, chatSource != .temporary, let conversation = conversationID else { return }
+        var found: [ChatEntry] = []
+        var before: Int?
+        for _ in 0..<20 {
+            var params: [String: Any] = ["conversation": conversation, "day": day, "limit": 200]
+            if let before { params["before_pos"] = before }
+            guard let page = try? await rpc.call("chat.entries.page", params: params) else { return }
+            found.insert(contentsOf: (page["entries"] as? [Any] ?? []).compactMap(ChatEntry.init), at: 0)
+            guard page["more"] as? Bool == true, let next = (page["before_pos"] as? NSNumber)?.intValue else { break }
+            before = next
+        }
+        guard chatSource != .temporary, conversationID == conversation, !found.isEmpty else { return }
+        var shown = entryWatch.ownShown
+        let changed = changeConversation { archive in
+            var any = false
+            for entry in found where archive.noteOwnEntry(entry, shown: &shown) { any = true }
+            return any
+        }
+        entryWatch.ownShown = shown
+        if changed { saveConversation() }
+    }
+
     // MARK: marks
 
     /// The conversation's marks for this install (`chat.entries.mark`): what it has saved (`delivered`) and, while

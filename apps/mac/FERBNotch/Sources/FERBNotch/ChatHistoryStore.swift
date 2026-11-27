@@ -234,6 +234,7 @@ extension NotchModel {
             let more = page["more"] as? Bool ?? false
             receivePage(start, entries: entries, context: (page["context"] as? [Any] ?? []) + (page["open"] as? [Any] ?? []),
                         cursor: page["cursor"] as? String, more: more, launch: open)
+            await noteEntryIDs(day: key)    // its messages' ids, so they can be quoted (APP-1146)
         } catch {
             chatStore.requestedDays.remove(key)
             updateWindow(start) { $0.loading = false }

@@ -15,6 +15,7 @@ final class HistoryRPC: DaemonRPCTransport, @unchecked Sendable {
     private var _running: [[String: Any]] = []
     private var _results: [[String: Any]] = []
     private var _traces: [String: [String: Any]] = [:]
+    private var _entries: [[String: Any]] = []
 
     private func locked<T>(_ body: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return body() }
     var rows: [String: [String: Any]] { locked { _rows } }
@@ -26,6 +27,8 @@ final class HistoryRPC: DaemonRPCTransport, @unchecked Sendable {
     var results: [[String: Any]] { get { locked { _results } } set { locked { _results = newValue } } }
     /// `trace.get`'s answer per task.
     var traces: [String: [String: Any]] { get { locked { _traces } } set { locked { _traces = newValue } } }
+    /// The conversation's entries (ENG-8) `chat.entries.page` reads by day, oldest first, all on one page.
+    var entries: [[String: Any]] { get { locked { _entries } } set { locked { _entries = newValue } } }
 
     func held(_ id: UUID) -> [String: Any]? { locked { _rows[id.uuidString] } }
     func count(_ method: String) -> Int { locked { _calls.filter { $0.0 == method }.count } }
@@ -61,6 +64,9 @@ final class HistoryRPC: DaemonRPCTransport, @unchecked Sendable {
                                       "context": answered.subtracting(shown).compactMap { _rows[$0] }]
             if params["open"] as? Bool == true { out["open"] = _rows.values.filter { $0["open"] as? Bool == true } }
             return out
+        case "chat.entries.page":
+            let day = params["day"] as? String
+            return ["entries": _entries.filter { day == nil || $0["day"] as? String == day }, "more": false]
         case "chat.history.days":
             return ["days": Array(Set(_rows.values.compactMap { $0["day"] as? String })).sorted(by: >)]
         case "chat.status":

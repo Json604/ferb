@@ -243,4 +243,26 @@ final class ReplyQuoteTests: XCTestCase {
         if let field = view as? MessageTextView { return [field] }
         return view.subviews.flatMap { textViews(in: $0) }
     }
+
+    // decision: APP-1146
+    func testAMessageAlreadyInTheChatGetsItsIDFromTheDaemonAndCanBeRepliedTo() async {
+        // a turn the history shows, sent before the app kept entry ids: no id, so no reply arrow
+        let rpc = HistoryRPC()
+        let model = NotchModel(rpc: rpc, preferences: scratchDefaults("ReplyOldTurns"))
+        model.conversation.begin(id: UUID(), request: "find me a cheap phone", sources: [])
+        let index = model.conversation.turns.count - 1
+        model.conversation.turns[index].requestID = "R-old"
+        XCTAssertNil(model.quote(entryID: model.conversation.turns[index].entryID, kind: "message", owner: true,
+                                 text: "find me a cheap phone"))
+        // that day's entries in FERB's database name it
+        model.conversationID = "C1"
+        model.entryWatch.supported = true
+        rpc.entries = [["id": "E-old", "kind": "message", "pos": 10, "conversation_id": "C1", "request_id": "R-old",
+                        "day": "2026-11-27", "body": ["text": "find me a cheap phone"]]]
+        await model.noteEntryIDs(day: "2026-11-27")
+        XCTAssertEqual(model.conversation.turns[index].entryID, "E-old")
+        XCTAssertNotNil(model.quote(entryID: model.conversation.turns[index].entryID, kind: "message", owner: true,
+                                    text: "find me a cheap phone"), "it can be replied to now")
+        XCTAssertEqual(rpc.last("chat.entries.page")?["day"] as? String, "2026-11-27")
+    }
 }
