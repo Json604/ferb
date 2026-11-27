@@ -731,3 +731,35 @@ fn a_front_door_run_that_fails_in_its_runtime_falls_back_to_the_planner() {
         "the planner's turn ran as without the front door"
     );
 }
+
+// decision: ORCH-741 (live 2026-11-27: the model sent a simple task with a plan of no steps, and was refused for
+// "A plan needs at least one step" on each try)
+#[test]
+fn a_hand_off_with_an_empty_plan_starts_as_a_simple_task() {
+    let recorded = support_control::scenario("one_step_task").1["model_calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["key"] == "supervisor")
+        .cloned()
+        .unwrap();
+    let (calls, _) = convert(&recorded_answer(&recorded));
+    let mut args = calls[0].1.clone();
+    assert!(
+        args["task"]["plan"].is_null(),
+        "the recorded task has no plan"
+    );
+    args["task"]["plan"] = json!({"steps": [], "input_paths": [], "big_job": false,
+                                  "time_estimate": "", "cost_estimate": "", "standing_sends": []});
+    let events = script(&[("chat.dispatch_task".into(), args)], "");
+    let (old, _) = run("one_step_task", false, None);
+    let (w, _) = run("one_step_task", true, Some(vec![events]));
+    let got = results(&w);
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert!(got[0].1.is_ok(), "accepted at once: {got:?}");
+    assert_eq!(
+        effects(&old)["tasks"],
+        effects(&w)["tasks"],
+        "the task started as without a plan"
+    );
+}

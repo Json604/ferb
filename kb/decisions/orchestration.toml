@@ -2750,3 +2750,12 @@ status = "active"
 rule = "For ORCH-735. When the front door's run fails in its runtime with nothing accepted (a runtime that refuses the front tools, a provider error, a run that ended with nothing), decide journals front_door.fallback with the error and runs today's planner for that turn. A refused call, a cancelled run and the cross-part check's failure don't fall back. The fallback goes with the planner's removal."
 why = "No real runtime had taken the six tools when the front door was turned on; a refusal must not cost the owner his message, and the journal names the runtime."
 paths = ["engine/crates/ferb-supervisor/src/flow/turn.rs"]
+
+[ORCH-741]
+title = "A front-door hand-off whose plan has no steps, inputs or standing sends is a task with no plan"
+by = "agent"
+date = 2026-11-27
+status = "active"
+rule = "For ORCH-736. front_call drops a dispatched task's plan when it has no steps, no input paths and no standing sends (it carries nothing), so the task starts as a simple one instead of being refused for \"A plan needs at least one step\". A plan with any of those is checked as today."
+why = "Live 2026-11-27: Codex sent a simple research task with an empty plan; each try was refused and rewritten, and the owner waited 58 s before the task started."
+paths = ["engine/crates/ferb-supervisor/src/flow/turn/front_door.rs"]

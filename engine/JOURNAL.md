@@ -14642,3 +14642,16 @@ failing with the fallback removed. ferbd seams_wired passes.
 
 **Unverified.** A real runtime taking the six tools: the owner's live use of this build, read from the journal's
 `front_door.fallback` rows and the traces. A runtimes-check line for the front door is still to do.
+
+## 2026-11-27 · 267 · A hand-off with an empty plan starts as a simple task
+
+**Why (ORCH-741).** Live, the owner's first real task through the front door (request 1534beab, Codex): the model
+called chat.dispatch_task with a plan of no steps; code refused it ("A plan needs at least one step", plus an earlier
+result the chat doesn't show), the model rewrote the whole task form, and the accepted call came after 58 s
+(model.turn first_text_ms 58450). Plain replies in the same session took 2.8-4.0 s.
+
+**What.** front_call's part_of drops a task's plan that has no steps, input paths or standing sends.
+
+**Evidence.** ferb-supervisor tests/front_door.rs: the recorded one_step_task with an empty plan is accepted at once
+and starts the same task rows; shown failing with the drop removed. **Open.** The full task form in chat.dispatch_task
+is what makes each try slow: step 7 moves the plan to the task architect.

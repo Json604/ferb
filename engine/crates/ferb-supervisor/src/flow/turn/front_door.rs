@@ -123,8 +123,17 @@ pub fn part_of(tool: &str, arguments: &Value) -> Result<SupervisorOutcome, Strin
             form.insert(k.clone(), v.clone());
         }
     }
-    let part = supervisor_outcome_validate_json(&Value::Object(form).to_string())
+    let mut part = supervisor_outcome_validate_json(&Value::Object(form).to_string())
         .map_err(|e| format!("{tool}: {e}"))?;
+    // decision: ORCH-741 — a plan with no steps, inputs or standing sends carries nothing: it is no plan, so a simple
+    // task isn't refused for "a plan needs at least one step"
+    if let Some(task) = part.task.as_mut() {
+        if task.plan.as_ref().is_some_and(|p| {
+            p.steps.is_empty() && p.input_paths.is_empty() && p.standing_sends.is_empty()
+        }) {
+            task.plan = None;
+        }
+    }
     let carries = match tool {
         DISPATCH => part.task.is_some(),
         ASK => true,
