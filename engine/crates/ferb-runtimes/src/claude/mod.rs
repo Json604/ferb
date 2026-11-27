@@ -484,6 +484,8 @@ struct State {
     blocks: Vec<String>,
     cost_so_far: f64,
     follow_up: String,
+    /// RUN-484: a plain-mode run's tool calls so far (an end with no text after one is not followed up).
+    plain_calls: u64,
     restart: bool,
     remembered: bool,
     repaired: bool,
@@ -729,6 +731,7 @@ pub async fn start(
             blocks: Vec::new(),
             cost_so_far: 0.0,
             follow_up: String::new(),
+            plain_calls: 0,
             restart: false,
             remembered: false,
             repaired: false,
@@ -918,6 +921,16 @@ async fn inner_events(run: &Arc<ClaudeRun>, client: &Client, y: &mut Yielder) ->
                     }
                 };
                 if plain {
+                    let started_call = kind.as_ref().and_then(Value::as_str)
+                        == Some("content_block_start")
+                        && ev
+                            .get("content_block")
+                            .and_then(|b| b.get("type"))
+                            .and_then(Value::as_str)
+                            == Some("tool_use");
+                    if started_call {
+                        run.lock().plain_calls += 1;
+                    }
                     if let Some(()) = plain_stream(rt, &ev, &mut text_blocks, &mut open, y).await? {
                         continue;
                     }
@@ -1152,7 +1165,9 @@ async fn result_message(
         if st.follow_up == "asked" && st.pending_updates.is_empty() {
             follow = if empty || is_error { "failed" } else { "fixed" }.into();
             st.follow_up = "done".into();
-        } else if empty && st.follow_up.is_empty() {
+        } else if empty && st.follow_up.is_empty() && !(rt.plain() && st.plain_calls > 0) {
+            // decision: RUN-484 — a plain-mode run that called tools and then ended with no text is not followed up:
+            // its calls were its answer (the worker reads the end as normal when the gateway accepted one)
             follow = "asked".into();
         }
     }

@@ -33,7 +33,8 @@ legacy = "notes/hands.md decision 2"
 title = "One collapsed tab group per task, holding only tabs FERB opened"
 by = "owner"
 date = 2026-10-30
-status = "active"
+status = "superseded"
+superseded_by = "HAND-724"
 words_source = "notes/hands.md owner decision 3: an agent's paraphrase of the owner's ruling; no verbatim quote recorded"
 rule = "One collapsed, labelled group per task with only FERB's tabs. FERB never closes a tab it didn't open; a borrowed owner tab is never grouped or closed. A result tab is handed over (moved out, open); the rest close at task end. A tab dragged out becomes the owner's; one dragged in stays the owner's. Closing a FERB tab or the group mid-task = owner stopping that part (FERB asks to continue). \"Keep the tabs open\" ungroups them; pause keeps the group; loops keep it collapsed; after a reconnect or restart FERB re-adopts or closes it (no orphans)."
 why = "A profile with no window uses FERB's minimized window. Needs `tabGroups` and one protocol bump (manifest, JS/Python protocol, minimum versions together)."
@@ -2795,3 +2796,14 @@ status = "active"
 rule = "Refines HAND-570. When the extension's popup event names a task tab as its opener (a pop-up FERB adopts or refuses past the tab cap), the daemon at once runs HAND-570's put-back for that tab's task (the browser front now and not before the call; skipped if another app is in front). No focus fact is needed. The answer waits on the opener tab and is told on its next window fact that came up, preferring the task's windows, whatever that fact says of focus; a focused fact still tries again; one put-back at a time. No extension change."
 why = "T-1121: HAND-570 acted only on the tab's reply carrying the window fact, about 4 s after the click (live 2026-11-16, task cdba416b); the popup event arrives right after the pop-up shows."
 paths = ["engine/crates/ferb-browser/src/bridge.rs::on_popup", "engine/crates/ferb-browser/src/driver.rs::app_back_at_popup", "engine/crates/ferb-browser/src/driver.rs::app_back_for_facts", "engine/crates/ferb-browser/src/tools.rs::put_back_owner_app", "engine/crates/ferb-browser/src/tools.rs::Tools::new"]
+
+[HAND-724]
+title = "FERB closes the owner's own tabs only when his words ask; never on its own"
+by = "owner"
+date = 2026-11-27
+status = "active"
+words = "yes"
+words_source = "Owner 2026-11-27, to: FERB still never closes your tabs on its own, but closes the ones you tell it to close; the worker marks it, code does what it's told; reopenable, so no confirmation."
+rule = "Supersedes HAND-201's never-close for the owner's tabs; the rest of HAND-201 stands. browser.close (and ferb_browser.close) take owner_asked, the worker's declaration that his words ask to close a tab FERB didn't open: the extension (0.19.15) then closes it as it closes FERB's own (leave_page and dialogs as HAND-446..448). Without it the owner's tab is only let go. An older extension refuses and FERB says to update it."
+supersedes = ["HAND-201"]
+paths = ["engine/crates/ferb-browser/src/driver.rs", "engine/crates/ferb-browser/src/tools.rs", "extension/background.js"]

@@ -463,6 +463,8 @@ struct Run {
     typed: String,
     repaired: bool,
     follow_up: String,
+    /// RUN-484: a plain-mode run's tool calls so far (an end with no text after one is not followed up).
+    plain_calls: u64,
     answer_tool: bool,
     compactor: Option<crate::compact::Compactor>,
 }
@@ -587,6 +589,7 @@ pub async fn start(
             typed,
             repaired: false,
             follow_up: String::new(),
+            plain_calls: 0,
             answer_tool,
             compactor: rt
                 .compaction
@@ -849,7 +852,10 @@ async fn event_loop(run: &Arc<ApiRun>, y: &mut Yielder) -> Result<(), Exit> {
                 continue; // the answer predates an accepted owner correction
             }
             if empty {
-                if follow == "asked" {
+                // decision: RUN-484 — a plain-mode run that called tools and then ended with no text is not followed
+                // up: its calls were its answer (the worker reads the end as normal when the gateway accepted one)
+                let acted = rt.plain() && run.lock().plain_calls > 0;
+                if follow == "asked" && !acted {
                     let mut r = run.lock();
                     r.follow_up = "asked".into();
                     rt.provider.add_message(&mut r.state, FOLLOW_UP);
@@ -878,6 +884,9 @@ async fn event_loop(run: &Arc<ApiRun>, y: &mut Yielder) -> Result<(), Exit> {
             return Ok(());
         }
         let mut results = Vec::new();
+        if rt.plain() {
+            run.lock().plain_calls += turn.calls.len() as u64;
+        }
         for c in &turn.calls {
             let (answer_tool, names, has_updates) = {
                 let r = run.lock();

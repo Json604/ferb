@@ -35,6 +35,9 @@
 // link's goes; FERB's minimized window and a task's claimed popup window go back down when a page brings them forward;
 // a popup window that starts blank is claimed. One optional reply field, `surfaced` (a list of facts: window, cause,
 // focused, put_back, prevented), which an older FERB reads as nothing (Rust) or passes on as a fact (an act's reply).
+// Extension 0.19.15 keeps protocol 21 and the minimum (HAND-724): `close` takes `owner_asked` (the worker says the
+// owner's own words ask to close this tab of his), which closes a borrowed, kept or unrecorded tab too; the reply then
+// has `owner_tab`. An older FERB never sends it; an older extension ignores it and keeps refusing (`not_ferbs`).
 const FERB_PROTOCOL = 21;
 const FERB_HOST = "com.ferb.native_host";
 

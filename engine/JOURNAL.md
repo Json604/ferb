@@ -15081,3 +15081,71 @@ ORCH-648's browsing question and the recipients a send is checked against. With 
 also takes identity (required: ferb or owner, PRM-302's rule in its description) and sites, apps, paths and
 recipients, written into the task's targets. The replay's differences for "What the owner named" (6 scenarios),
 browse_as_corrected's task.browses_as_owner and login_sites' browsing question no longer occur.
+
+
+## 2026-11-27 · 278 · FERB closes the owner's own tab when his words ask for it (extension 0.19.15)
+
+**Why (HAND-724, owner, superseding HAND-201's "never closed").** "FERB still never closes your tabs on its own, but
+closes the ones you tell it to close. The worker marks a close as asked for by you, and code does what it's told. A
+closed tab can be reopened, so no confirmation is needed."
+
+**What.** browser.close and ferb_browser.close take `owner_asked` (boolean, default false), the worker's declaration
+(rule 4); its schema description, verbatim: "true only when the owner's own words ask FERB to close this tab although
+FERB didn't open it (it's his); FERB never closes his tabs otherwise." It is a named change in
+fixtures/catalog/tool_changes.json (input_schema, inserted after `tab`), for both tools: the two schemas are
+byte-identical and a change applies to every recorded text it is found in, so one tool alone can't carry it.
+ferb-browser: `Driver::close_for(tab, leave_page, owner_asked)` (`close` is it with false, so every other caller is
+unchanged). For a borrowed (use_tab) or kept tab with owner_asked, the extension's `close` is sent with
+`owner_asked: true` instead of `release_tab`; HAND-447's leave_page refusal applies to it as to FERB's own tabs
+(`closes_for`); the result adds `owner_tab_closed: true` and `detail` (driver::OWNER_TAB_CLOSED: "this was the owner's
+own tab (FERB didn't open it); it is closed, as his words asked, and he can reopen it from the browser's recently
+closed tabs"), and the tab is no longer the task's. A tab FERB opened closes with the bytes it always sent (no
+`owner_asked` on the wire). protocol::OWNER_CLOSE_EXTENSION_VERSION 0.19.15: an extension whose hello says older is
+never sent the close (refused, nothing sent: "the FERB extension in this profile is X; closing one of the owner's own
+tabs needs 0.19.15 or later, so tab tN is still open. Tell the owner: their browser updates the extension by itself, or
+they can update it on its extensions page"); one that answers as an older one (not_ferbs, or a kept tab let go of open)
+gets the same text ("says X but answered as an older version"), the borrowed tab still held. Extension 0.19.15
+(background.js `close`): with `owner_asked === true` a borrowed, kept or unrecorded tab goes through the same path as
+FERB's own (leaveChoice, held downloads failed, chrome.tabs.remove, a dialog nobody declared ending the command, stay
+keeping it open and held); after the removal its record and its kept-list entry go, reply `{closed: true, owner_tab:
+true}`. Without the field, today's refusal and kept-tab release, unchanged. Protocol 21 and the minimum 0.19.0 stay
+(optional field only, as HAND-445); protocol.js says so.
+
+**Agent rulings (not the owner's).** (1) The debugger is not detached before the removal: leave_page's answer and the
+dialog fact need the session, and the removal ends it, as for FERB's own tabs; "lets go of what it holds" is the held
+downloads, the record, the kept entry and the tab state. (2) A kept tab (FERB-opened, handed over) counts as his:
+owner_asked closes it too. (3) ferb_browser.close gets the field as well (forced by the identical schemas) and honours
+it the same way; FERB's own profile has no use_tab, so there it only reaches a tab this task kept. (4) The version is
+checked from the hello before sending, and the reply is checked too. (5) The tool's description ("or release a
+borrowed/kept tab without closing it") is unchanged: only the field's text is new model-facing text.
+
+**Evidence.** ferb-browser (cargo test, through ferb-test-guard): 24 binaries, 90 passed, 0 failed, 1 ignored; new tests/owner_close.rs (5:
+closed with owner_asked passed through and the plain result; default and false release as before; a FERB tab's close
+bytes unchanged; an older hello refused with nothing sent; an extension answering as an older one gets the update
+text, tab still held); extension_background.rs +4 under node (an unrecorded tab refused without, closed with; a
+borrowed, armed tab let go of and closed, no `detached` event; stay keeps it open and borrowed, the dialog dismissed
+once; a kept tab released without, closed and unkept with). The unrecorded-tab scenario run against HEAD's
+background.js answers not_ferbs (shown failing). extension_version.rs checks the manifest against 0.19.15.
+ferb-gateway: 19 binaries, 184 passed (catalog's the_deliberate_changes_are_the_only_ones names HAND-724 and checks
+the schema). ferbd catalog_mcp 2, every_tool_through_the_program 2, tools_context 7, fixed_part 1, chat_replay 10 (2
+ignored as before); ferb-supervisor prompts 5. clippy --tests -D warnings and fmt clean for ferb-browser and
+ferb-gateway.
+
+**Unverified.** No real browser: Chrome's tabs.remove on an owner tab the debugger isn't attached to whose page asks
+"Leave site?" (no session, so leave_page can't answer it; the command then waits out its 10 s, as for FERB's own
+unattached tabs). No real model has called the field. The extension 0.19.15 isn't published; LIVE checks not run.
+
+## 2026-11-27 · 279 · A front-door run that acted and then went quiet has ended; the owner's tabs close when he asks
+
+**RUN-484 (agent).** Live on Codex, "stop all tasks" made its two stops and ended with no text: the run was recorded
+as a missing answer (the turn itself worked: front_decide keeps accepted parts). The worker now counts a plain-mode
+run's accepted calls; an empty-answer error or an empty final after one is a normal end. Claude Code and the API loop
+skip RUN-446's follow-up after a plain-mode tool call (counted per run). Evidence: ferb-supervisor front_door's new
+test (an accepted stop then an empty end: no fallback, no failed span, the task cancelled), shown failing with the
+worker's branch removed; ferb-runtimes, ferb-worker and ferb-browser 175 passed. Unverified: no test scripts the
+Claude or API follow-up skip (their harnesses have no such case); read in the code only.
+
+**HAND-724 (owner), merging 278.** The coordinator added browser.close's and ferb_browser.close's description change
+(owner-approved: "Close a tab this task opened (…), or let go of a borrowed or kept tab without closing it; with
+owner_asked, close the owner's tab too.") as named differences in tool_changes.json; HAND-201 superseded. The result
+and refusal texts are as the owner approved. Extension 0.19.15 is the owner's to publish.

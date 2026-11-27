@@ -70,6 +70,34 @@
       "part": "input_schema",
       "old": "\"offset\": {\"default\": 0, \"description\": \"Node page offset",
       "new": "\"full\": {\"default\": false, \"description\": \"true lists every element, including plain text and groups the default leaves out\", \"title\": \"Full\", \"type\": \"boolean\"}, \"offset\": {\"default\": 0, \"description\": \"Node page offset"
+    },
+    {
+      "decision": "HAND-724",
+      "tool": "browser.close",
+      "part": "input_schema",
+      "old": "\"Tab id from open (e.g. t1)\", \"title\": \"Tab\", \"type\": \"string\"}, \"leave_page\": {",
+      "new": "\"Tab id from open (e.g. t1)\", \"title\": \"Tab\", \"type\": \"string\"}, \"owner_asked\": {\"default\": false, \"description\": \"true only when the owner's own words ask FERB to close this tab although FERB didn't open it (it's his); FERB never closes his tabs otherwise.\", \"title\": \"Owner Asked\", \"type\": \"boolean\"}, \"leave_page\": {"
+    },
+    {
+      "decision": "HAND-724",
+      "tool": "ferb_browser.close",
+      "part": "input_schema",
+      "old": "\"Tab id from open (e.g. t1)\", \"title\": \"Tab\", \"type\": \"string\"}, \"leave_page\": {",
+      "new": "\"Tab id from open (e.g. t1)\", \"title\": \"Tab\", \"type\": \"string\"}, \"owner_asked\": {\"default\": false, \"description\": \"true only when the owner's own words ask FERB to close this tab although FERB didn't open it (it's his); FERB never closes his tabs otherwise.\", \"title\": \"Owner Asked\", \"type\": \"boolean\"}, \"leave_page\": {"
+    },
+    {
+      "decision": "HAND-724",
+      "tool": "browser.close",
+      "part": "description",
+      "old": "Close a task-created tab (the owner's selected browser profile), or release a borrowed/kept tab without closing it.",
+      "new": "Close a tab this task opened (the owner's selected browser profile), or let go of a borrowed or kept tab without closing it; with owner_asked, close the owner's tab too."
+    },
+    {
+      "decision": "HAND-724",
+      "tool": "ferb_browser.close",
+      "part": "description",
+      "old": "Close a task-created tab (FERB's own browser), or release a borrowed/kept tab without closing it.",
+      "new": "Close a tab this task opened (FERB's own browser), or let go of a borrowed or kept tab without closing it; with owner_asked, close the owner's tab too."
     }
   ]
 }

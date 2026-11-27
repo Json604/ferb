@@ -1268,6 +1268,9 @@ impl Worker {
         };
         let mut streamed = String::new();
         let mut ended = false;
+        // RUN-484: a plain-mode run's calls the gateway accepted (an end with no text after them is a normal end)
+        let plain_run = no_schema(output_schema.as_ref());
+        let mut accepted_calls: u64 = 0;
         let body = async {
             if let Some(t) = tree {
                 if !t.stop().is_empty() {
@@ -1358,6 +1361,9 @@ impl Worker {
                         // ORCH-733: an accepted call of `ends_on` is the answer: the stream is read no further. A
                         // call the gateway refused (`error: true`) goes back to the model as its tool's error.
                         let accepted = phase == Some("completed") && data.get("error") == Some(&Value::Bool(false));
+                        if accepted {
+                            accepted_calls += 1;
+                        }
                         if let Some(called) = data.get("name").and_then(Value::as_str) {
                             if accepted && ends_on.iter().any(|n| n == called) {
                                 let arguments = data.get("arguments").cloned().unwrap_or(Value::Null);
@@ -1452,6 +1458,14 @@ impl Worker {
                         let mut e = ServiceError::new(get_str(data, "message", None), &name, false, "");
                         e.kind = ServiceKind::Image;
                         return Err(Error::Service(e));
+                    }
+                    // decision: RUN-484 — a plain-mode run that acted through accepted calls and then ended with no text
+                        // has given its answer (the calls): a normal end with the text it streamed, never a missing answer
+                    RuntimeEventKind::Error if truthy(data, "empty") && plain_run && accepted_calls > 0 => {
+                        final_text = streamed.clone();
+                        ended = true;
+                        host.runtime_account(&name, "");
+                        break;
                     }
                     RuntimeEventKind::Error if truthy(data, "empty") => {
                         // no answer twice, as marked (RUN-446)
@@ -1621,8 +1635,12 @@ impl Worker {
             }
             return Err(Error::Stalled { progressed });
         }
-        if final_text.is_empty() {
+        // RUN-484: a plain-mode run whose answer was its accepted calls ends with no text
+        if final_text.is_empty() && !(plain_run && accepted_calls > 0) {
             return Err(Error::value("runtime finished without an answer"));
+        }
+        if final_text.is_empty() {
+            return Ok(final_text);
         }
         match check_final(&final_text, output_schema.as_ref()) {
             Ok(text) => Ok(text),

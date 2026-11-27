@@ -624,6 +624,9 @@ pub mod args {
         pub tab: String,
         #[serde(default)]
         pub leave_page: Option<String>,
+        /// HAND-724: the worker's declaration that the owner's own words ask to close this tab of his.
+        #[serde(default)]
+        pub owner_asked: bool,
     }
     #[derive(Deserialize, Debug, Clone)]
     pub struct Scroll {
@@ -1875,10 +1878,14 @@ impl Tools {
                 let a: args::Close = parse(args)?;
                 let tab = self.owned(&a.tab, ctx)?;
                 let leave = a.leave_page.as_deref().filter(|l| !l.is_empty());
-                if d.closes(&tab) {
+                // HAND-724: the worker's declaration, never code's judgment (rule 4)
+                if d.closes_for(&tab, a.owner_asked) {
                     self.leave_unsaid(&tab, leave, "closes")?;
                 }
-                Ok(result(d.close(&tab, leave).await?, vec![]))
+                Ok(result(
+                    d.close_for(&tab, leave, a.owner_asked).await?,
+                    vec![],
+                ))
             }
             "keep_open" => {
                 let a: args::Tab = parse(args)?;

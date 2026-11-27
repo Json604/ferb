@@ -295,7 +295,7 @@ impl BrowserApps for Apps {
     }
 }
 
-// decisions: HAND-218, HAND-201, HAND-406, HAND-223, HAND-435, HAND-441
+// decisions: HAND-218, HAND-724, HAND-406, HAND-223, HAND-435, HAND-441
 #[test]
 fn text_rules_match_python() {
     let f = fixture("protocol.json");

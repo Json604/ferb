@@ -37,6 +37,8 @@ use serde_json::{json, Map, Value};
 
 use crate::bridge::{Adopted, Bridge, Hub, TabDriver, TaskTab};
 use crate::error::{Error, Result};
+use crate::ops::version_at_least;
+use crate::protocol::OWNER_CLOSE_EXTENSION_VERSION;
 use crate::rules;
 use crate::seal::{self, SealError, Sealed};
 use crate::snapshot;
@@ -238,6 +240,28 @@ pub enum Kind {
         profile: Arc<dyn Fn() -> Option<(String, String)> + Send + Sync>,
         secrets: Arc<dyn Secrets>,
     },
+}
+
+/// HAND-724: what a close of one of the owner's own tabs says when it closed it.
+pub const OWNER_TAB_CLOSED: &str =
+    "this was the owner's own tab (FERB didn't open it); it is closed, as his words asked, \
+     and he can reopen it from the browser's recently closed tabs";
+
+/// HAND-724: an extension older than [`OWNER_CLOSE_EXTENSION_VERSION`] keeps refusing to close the owner's tabs.
+fn owner_close_needs_update(running: &str, tab_id: &str) -> Error {
+    let is = if version_at_least(running, OWNER_CLOSE_EXTENSION_VERSION) {
+        // its hello said a newer version, but it answered as an older one does
+        format!("says {running} but answered as an older version")
+    } else if running.is_empty() {
+        "an older version".to_string()
+    } else {
+        format!("is {running}")
+    };
+    Error::refused(format!(
+        "the FERB extension in this profile {is}; closing one of the owner's own tabs needs \
+         {OWNER_CLOSE_EXTENSION_VERSION} or later, so tab {tab_id} is still open. Tell the owner: their browser updates \
+         the extension by itself, or they can update it on its extensions page"
+    ))
 }
 
 /// One task tab (`_Tab`).
@@ -1271,8 +1295,14 @@ impl Driver {
 
     /// `closes`: whether `close` would close this tab rather than only let go of it.
     pub fn closes(&self, tab: &TabRef) -> bool {
+        self.closes_for(tab, false)
+    }
+
+    /// Whether `close` would close the tab: one FERB opened, or (HAND-724) any tab of the task's when the worker says
+    /// the owner's words ask for it.
+    pub fn closes_for(&self, tab: &TabRef, owner_asked: bool) -> bool {
         self.tab(&tab.tab_id)
-            .is_some_and(|t| !t.attached && !t.keep_open && !t.closed)
+            .is_some_and(|t| !t.closed && (owner_asked || (!t.attached && !t.keep_open)))
     }
 
     /// HAND-649: what making FERB's window for this tab's open took, once (`None` when it was plain, or told).
@@ -1445,6 +1475,17 @@ impl Driver {
         tab: &TabRef,
         leave_page: Option<&str>,
     ) -> Result<Map<String, Value>> {
+        self.close_for(tab, leave_page, false).await
+    }
+
+    /// `close` with the worker's `owner_asked` (HAND-724): true closes a borrowed or kept tab too, the owner's own,
+    /// because his words asked; false lets go of it as before. Code never decides it (rule 4).
+    pub async fn close_for(
+        &self,
+        tab: &TabRef,
+        leave_page: Option<&str>,
+        owner_asked: bool,
+    ) -> Result<Map<String, Value>> {
         let Some(t) = self.tab(&tab.tab_id) else {
             let mut m = Map::new();
             m.insert("tab".into(), tab.tab_id.clone().into());
@@ -1461,7 +1502,7 @@ impl Driver {
                 tab.tab_id,
                 t.bridge.name()
             )));
-        } else if t.attached || t.keep_open {
+        } else if (t.attached || t.keep_open) && !owner_asked {
             let v = t
                 .bridge
                 .call(
@@ -1486,16 +1527,40 @@ impl Driver {
                     tab.tab_id
                 )));
             }
+            // HAND-724: one of the owner's own tabs (borrowed, or kept for him), closed because his words asked
+            let owners = t.attached || t.keep_open;
+            if owners && !version_at_least(&t.bridge.version(), OWNER_CLOSE_EXTENSION_VERSION) {
+                return Err(owner_close_needs_update(&t.bridge.version(), &tab.tab_id));
+            }
             self.update(&tab.tab_id, |x| x.closing = true);
             let mut args = json!({"tab_id": t.chrome_id});
             if let Some(l) = leave_page.filter(|l| !l.is_empty()) {
                 args["leave_page"] = l.into();
+            }
+            if owners {
+                args["owner_asked"] = true.into();
             }
             let v = match t.bridge.call("close", args, 10.0, None).await {
                 Ok(v) => v,
                 Err(e) => return Err(e),
             };
             let reason = v.get("reason").and_then(Value::as_str);
+            let truthy = |k: &str| v.get(k).is_some_and(ferb_py::value::truthy);
+            if owners && !matches!(reason, Some("dialog_pending" | "stayed")) && !truthy("closed") {
+                self.update(&tab.tab_id, |x| x.closing = false);
+                // an extension that doesn't know owner_asked refuses (not_ferbs: still held) or lets go of a kept
+                // tab, open (then it is no longer the task's)
+                if reason == Some("not_ferbs") || truthy("kept_open") {
+                    if truthy("released") && reason != Some("not_ferbs") {
+                        self.forget_tab(&tab.tab_id);
+                    }
+                    return Err(owner_close_needs_update(&t.bridge.version(), &tab.tab_id));
+                }
+                return Err(Error::driver(format!(
+                    "browser did not confirm closing {}",
+                    tab.tab_id
+                )));
+            }
             if matches!(reason, Some("dialog_pending" | "stayed")) {
                 self.update(&tab.tab_id, |x| x.closing = false);
                 let detail = text(&v, "detail");
@@ -1524,18 +1589,30 @@ impl Driver {
                 v
             }
         };
-        if let Some(n) = alias_number(&tab.tab_id) {
-            if let Some(mut gone) = self.st().tabs.remove(&n) {
-                self.unhold(&mut gone);
-            }
-        }
-        if v.get("closed").is_some_and(ferb_py::value::truthy) {
+        self.forget_tab(&tab.tab_id);
+        let closed = v.get("closed").is_some_and(ferb_py::value::truthy);
+        if closed {
             if let Some(uploads) = self.seams().uploads {
                 // rule 17: its upload copies go with its tree
                 uploads.closed(&crate::upload::tab_key(&t.bridge.name(), t.chrome_id));
             }
         }
-        Ok(Self::lifecycle(&t, &v))
+        let mut out = Self::lifecycle(&t, &v);
+        if closed && owner_asked && (t.attached || t.keep_open) {
+            // HAND-724: said plainly, so the worker's reply to the owner can say it
+            out.insert("owner_tab_closed".into(), true.into());
+            out.insert("detail".into(), OWNER_TAB_CLOSED.into());
+        }
+        Ok(out)
+    }
+
+    /// The tab is no longer the task's: forgotten, and what FERB held for it let go.
+    fn forget_tab(&self, tab_id: &str) {
+        if let Some(n) = alias_number(tab_id) {
+            if let Some(mut gone) = self.st().tabs.remove(&n) {
+                self.unhold(&mut gone);
+            }
+        }
     }
 
     /// `release`: the task's end (HAND-201). Each tab retried once; one that still can't be let go

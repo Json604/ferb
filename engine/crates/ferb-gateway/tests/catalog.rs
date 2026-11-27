@@ -339,6 +339,7 @@ fn descriptions_that_read_live_facts_are_composed_as_python_does() {
 // decision: MEM-441
 // decision: HAND-676
 // decision: HAND-681
+// decision: HAND-724
 #[test]
 fn the_deliberate_changes_are_the_only_ones() {
     let raw = catalog::catalog().raw();
@@ -358,6 +359,10 @@ fn the_deliberate_changes_are_the_only_ones() {
             ("HAND-676", "mac.snapshot", "description"),
             ("HAND-681", "mac.snapshot", "description"),
             ("HAND-681", "mac.snapshot", "input_schema"),
+            ("HAND-724", "browser.close", "input_schema"),
+            ("HAND-724", "ferb_browser.close", "input_schema"),
+            ("HAND-724", "browser.close", "description"),
+            ("HAND-724", "ferb_browser.close", "description"),
         ]
     );
     for c in c.iter().filter(|c| c.part != "validation") {
@@ -384,6 +389,18 @@ fn the_deliberate_changes_are_the_only_ones() {
         if c.part == "description" {
             assert_eq!(catalog::revert_changes(&now), recorded);
         }
+    }
+    // HAND-724: browser.close takes the worker's owner_asked, false unless said
+    for tool in ["browser.close", "ferb_browser.close"] {
+        let e = catalog::catalog().entry(tool).unwrap();
+        assert_eq!(
+            e.schema["properties"]["owner_asked"],
+            serde_json::json!({"default": false, "description": "true only when the owner's own words ask FERB to close \
+                this tab although FERB didn't open it (it's his); FERB never closes his tabs otherwise.",
+                "title": "Owner Asked", "type": "boolean"}),
+            "{tool}"
+        );
+        assert_eq!(e.schema["required"], serde_json::json!(["tab"]), "{tool}");
     }
     // mac.act names its element actions: menu and perform with name
     let e = catalog::catalog().entry("mac.act").unwrap();

@@ -462,3 +462,120 @@ fn ferbs_window_the_browser_restored_is_found_by_its_placeholder_and_reused() {
     assert_eq!(out["ferb"], 7);
     assert_eq!(out["window_made"], Value::Null);
 }
+
+/// HAND-724 (extension 0.19.15): `close` with `owner_asked` closes one of the owner's own tabs (borrowed, kept or not
+/// recorded at all), the worker having said his words ask for it; without it the old refusal, unchanged. Leaving the
+/// page and its dialogs go as for FERB's own tabs (HAND-446..448). `state(id)` is what the extension still holds for
+/// the tab.
+const OWNER_TAB: &str = r#"
+  const state = async (id) => ({open: fake.tabs.has(id), record: (await records()).tabs[id] ?? null,
+                                held: TABS.has(id), kept: (await keptTabs()).includes(id)});
+"#;
+
+fn owner_tab(scenario: &str) -> Option<Value> {
+    worker(&format!("{OWNER_TAB}\n{scenario}"))
+}
+
+// decision: HAND-724
+#[test]
+fn the_owners_unrecorded_tab_closes_only_when_his_words_asked() {
+    let Some(out) = owner_tab(
+        r#"
+        const refused = (await command("close", {tab_id: 30})).value;
+        const after = await state(30);
+        const closed = (await command("close", {tab_id: 30, owner_asked: true})).value;
+        return {refused, after, closed, now: await state(30)};
+    "#,
+    ) else {
+        return;
+    };
+    assert_eq!(out["refused"]["reason"], "not_ferbs", "{out}");
+    assert_eq!(out["refused"]["closed"], false);
+    assert_eq!(out["after"]["open"], true);
+    assert_eq!(out["closed"], json!({"closed": true, "owner_tab": true}));
+    assert_eq!(out["now"]["open"], false);
+}
+
+// decision: HAND-724
+#[test]
+fn a_borrowed_tab_ferb_drives_is_let_go_of_and_closed() {
+    let Some(out) = owner_tab(
+        r#"
+        await command("adopt_tab", {tab_id: 30, task: "task-a", root: "task-a", borrowed: true});
+        await arm(30);
+        const before = await state(30);
+        const refused = (await command("close", {tab_id: 30})).value;
+        const closed = (await command("close", {tab_id: 30, owner_asked: true, leave_page: "leave"})).value;
+        return {before, refused, closed, now: await state(30),
+                detached: sent.filter(([t, b]) => t === "event" && b.event === "detached").length};
+    "#,
+    ) else {
+        return;
+    };
+    assert_eq!(out["before"]["held"], true, "{out}");
+    assert_eq!(out["before"]["record"]["borrowed"], true);
+    assert_eq!(out["refused"]["reason"], "not_ferbs");
+    assert_eq!(out["closed"], json!({"closed": true, "owner_tab": true}));
+    assert_eq!(
+        out["now"],
+        json!({"open": false, "record": null, "held": false, "kept": false})
+    );
+    assert_eq!(
+        out["detached"], 0,
+        "FERB's own close is never reported as a lost session"
+    );
+}
+
+// decision: HAND-724
+// decision: HAND-446
+#[test]
+fn his_tab_whose_page_asks_stays_open_when_the_worker_said_stay() {
+    let Some(out) = owner_tab(
+        r#"
+        await command("adopt_tab", {tab_id: 30, task: "task-a", root: "task-a", borrowed: true});
+        await arm(30);
+        chrome.tabs.remove = () => new Promise(() => {});     // the page's "Leave site?" holds the close
+        const done = onCommand({gen: 1, id: "s1", op: "close", args: {tab_id: 30, owner_asked: true, leave_page: "stay"},
+                                timeout_ms: 30000});
+        await settle();
+        chrome.debugger.onEvent.fire({tabId: 30}, "Page.javascriptDialogOpening", {type: "beforeunload", message: ""});
+        await settle();
+        await done;
+        const reply = sent.find(([t, b]) => t === "result" && b.id === "s1")[1].value;
+        return {reply, now: await state(30),
+                answered: fake.cdp.filter(([id, m]) => id === 30 && m === "Page.handleJavaScriptDialog").length};
+    "#,
+    ) else {
+        return;
+    };
+    assert_eq!(out["reply"]["reason"], "stayed", "{out}");
+    assert_eq!(out["reply"]["closed"], false);
+    assert_eq!(out["answered"], 1, "dismissed by the debugger at once");
+    assert_eq!(out["now"]["open"], true);
+    assert_eq!(
+        out["now"]["record"]["borrowed"], true,
+        "still the task's, held as before"
+    );
+}
+
+// decision: HAND-724
+#[test]
+fn a_kept_tab_is_closed_and_no_longer_kept_when_his_words_asked() {
+    let Some(out) = owner_tab(
+        r#"
+        await rememberKeptTab(30);
+        const released = (await command("close", {tab_id: 30})).value;
+        const after = await state(30);
+        const closed = (await command("close", {tab_id: 30, owner_asked: true})).value;
+        return {released, after, closed, now: await state(30)};
+    "#,
+    ) else {
+        return;
+    };
+    assert_eq!(out["released"]["closed"], false, "{out}");
+    assert_eq!(out["released"]["kept_open"], true);
+    assert_eq!(out["after"]["open"], true);
+    assert_eq!(out["closed"], json!({"closed": true, "owner_tab": true}));
+    assert_eq!(out["now"]["open"], false);
+    assert_eq!(out["now"]["kept"], false);
+}

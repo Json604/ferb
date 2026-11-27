@@ -1151,3 +1151,68 @@ fn a_hand_offs_kind_and_simple_fields_are_checked_by_name() {
         .task
         .is_none());
 }
+
+// decision: RUN-484 (live 2026-11-27 on Codex: "stop all tasks" made its stops, then the run ended with no text and was
+// recorded as a missing answer)
+#[test]
+fn a_front_door_run_that_ends_silently_after_an_accepted_call_ends_normally() {
+    let calls: Vec<Value> = support_control::scenario("stop_by_chat").1["model_calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["key"] == "supervisor")
+        .cloned()
+        .collect();
+    let scripts: Vec<Value> = calls
+        .iter()
+        .map(|c| {
+            let answer = recorded_answer(c);
+            if answer["control"].is_object() {
+                let (conv, _) = convert(&answer);
+                let mut stop = conv
+                    .iter()
+                    .find(|(n, _)| n == "chat.control_task")
+                    .unwrap()
+                    .1
+                    .clone();
+                stop["control"]["task_id"] = json!("@TREE@");
+                json!([
+                    {"kind": "front_call", "name": "chat.control_task", "arguments": stop},
+                    {"kind": "error", "data": {"message": "INVENTED runtime ended with no answer", "empty": true}}
+                ])
+            } else {
+                let (conv, text) = convert(&answer);
+                script(&conv, &text)
+            }
+        })
+        .collect();
+    let (w, _) = run("stop_by_chat", true, Some(scripts));
+    let got: Vec<_> = results(&w)
+        .into_iter()
+        .filter(|(n, _)| n == "chat.control_task")
+        .collect();
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert!(got[0].1.is_ok(), "{got:?}");
+    assert!(
+        journal(&w, "front_door.fallback").is_empty(),
+        "no fallback to the planner"
+    );
+    assert!(
+        journal(&w, "chat.failed").is_empty(),
+        "the turn didn't fail"
+    );
+    // the run is recorded as ended, not as a missing answer
+    let errors = rows(
+        &w,
+        "SELECT COALESCE(error, '') FROM spans WHERE kind = 'model.turn' AND input_json LIKE '%\"front_door\": true%'",
+    );
+    assert!(
+        errors.iter().all(|r| r[0] == json!("")),
+        "no front-door run recorded as failed: {errors:?}"
+    );
+    let stopped = rows(&w, "SELECT status FROM tasks WHERE parent_id IS NULL");
+    assert!(
+        stopped.iter().any(|r| r[0] == json!("cancelled")),
+        "the stop took effect: {stopped:?}"
+    );
+}

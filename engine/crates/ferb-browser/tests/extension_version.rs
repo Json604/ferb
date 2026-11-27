@@ -47,6 +47,10 @@ fn the_extension_in_the_repo_is_one_this_ferb_accepts() {
             protocol::UPLOAD_BYTES_EXTENSION_VERSION,
         ),
         ("INPUT_EXTENSION_VERSION", protocol::INPUT_EXTENSION_VERSION),
+        (
+            "OWNER_CLOSE_EXTENSION_VERSION",
+            protocol::OWNER_CLOSE_EXTENSION_VERSION,
+        ),
     ] {
         assert!(
             at_least(version, minimum),

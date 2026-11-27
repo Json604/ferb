@@ -2452,19 +2452,24 @@ const commands = {
     return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "",
              ...(status ? { http_status: status } : {}) };
   },
-  async close({ tab_id, leave_page }) {
-    if ((await keptTabs()).includes(tab_id)) {
+  async close({ tab_id, leave_page, owner_asked }) {
+    // HAND-724 (0.19.15): `owner_asked` is the worker's declaration that the owner's own words ask FERB to close this
+    // tab of his (borrowed, kept or unrecorded); code never decides it. Without it nothing here changed.
+    const asked = owner_asked === true;
+    if (!asked && (await keptTabs()).includes(tab_id)) {
       const released = await commands.release_tab({tab_id, keep_open:true});
       return {...released, closed:false};
     }
-    // FERB never closes a tab it didn't open (HAND-201): only one its records hold as opened by FERB.
+    // FERB never closes a tab it didn't open on its own (HAND-201): only one its records hold as opened by FERB, or
+    // the owner's own when his words asked (HAND-724)
     const rec = (await records()).tabs[tab_id];
-    if (!rec || rec.borrowed) {
+    const ferbs = !!rec && !rec.borrowed;
+    if (!ferbs) {
       let open = true;
       try { await chrome.tabs.get(tab_id); } catch (_) { open = false; }
-      if (open) return { closed: false, released: false, reason: "not_ferbs",
-                         detail: "FERB closes only tabs it opened; this one isn't recorded as FERB's, so it stays open" };
-      return { closed: true, gone: true };                  // nothing left to close
+      if (open && !asked) return { closed: false, released: false, reason: "not_ferbs",
+                                   detail: "FERB closes only tabs it opened; this one isn't recorded as FERB's, so it stays open" };
+      if (!open) return { closed: true, gone: true };       // nothing left to close
     }
     const st = TABS.get(tab_id);
     if (st) st.leaving = true;
@@ -2483,8 +2488,12 @@ const commands = {
     } finally { choice.done(); }
     TABS.delete(tab_id); // Closing the tab destroys its debugger target; onRemoved may arrive later.
     await mutateRecords(r => { delete r.tabs[tab_id]; });
-    await settleGroup(rec.group);
-    return { closed: true };
+    if (ferbs) { await settleGroup(rec.group); return { closed: true }; }
+    await serially(async () => {                          // a kept tab of his: no longer kept either
+      const ids = await keptTabs();
+      if (ids.includes(tab_id)) await chrome.storage.local.set({ferbKeptTabs: ids.filter(id => id !== tab_id)});
+    });
+    return { closed: true, owner_tab: true };
   },
   // L31 (0.15.10; owner, 2026-10-25: "give them back between rounds"): a held tab resting between a loop's rounds
   // keeps only what keeps its page running (the debugger, focus emulation); its file chooser is the owner's again, in

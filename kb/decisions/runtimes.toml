@@ -779,3 +779,12 @@ superseded_by = "ORCH-744"
 rule = "For RUN-482. When the keeper makes a Claude Code program ahead, its token file holds a listing grant's token (list_only: the front door's tools under its scopes, lapsing after the longest a program waits) until its message's own token replaces it. The gateway refuses every call made with a list_only grant. Codex starts its tool bridge per thread, after the message's token is written, and needs none."
 why = "Live 2026-11-27: a Claude program made ahead with a blank token file came up with no tools; the model wrote a tool call as text and it reached the owner as the reply."
 paths = ["engine/crates/ferb-gateway/src/admit.rs", "engine/crates/ferbd/src/compose/runtimes.rs"]
+
+[RUN-484]
+title = "A front-door run that acted through accepted calls and then ended with no text has ended normally"
+by = "agent"
+date = 2026-11-27
+status = "active"
+rule = "For ORCH-735, refining RUN-446 for plain mode only. In a run with no answer form, after one or more tool calls the gateway accepted, an end with no final text is a normal end (the worker returns the streamed text, maybe empty); Claude Code and the API loop send no follow-up after a plain-mode tool call. With no accepted call, RUN-446 and the empty-answer failure stand. Answer-form runs are unchanged."
+why = "Live 2026-11-27 on Codex: \"stop all tasks\" made its stops and ended with no text; the run was recorded as a missing answer, and on Claude and the API loop the follow-up would cost a request."
+paths = ["engine/crates/ferb-worker/src/worker.rs", "engine/crates/ferb-runtimes/src/claude/mod.rs", "engine/crates/ferb-runtimes/src/api/mod.rs"]

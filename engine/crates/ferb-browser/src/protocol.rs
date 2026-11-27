@@ -31,6 +31,8 @@ pub const OWNER_VIEW_EXTENSION_VERSION: &str = "0.19.8";
 pub const UPLOAD_BYTES_EXTENSION_VERSION: &str = "0.19.9";
 /// HAND-505..: paste, sideways and screen-sized scrolls, click modifiers.
 pub const INPUT_EXTENSION_VERSION: &str = "0.19.10";
+/// HAND-724: `close` with `owner_asked` closes one of the owner's own tabs.
+pub const OWNER_CLOSE_EXTENSION_VERSION: &str = "0.19.15";
 /// Raw bytes per `upload_part` (protocol.js UPLOAD_PART): one native message.
 pub const UPLOAD_PART: usize = 256 * 1024;
 
