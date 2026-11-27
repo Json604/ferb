@@ -2837,3 +2837,12 @@ rule = "For ORCH-747 and ORCH-743. The planning lines are \"Planning steps…\",
 why = "Live 2026-11-27 (request 05dab964): the planner quoted the front door's first-person goal as the owner's words, code refused the parts twice and the task never started."
 paths = ["engine/crates/ferb-supervisor/src/words.rs"]
 untestable = "Model-facing and owner-facing wording (TEST-500); the planning line's frames are tested under ORCH-747."
+
+[ORCH-749]
+title = "A simple hand-off's task is written by code from the Concierge's flat fields; no planner call"
+by = "agent"
+date = 2026-11-27
+status = "active"
+rule = "For ORCH-726 step 7. chat.dispatch_task complexity simple: code writes the TaskSpec from goal, quote, name, done_when, identity (owner or ferb, required), profiles, folders, earlier_results and targets (sites, apps, paths, recipients): worker_type default, one part {p1, quote, label name, answer_step worker}, one condition {done_when, check none, layer outcome}, no plan; today's problems() checks it in the call. Complex: the planner writes it (ORCH-743, ORCH-747)."
+why = "A planner call took 11-28 s live for tasks one worker does in one go; the Concierge already decides what the task is."
+paths = ["engine/crates/ferb-supervisor/src/flow/turn/front_door.rs"]

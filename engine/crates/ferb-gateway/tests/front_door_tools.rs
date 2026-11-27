@@ -1,6 +1,7 @@
 //! The front door's six tools (kb/plans/front-door.md, step 5; ORCH-736): five take the matching part of the planner's
 //! answer form (`ferb_context::schemas::supervisor_schema()`), field for field, so every check of a call stays
-//! today's; the hand-off (ORCH-743) takes only its ack and goal, and the planner writes the task. The rows in
+//! today's; the hand-off (ORCH-743, ORCH-749) takes its ack, goal and kind, and for a simple one the few fields code
+//! writes its task from (a complex one's task the planner writes). The rows in
 //! `catalog_additions.json` are written by hand; this derives each of the five's schema from the answer form as it is
 //! now and compares the bytes, so the two can never drift apart, and compares the hand-off's with its own. And they
 //! are offered and admitted only to a grant that names them (the front door's), never to a worker, the checker or the
@@ -95,18 +96,32 @@ fn derived(fields: &[&str], required: &[&str]) -> Value {
     Value::Object(schema)
 }
 
-/// The hand-off's `Input` schema (ORCH-743): the line the owner reads and the goal, nothing of the task form, then
-/// the `why` the gateway adds to every tool.
+/// The hand-off's `Input` schema: the line the owner reads, the goal and which kind it is (ORCH-743, ORCH-749); for a
+/// simple one the few flat fields code writes its task from (the supervisor's `part_of` requires quote, name and
+/// done_when when it is simple), nothing of the task form; then the `why` the gateway adds to every tool.
 fn dispatch_schema() -> Value {
+    let strings = json!({"type": "array", "items": {"type": "string"}});
     json!({
         "additionalProperties": false,
         "properties": {
             "ack": {"type": "string"},
             "goal": {"type": "string"},
+            "complexity": {"enum": ["simple", "complex"], "type": "string"},
             "answers_question": {"type": "boolean", "default": false},
+            "quote": {"type": "string", "default": ""},
+            "name": {"type": "string", "default": ""},
+            "done_when": {"type": "string", "default": ""},
+            "identity": {"enum": ["owner", "ferb"], "type": "string"},
+            "profiles": strings,
+            "folders": strings,
+            "sites": strings,
+            "apps": strings,
+            "paths": strings,
+            "recipients": strings,
+            "earlier_results": strings,
             "why": catalog::why_property(),
         },
-        "required": ["ack", "goal"],
+        "required": ["ack", "goal", "complexity"],
         "title": "Input",
         "type": "object",
     })
@@ -256,9 +271,10 @@ fn the_front_tools_are_offered_and_admitted_only_to_the_front_door() {
         .any(|n| n.starts_with("chat.") && n != "chat.history"));
 }
 
-/// The gateway's argument model takes a hand-off (ORCH-743: its ack and goal) and gives the same values back;
-/// `answers_question` left out is false in what the tool is handed, and the old task form is refused.
-// decision: ORCH-736, ORCH-743
+/// The gateway's argument model takes a hand-off (ORCH-743: its ack, goal and kind; ORCH-749: a simple one's fields)
+/// and gives the same values back; what is left out is filled as the supervisor reads it (`answers_question` false,
+/// a simple field "", a list []), and the old task form is refused.
+// decision: ORCH-736, ORCH-743, ORCH-749
 #[test]
 fn a_hand_off_passes_the_argument_model_unchanged() {
     let r = {
@@ -268,23 +284,46 @@ fn a_hand_off_passes_the_argument_model_unchanged() {
     };
     let tool = r.get("chat.dispatch_task").unwrap();
     let goal = "Write hello into a.txt in my Documents folder";
-    let args = json!({"ack": "On it.", "goal": goal});
+    let args = json!({"ack": "On it.", "goal": goal, "complexity": "complex"});
     let checked = ferb_gateway::args::check(tool.as_ref(), args.as_object().unwrap());
     match checked {
         Ok(c) => {
             assert_eq!(c.args["ack"], json!("On it."));
             assert_eq!(c.args["goal"], json!(goal));
+            assert_eq!(c.args["complexity"], json!("complex"));
             assert_eq!(c.args["answers_question"], json!(false));
+            assert_eq!(c.args["quote"], json!(""));
+            assert_eq!(c.args["folders"], json!([]));
+        }
+        Err(e) => panic!("refused: {e:?}"),
+    }
+    let simple = json!({"ack": "On it.", "goal": goal, "complexity": "simple",
+                        "quote": "write hello into a.txt", "name": "Hello file",
+                        "done_when": "a.txt in Documents holds hello", "folders": ["~/Documents"],
+                        "identity": "owner",
+                        "profiles": [], "earlier_results": ["c2"]});
+    match ferb_gateway::args::check(tool.as_ref(), simple.as_object().unwrap()) {
+        Ok(c) => {
+            for (k, v) in simple.as_object().unwrap() {
+                assert_eq!(&c.args[k], v, "{k}");
+            }
         }
         Err(e) => panic!("refused: {e:?}"),
     }
     let check =
         |v: Value| ferb_gateway::args::check(tool.as_ref(), v.as_object().unwrap()).is_err();
-    // a missing ack or goal is the argument model's own error
-    assert!(check(json!({"goal": goal})));
-    assert!(check(json!({"ack": "On it."})));
+    // a missing ack, goal or complexity is the argument model's own error, and so is a kind that is neither
+    assert!(check(json!({"goal": goal, "complexity": "complex"})));
+    assert!(check(json!({"ack": "On it.", "complexity": "complex"})));
+    assert!(check(json!({"ack": "On it.", "goal": goal})));
+    assert!(check(
+        json!({"ack": "On it.", "goal": goal, "complexity": "medium"})
+    ));
+    assert!(check(
+        json!({"ack": "On it.", "goal": goal, "complexity": "simple", "folders": "~/Documents"})
+    ));
     // the task form is no longer the hand-off's
     assert!(check(
-        json!({"ack": "On it.", "goal": goal, "task": {"goal": goal}})
+        json!({"ack": "On it.", "goal": goal, "complexity": "complex", "task": {"goal": goal}})
     ));
 }

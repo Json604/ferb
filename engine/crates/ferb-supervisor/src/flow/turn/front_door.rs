@@ -10,6 +10,10 @@
 //! `problems` once more, and `decide` returns it: routing, side entries, the task's start and the reply are today's
 //! code, in today's one apply path at the turn's end.
 //!
+//! A hand-off says which kind it is (step 7, ORCH-749): a simple one (one worker in one go) carries the few fields
+//! code writes its task from, checked by the same `problems` as the planner's task, and starts at once with no planner
+//! call; a complex one carries its goal and the planner writes its task (ORCH-743).
+//!
 //! decision: ORCH-735, ORCH-736, ORCH-737
 
 use std::sync::{Arc, Mutex};
@@ -49,7 +53,8 @@ pub struct FrontRun {
     pub parts: Vec<(String, SupervisorOutcome)>,
     /// Where the checks' live line goes (`problems`' walk of a plan's folders).
     pub emit: Emit,
-    /// ORCH-743: the accepted hand-off's goal, which the planner then writes as its task.
+    /// ORCH-743: the accepted complex hand-off's goal, which the planner then writes as its task (None for a simple
+    /// one, whose task code wrote, ORCH-749).
     pub handoff: Option<String>,
     /// ORCH-742: the tasks a message stops beyond its first control (every control of it a stop), stopped as the
     /// app's Stop does when the run ends.
@@ -60,7 +65,23 @@ pub struct FrontRun {
 /// `question` its `text` for a question).
 pub fn arguments_of(tool: &str) -> Option<&'static [&'static str]> {
     Some(match tool {
-        DISPATCH => &["ack", "goal", "answers_question"],
+        DISPATCH => &[
+            "ack",
+            "goal",
+            "complexity",
+            "answers_question",
+            "quote",
+            "name",
+            "done_when",
+            "identity",
+            "profiles",
+            "folders",
+            "sites",
+            "apps",
+            "paths",
+            "recipients",
+            "earlier_results",
+        ],
         CONTROL => &[
             "control",
             "answer_question",
@@ -81,9 +102,12 @@ pub fn arguments_of(tool: &str) -> Option<&'static [&'static str]> {
 }
 
 /// A call's arguments as the matching part of today's answer form, validated as the form is (the same model, the same
-/// field names, types and errors): kind `task` with the ack as its text for a hand-off, `clarify` with the question as
-/// its text for a question, else `reply` with no text. An argument the tool doesn't take, a missing ack or question,
-/// or a call that carries nothing is refused. `answers_question` is false unless the call says true.
+/// field names, types and errors): kind `task` with the ack as its text for a hand-off (a simple one with the task code
+/// writes from its fields, ORCH-749; a complex one with none, the planner writing it, ORCH-743), `clarify` with the
+/// question as its text for a question, else `reply` with no text. An argument the tool doesn't take, a missing ack or
+/// question, a hand-off's complexity that is neither simple nor complex, a simple one missing its quote, name or
+/// done_when, or a call that carries nothing is refused. A complex hand-off's simple fields are ignored.
+/// `answers_question` is false unless the call says true.
 pub fn part_of(tool: &str, arguments: &Value) -> Result<SupervisorOutcome, String> {
     let Some(takes) = arguments_of(tool) else {
         return Err(format!(
@@ -115,12 +139,26 @@ pub fn part_of(tool: &str, arguments: &Value) -> Result<SupervisorOutcome, Strin
         }
     };
     let mut form = Map::new();
+    let mut simple = None;
     let (kind, text) = match tool {
-        // ORCH-743: the form's own check wants a task for kind "task"; the hand-off has none yet (the planner writes
-        // it), so its part is checked as a reply and marked a hand-off after
         DISPATCH => {
-            said("goal")?;
-            ("reply", said("ack")?)
+            let goal = said("goal")?;
+            let ack = said("ack")?;
+            match given.get("complexity").and_then(Value::as_str) {
+                // decision: ORCH-749 — a simple hand-off's task is written by code from its fields, no planner
+                Some(SIMPLE) => {
+                    simple = Some(simple_task(&given, goal)?);
+                    ("task", ack)
+                }
+                // ORCH-743: the form's own check wants a task for kind "task"; a complex hand-off has none yet (the
+                // planner writes it), so its part is checked as a reply and marked a hand-off after
+                Some(COMPLEX) => ("reply", ack),
+                _ => {
+                    return Err(format!(
+                        "{tool}: complexity must be \"{SIMPLE}\" or \"{COMPLEX}\"."
+                    ))
+                }
+            }
         }
         ASK => ("clarify", said("question")?),
         _ => ("reply", String::new()),
@@ -128,8 +166,16 @@ pub fn part_of(tool: &str, arguments: &Value) -> Result<SupervisorOutcome, Strin
     form.insert("kind".into(), json!(kind));
     form.insert("text".into(), json!(text));
     form.insert("answers_question".into(), json!(false));
+    if let Some(task) = simple {
+        form.insert("task".into(), task);
+    }
     for (k, v) in &given {
-        if k != "ack" && k != "question" && k != "goal" {
+        // a hand-off's and a question's own fields are read above; the rest of each call is the form's part
+        let passed = match tool {
+            DISPATCH | ASK => k == "answers_question",
+            _ => true,
+        };
+        if passed {
             form.insert(k.clone(), v.clone());
         }
     }
@@ -164,6 +210,79 @@ pub fn part_of(tool: &str, arguments: &Value) -> Result<SupervisorOutcome, Strin
         ));
     }
     Ok(part)
+}
+
+/// A hand-off one worker can do in one go (ORCH-749): code writes its task, no planner call.
+pub const SIMPLE: &str = "simple";
+/// A hand-off the planner plans from its goal (ORCH-743).
+pub const COMPLEX: &str = "complex";
+/// The worker type a simple hand-off's task runs on: "default", the configured runtime, which the daemon always offers
+/// first (ferb-daemon runtimes `worker_types`) and the answer form's own default (schemas.py `TaskSpec.worker_type`).
+pub const SIMPLE_WORKER_TYPE: &str = "default";
+
+/// ORCH-749: a simple hand-off's task, written by code from the call's fields in the answer form's task shape (so the
+/// form's own validation fills the rest as for the planner's): the goal and name given, identity owner, the default
+/// worker type, no targets, one part (his quote, labelled with the name, answered by the one worker as a task without
+/// a plan is, owning the one condition), one outcome condition whose text and owner text are `done_when` and whose
+/// check is none (a checker judges it from evidence, as for a condition with no code check), no plan, the folders,
+/// earlier results and profiles named. A simple hand-off missing its quote, name or done_when is refused naming it.
+fn simple_task(given: &Map<String, Value>, goal: String) -> Result<Value, String> {
+    let field = |key: &str| -> Result<String, String> {
+        match given.get(key) {
+            Some(Value::String(s)) if !ferb_orchestrator::py::strip(s).is_empty() => Ok(s.clone()),
+            _ => Err(format!(
+                "{DISPATCH}: a simple task needs {key}, a non-empty string ({}).",
+                match key {
+                    "quote" => "the owner's exact words for it",
+                    "name" => "two to five words",
+                    _ => "what the result must show",
+                }
+            )),
+        }
+    };
+    let list = |key: &str| -> Result<Value, String> {
+        match given.get(key) {
+            None | Some(Value::Null) => Ok(json!([])),
+            Some(Value::Array(a)) if a.iter().all(Value::is_string) => Ok(Value::Array(a.clone())),
+            Some(_) => Err(format!("{DISPATCH}: {key} must be a list of strings.")),
+        }
+    };
+    let (quote, name, done_when) = (field("quote")?, field("name")?, field("done_when")?);
+    // decision: ORCH-749 — the identity PRM-302 gives (ferb for ordinary web work with no profile named, owner when it
+    // needs his accounts or names his profile) is the Concierge's to say, as it was the planner's; code takes only these
+    let identity = match given.get("identity").and_then(Value::as_str) {
+        Some(i @ ("owner" | "ferb")) => i.to_string(),
+        _ => {
+            return Err(format!(
+                "{DISPATCH}: a simple task needs identity, \"ferb\" (FERB's own profile and accounts) or \"owner\" \
+                 (his accounts or a profile he names)."
+            ))
+        }
+    };
+    Ok(json!({
+        "goal": goal,
+        "name": name,
+        "identity": identity,
+        "worker_type": SIMPLE_WORKER_TYPE,
+        // what he named, in his words (PRM-346): the worker's and checker's "What the owner named", ORCH-648's browsing
+        // question, the recipients a send is checked against
+        "targets": {"apps": list("apps")?, "sites": list("sites")?, "paths": list("paths")?,
+                    "recipients": list("recipients")?},
+        "success_conditions": [
+            {"text": done_when, "owner_text": done_when, "check": null, "layer": "outcome"}
+        ],
+        "plan": null,
+        "folders": list("folders")?,
+        "keep_tabs_open": false,
+        // the one part's answer_step is the one worker's (plans.rs SINGLE), as `part_problems` asks of a part of a
+        // task with no plan: a part with neither a direct answer nor an answer step is refused
+        "parts": [
+            {"id": "p1", "quote": quote, "label": name, "direct": null,
+             "answer_step": ferb_orchestrator::plans::SINGLE, "conditions": [0]}
+        ],
+        "earlier_results": list("earlier_results")?,
+        "profiles": list("profiles")?,
+    }))
 }
 
 /// An empty answer: a plain reply with no text and nothing else.
@@ -429,7 +548,8 @@ impl Inner {
             part.control = None;
             front.stops.push(task_id);
         }
-        if tool == DISPATCH {
+        // ORCH-743: a complex hand-off's goal, which the planner then writes as its task (a simple one carries its task)
+        if tool == DISPATCH && part.task.is_none() {
             front.handoff = arguments["goal"].as_str().map(str::to_string);
         }
         front.parts.push((tool.to_string(), part));

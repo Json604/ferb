@@ -18,8 +18,48 @@ const CONCIERGE: &str = "You are FERB's front door.";
 
 /// The recorded planner answer as the front door's calls (in an order a model could make them: control and side
 /// entries first, then the hand-off or the question, which ends the run) and its plain text ("" for a hand-off or a
-/// question, whose text is the call's).
+/// question, whose text is the call's). A task is handed off complex: the planner writes it (its recorded call).
 fn convert(answer: &Value) -> (Vec<(String, Value)>, String) {
+    convert_with(answer, None)
+}
+
+/// The owner's message a recorded planner call answered (its "owner's complete new message" block): his exact words,
+/// which a simple hand-off quotes.
+fn message_of(call: &Value) -> String {
+    call["parts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .find_map(|p| p.strip_prefix("Layer 5 — owner's complete new message:\n"))
+        .expect("the owner's message")
+        .trim()
+        .to_string()
+}
+
+/// ORCH-749: a recorded task as a simple hand-off: its goal, the owner's words (`quote`), its name, its first
+/// condition's text as what the result must show, and the folders, earlier results and profiles it named.
+fn simple_args(answer: &Value, quote: &str, aq: bool) -> Value {
+    let task = &answer["task"];
+    let list = |k: &str| {
+        task.get(k)
+            .filter(|v| v.is_array())
+            .cloned()
+            .unwrap_or(json!([]))
+    };
+    json!({"ack": answer["text"], "goal": task["goal"], "complexity": "simple", "answers_question": aq,
+           "quote": quote, "name": task["name"], "done_when": task["success_conditions"][0]["text"],
+           "identity": task["identity"], "profiles": list("profiles"), "folders": list("folders"),
+           "sites": task["targets"]["sites"].as_array().cloned().unwrap_or_default(),
+           "apps": task["targets"]["apps"].as_array().cloned().unwrap_or_default(),
+           "paths": task["targets"]["paths"].as_array().cloned().unwrap_or_default(),
+           "recipients": task["targets"]["recipients"].as_array().cloned().unwrap_or_default(),
+           "earlier_results": list("earlier_results")})
+}
+
+/// As [`convert`]; with `quote` (the owner's words) a task one worker does in one go (no plan, at most one part) is
+/// handed off simple, its task written by code (ORCH-749), and any other complex.
+fn convert_with(answer: &Value, quote: Option<&str>) -> (Vec<(String, Value)>, String) {
     let side = &answer["side_entries"];
     let given = |v: &Value| match v {
         Value::Null | Value::Bool(false) => false,
@@ -70,11 +110,16 @@ fn convert(answer: &Value) -> (Vec<(String, Value)>, String) {
     let text = answer["text"].as_str().unwrap_or_default().to_string();
     match answer["kind"].as_str() {
         Some("task") => {
-            // ORCH-743: the hand-off carries its ack and goal; the planner writes the task (its recorded call)
-            calls.push((
-                "chat.dispatch_task".into(),
-                json!({"ack": text, "goal": answer["task"]["goal"], "answers_question": aq}),
-            ));
+            let task = &answer["task"];
+            let one_go =
+                task["plan"].is_null() && task["parts"].as_array().map_or(0, Vec::len) <= 1;
+            let args = match quote {
+                Some(q) if one_go => simple_args(answer, q, aq),
+                // ORCH-743: the hand-off carries its ack and goal; the planner writes the task (its recorded call)
+                _ => json!({"ack": text, "goal": task["goal"], "complexity": "complex",
+                            "answers_question": aq}),
+            };
+            calls.push(("chat.dispatch_task".into(), args));
             (calls, String::new())
         }
         Some("clarify") => {
@@ -135,11 +180,11 @@ fn run(name: &str, front: bool, scripts: Option<Vec<Value>>) -> (World, Report) 
                     script(&calls, &text)
                 }
             };
-            let hands_off = front["events"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|e| e["name"] == "chat.dispatch_task");
+            // ORCH-743: a complex hand-off's task the planner writes (its recorded call follows); a simple one's
+            // code writes (ORCH-749: no planner call)
+            let hands_off = front["events"].as_array().unwrap().iter().any(|e| {
+                e["name"] == "chat.dispatch_task" && e["arguments"]["complexity"] == "complex"
+            });
             out.push(front);
             flags.lock().unwrap().push(hands_off);
             // ORCH-743: an accepted hand-off's task is written by the planner: the recorded call answers it
@@ -870,4 +915,239 @@ fn a_hand_off_shows_its_accepted_ack_then_a_planning_line_until_the_plan() {
         frames[line]["text"],
         json!(ferb_supervisor::words::PLANNING_LINES[0])
     );
+}
+
+/// Each recorded planner call of the scenario as the front door's run, a task one worker does in one go handed off
+/// simple with the owner's message as its quote (ORCH-749).
+fn simple_scripts(name: &str) -> Vec<Value> {
+    support_control::scenario(name).1["model_calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["key"] == "supervisor")
+        .map(|c| {
+            let (calls, text) = convert_with(&recorded_answer(c), Some(&message_of(c)));
+            script(&calls, &text)
+        })
+        .collect()
+}
+
+/// The planner's own calls made (its answer form; the front door's run has none).
+fn planner_calls(w: &World) -> usize {
+    w.daemon
+        .calls
+        .lock()
+        .unwrap()
+        .made
+        .iter()
+        .filter(|m| m["schema"] == "SUPERVISOR_SCHEMA")
+        .count()
+}
+
+/// The spec each task was started with (task_context).
+fn specs(w: &World) -> Vec<Value> {
+    rows(w, "SELECT spec_json FROM task_context ORDER BY rowid")
+        .into_iter()
+        .map(|r| serde_json::from_str(r[0].as_str().unwrap()).unwrap())
+        .collect()
+}
+
+fn planning_lines(frames: &[Value]) -> Vec<&Value> {
+    frames
+        .iter()
+        .filter(|f| {
+            f["type"] == "progress"
+                && ferb_supervisor::words::PLANNING_LINES
+                    .iter()
+                    .any(|l| f["text"] == json!(l))
+        })
+        .collect()
+}
+
+/// The one_step_task scenario's recorded hand-off as a simple one, its arguments changed by `edit`.
+fn simple_call(edit: impl FnOnce(&mut Value)) -> (String, Value) {
+    let recorded = support_control::scenario("one_step_task").1["model_calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["key"] == "supervisor")
+        .cloned()
+        .unwrap();
+    let mut args = simple_args(&recorded_answer(&recorded), &message_of(&recorded), false);
+    edit(&mut args);
+    ("chat.dispatch_task".into(), args)
+}
+
+// decision: ORCH-749 (a simple hand-off: code writes its task from the call's fields, no planner call, no planning
+// line; the task starts at once)
+#[test]
+fn a_simple_hand_off_starts_its_task_with_no_planner_call() {
+    let (old, _) = run("one_step_task", false, None);
+    let (w, report) = run("one_step_task", true, Some(simple_scripts("one_step_task")));
+    assert_eq!(
+        results(&w),
+        vec![(
+            "chat.dispatch_task".to_string(),
+            Ok(ferb_supervisor::flow::turn::front_door::ACCEPTED_TASK.to_string())
+        )]
+    );
+    assert_eq!(planner_calls(&old), 1, "the old path's planner call");
+    assert_eq!(planner_calls(&w), 0, "no planner call");
+    let made = w.daemon.calls.lock().unwrap().made.clone();
+    let orchestrator: Vec<&Value> = made
+        .iter()
+        .filter(|m| m["runtime_role"] == "orchestrator")
+        .collect();
+    assert_eq!(orchestrator.len(), 1, "the front door's run only: {made:?}");
+    let (a, b) = (effects(&old), effects(&w));
+    assert_eq!(a["tasks"], b["tasks"], "the same task rows");
+    assert!(!b["tasks"].as_array().unwrap().is_empty());
+    // the task as code wrote it from the call: the goal, name and quote given, one outcome condition, no plan
+    let spec = &specs(&w)[0];
+    assert_eq!(spec["goal"], "Say hello in the notes");
+    assert_eq!(spec["name"], "Hello note");
+    assert_eq!(spec["identity"], "owner");
+    assert_eq!(spec["worker_type"], "default");
+    assert_eq!(spec["plan"], Value::Null);
+    assert_eq!(spec["parts"][0]["quote"], "say hello");
+    assert_eq!(spec["parts"][0]["label"], "Hello note");
+    assert_eq!(spec["parts"][0]["answer_step"], "worker");
+    assert_eq!(spec["parts"][0]["conditions"], json!([0]));
+    assert_eq!(
+        spec["success_conditions"],
+        json!([{"text": "Say hello in the notes", "owner_text": "Say hello in the notes",
+                "check": {"kind": "none", "path": null, "text": null, "url_contains": null, "site": null,
+                          "expected": null, "tool": null}, "layer": "outcome"}])
+    );
+    // the ack, then the task's own frames: no planning line
+    let frames = frames(&report);
+    let ack: String = of_type(&frames, "plan_delta")
+        .iter()
+        .map(|f| f["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(ack, "On it.", "{frames:#?}");
+    assert!(planning_lines(&frames).is_empty(), "{frames:#?}");
+    assert!(!of_type(&frames, "plan").is_empty(), "{frames:#?}");
+}
+
+// decision: ORCH-743 (a complex hand-off is planned as before: the planner's call writes its task under a planning
+// line), ORCH-749 (a complex one's simple fields are ignored)
+#[test]
+fn a_complex_hand_off_is_planned_as_before_and_its_simple_fields_are_ignored() {
+    let (_, complex) = simple_call(|a| a["complexity"] = json!("complex"));
+    let (planned, _) = run("one_step_task", true, None);
+    let (w, report) = run(
+        "one_step_task",
+        true,
+        Some(vec![script(&[("chat.dispatch_task".into(), complex)], "")]),
+    );
+    assert!(results(&w)[0].1.is_ok(), "{:?}", results(&w));
+    assert_eq!(planner_calls(&w), 1, "the planner writes the task");
+    assert_eq!(
+        specs(&w),
+        specs(&planned),
+        "the planner's task, not one code wrote"
+    );
+    assert_eq!(specs(&w)[0]["parts"], json!([]));
+    assert_eq!(planning_lines(&frames(&report)).len(), 1);
+}
+
+// decision: ORCH-749, MEM-430 (a simple hand-off's quote is checked against his messages as the planner's parts are;
+// refused in the run, repaired, the owner seeing nothing)
+#[test]
+fn a_simple_hand_off_quoting_words_he_never_wrote_is_refused_and_repaired() {
+    let bad = simple_call(|a| a["quote"] = json!("say goodbye to everyone"));
+    let good = simple_call(|_| {});
+    let (old, _) = run("one_step_task", false, None);
+    let (w, report) = run("one_step_task", true, Some(vec![script(&[bad, good], "")]));
+    let got = results(&w);
+    assert_eq!(got.len(), 2, "{got:?}");
+    let refusal = got[0].1.clone().unwrap_err();
+    assert!(
+        refusal.contains("part p1: its quote must be the owner's own words"),
+        "{refusal}"
+    );
+    assert!(got[1].1.is_ok(), "{got:?}");
+    assert_eq!(planner_calls(&w), 0);
+    assert_eq!(
+        effects(&old)["tasks"],
+        effects(&w)["tasks"],
+        "the task started"
+    );
+    assert_eq!(specs(&w).len(), 1);
+    let shown = serde_json::to_string(&frames(&report)).unwrap();
+    assert!(!shown.contains("goodbye"), "{shown}");
+}
+
+// decision: ORCH-749 (a simple hand-off missing a field code writes its task from is refused naming it)
+#[test]
+fn a_simple_hand_off_missing_done_when_is_refused_naming_it() {
+    let missing = simple_call(|a| {
+        a.as_object_mut().unwrap().remove("done_when");
+    });
+    // the gateway fills a string left out as "" (its schema's default): the same refusal
+    let blank = simple_call(|a| a["done_when"] = json!(""));
+    let good = simple_call(|_| {});
+    let (old, _) = run("one_step_task", false, None);
+    let (w, _) = run(
+        "one_step_task",
+        true,
+        Some(vec![script(&[missing, blank, good], "")]),
+    );
+    let got = results(&w);
+    assert_eq!(got.len(), 3, "{got:?}");
+    for (_, r) in &got[..2] {
+        let told = r.clone().unwrap_err();
+        assert!(told.contains("a simple task needs done_when"), "{told}");
+    }
+    assert!(got[2].1.is_ok(), "{got:?}");
+    assert_eq!(effects(&old)["tasks"], effects(&w)["tasks"]);
+}
+
+// decision: ORCH-749 (the hand-off's arguments, read alone: its kind, and a simple one's fields, each refused by name)
+#[test]
+fn a_hand_offs_kind_and_simple_fields_are_checked_by_name() {
+    use ferb_supervisor::flow::turn::front_door::part_of;
+    let base = json!({"ack": "On it.", "goal": "Say hello in the notes", "complexity": "simple",
+                      "quote": "say hello", "name": "Hello note", "done_when": "The notes say hello",
+                      "identity": "owner"});
+    let with = |k: &str, v: Value| {
+        let mut a = base.clone();
+        a[k] = v;
+        part_of("chat.dispatch_task", &a)
+    };
+    let part = part_of("chat.dispatch_task", &base).unwrap();
+    assert_eq!(part.kind, "task");
+    assert_eq!(part.text, "On it.");
+    let task = part.task.expect("code wrote the task");
+    assert_eq!(task.parts.len(), 1);
+    assert_eq!(task.success_conditions.len(), 1);
+    for field in ["quote", "name", "done_when", "identity"] {
+        let err = with(field, json!(" ")).unwrap_err();
+        assert!(
+            err.contains(&format!("a simple task needs {field}")),
+            "{err}"
+        );
+    }
+    let err = with("complexity", json!("medium")).unwrap_err();
+    assert!(err.contains("complexity must be"), "{err}");
+    let mut none = base.clone();
+    none.as_object_mut().unwrap().remove("complexity");
+    assert!(part_of("chat.dispatch_task", &none)
+        .unwrap_err()
+        .contains("complexity must be"));
+    let err = with("folders", json!("~/Documents")).unwrap_err();
+    assert!(err.contains("folders must be a list of strings"), "{err}");
+    let listed = with("earlier_results", json!(["c3"])).unwrap();
+    assert_eq!(listed.task.unwrap().earlier_results, ["c3"]);
+    // complex: no task (the planner writes it); a simple field left blank is no problem
+    let complex = with("complexity", json!("complex")).unwrap();
+    assert!(complex.task.is_none());
+    let mut blank = base.clone();
+    blank["complexity"] = json!("complex");
+    blank["done_when"] = json!("");
+    assert!(part_of("chat.dispatch_task", &blank)
+        .unwrap()
+        .task
+        .is_none());
 }

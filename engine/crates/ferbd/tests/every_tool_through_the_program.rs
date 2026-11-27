@@ -137,9 +137,10 @@ fn calls() -> Vec<(&'static str, Value, Expect, &'static str)> {
         ("chat.ask", json!({"question": "Which file?"}), Reaches(NO_TURN), "read"),
         ("chat.control_task", json!({"control": {"task_id": "task-1", "action": "stop", "new_goal": false,
             "standing_sends": "unchanged", "supersedes": []}}), Reaches(NO_TURN), "read"),
-        // ORCH-743: a hand-off carries its ack and goal; the planner writes the task
-        ("chat.dispatch_task", json!({"ack": "On it.", "goal": "Write hello into a.txt", "answers_question": false}),
-            Reaches(NO_TURN), "read"),
+        // ORCH-743, ORCH-749: a hand-off carries its ack, goal and kind; a simple one the fields code writes its task from
+        ("chat.dispatch_task", json!({"ack": "On it.", "goal": "Write hello into a.txt", "complexity": "simple",
+            "quote": "write hello into a.txt", "name": "Hello file", "done_when": "a.txt holds hello", "identity": "owner",
+            "answers_question": false}), Reaches(NO_TURN), "read"),
         ("chat.remember", json!({"forget": [{"item_id": "m-1", "quote": "forget that"}]}), Reaches(NO_TURN), "read"),
         ("chat.schedule", json!({"show_schedules": true}), Reaches(NO_TURN), "read"),
         ("chat.set_reminder", json!({"reminder_cancels": [{"id": "r-1", "quote": "cancel it"}]}), Reaches(NO_TURN), "read"),

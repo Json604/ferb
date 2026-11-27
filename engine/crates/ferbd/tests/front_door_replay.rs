@@ -6,9 +6,10 @@
 //! part of the answer to its `chat.*` tool, the side entries first and the hand-off or question last, made through the
 //! socket as the tool bridge makes them, with the run's token; a reply's text streamed as plain text). A repair (a
 //! second planner call for the same message) becomes the same run's next calls, as the front door repairs inside its
-//! run. A hand-off carries its ack and the task's goal (ORCH-743): the recorded planner call (and its repair, if any)
-//! then writes the task, as the planner does after an accepted hand-off, reading its recorded live facts and role
-//! instructions a second time. The effects are compared: the store's rows (tasks and their fields, plans, results,
+//! run. A task one worker does in one go (no plan, at most one part) is handed off simple (ORCH-749): code writes its
+//! task from the call's fields and no planner call follows. Any other task is handed off complex, with its ack and the
+//! task's goal (ORCH-743): the recorded planner call (and its repair, if any) then writes the task, as the planner
+//! does after an accepted hand-off, reading its recorded live facts and role instructions a second time. The effects are compared: the store's rows (tasks and their fields, plans, results,
 //! timers, schedules, memory, the questions, cards answered, the conversation, the episodes), each table's ids numbered
 //! afresh by first appearance, the journal's records, every later model call (the worker's and the checker's input:
 //! what the hand-off started), the memory and browser ports' calls, the recorded tool calls' replies, every front
@@ -278,8 +279,16 @@ fn recorded_answer(call: &Value) -> Option<Value> {
 /// The recorded answer as the front door's calls, in an order a model could make them (the control and the side
 /// entries first, then the hand-off or the question, whose acceptance ends the run: a task part backed by an entry of
 /// this message comes after that entry, ORCH-736), and its plain text ("" for a hand-off or a question, whose words are
-/// the call's). `answers_question` is given (true) only when the answer says so and FERB's question is open.
-fn convert(answer: &Value, question_open: bool) -> (Vec<(String, Value)>, String) {
+/// the call's). `answers_question` is given (true) only when the answer says so and FERB's question is open. A task one
+/// worker does in one go (no plan, at most one part) is handed off simple (ORCH-749): its goal, the recorded part's
+/// quote or else the owner's message (`message`, his exact words), the task's name, its first condition's text as what
+/// the result must show, and its profiles, folders and earlier results. Any other task is complex, and so is one with
+/// no words of his to quote (a scheduled run: its instructions are FERB's planner's, and the run plans as before).
+fn convert(
+    answer: &Value,
+    question_open: bool,
+    message: Option<&str>,
+) -> (Vec<(String, Value)>, String) {
     let side = &answer["side_entries"];
     let given = |v: &Value| match v {
         Value::Null | Value::Bool(false) => false,
@@ -334,7 +343,33 @@ fn convert(answer: &Value, question_open: bool) -> (Vec<(String, Value)>, String
         // ORCH-743: the hand-off carries its ack and the task's goal; the planner then writes the task (the recorded
         // planner call after it, [`front_calls`])
         Some("task") => {
-            let args = json!({"ack": text, "goal": answer["task"]["goal"], "answers_question": aq});
+            let task = &answer["task"];
+            let parts = task["parts"].as_array().cloned().unwrap_or_default();
+            let quote = parts
+                .first()
+                .map(|p| s(&p["quote"]))
+                .or_else(|| message.map(str::to_string));
+            let args = if let (true, Some(quote)) =
+                (task["plan"].is_null() && parts.len() <= 1, quote)
+            {
+                let list = |k: &str| {
+                    task.get(k)
+                        .filter(|v| v.is_array())
+                        .cloned()
+                        .unwrap_or(json!([]))
+                };
+                json!({"ack": text, "goal": task["goal"], "complexity": "simple", "answers_question": aq,
+                       "quote": quote, "name": task["name"],
+                       "done_when": task["success_conditions"][0]["text"], "profiles": list("profiles"),
+                       "identity": task["identity"],
+                       "sites": task["targets"]["sites"].as_array().cloned().unwrap_or_default(),
+                       "apps": task["targets"]["apps"].as_array().cloned().unwrap_or_default(),
+                       "paths": task["targets"]["paths"].as_array().cloned().unwrap_or_default(),
+                       "recipients": task["targets"]["recipients"].as_array().cloned().unwrap_or_default(),
+                       "folders": list("folders"), "earlier_results": list("earlier_results")})
+            } else {
+                json!({"ack": text, "goal": task["goal"], "complexity": "complex", "answers_question": aq})
+            };
             calls.push(("chat.dispatch_task".into(), args));
             (calls, String::new())
         }
@@ -344,6 +379,25 @@ fn convert(answer: &Value, question_open: bool) -> (Vec<(String, Value)>, String
         }
         _ => (calls, text),
     }
+}
+
+/// The owner's words a recorded planner call answered: its "owner's complete new message" block up to the first blank
+/// line (what code adds after his words, an attachment's sources, follows one; every recorded message is one paragraph).
+/// None for a call with no message of his (a scheduled run, whose instructions FERB's planner wrote).
+fn message_of(call: &Value) -> Option<String> {
+    call["parts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .find_map(|p| p.strip_prefix("Layer 5 — owner's complete new message:\n"))
+        .map(|m| {
+            m.split("\n\n")
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string()
+        })
 }
 
 /// Why a recorded scenario isn't run through the front door, if it isn't: a planner call that never answered with the
@@ -372,7 +426,8 @@ fn not_today_s_form(sc: &Value) -> Option<String> {
 /// The recorded calls with each planner call's events replaced by its converted calls. A repair (a second planner
 /// call for the same message, after code refused the first answer) becomes part of the same run, as the front door
 /// repairs inside its run: the first answer's calls (refused), then the second's; the repair's call is taken out.
-/// ORCH-743: once the message's run hands off (an answer that was a task), the recorded planner call of that answer
+/// ORCH-743: once the message's run hands off complex (an answer that was a task with a plan or several parts; a
+/// simple hand-off's task is code's, ORCH-749, and nothing follows it), the recorded planner call of that answer
 /// follows the front door's, unchanged, and so does each recorded repair after it: the planner writes the task with
 /// its own form, checks and repair, as it did in the recording (marked `handoff_planner`, so a recorded wait for the
 /// nth planner call still means the nth front door call).
@@ -413,8 +468,11 @@ fn front_calls(calls: &[Value]) -> (Vec<Value>, Vec<usize>) {
             reads.push(1);
             continue;
         }
-        let (calls, text) = convert(&answer, open_at_message);
-        let hands_off = calls.iter().any(|(name, _)| name == "chat.dispatch_task");
+        let (calls, text) = convert(&answer, open_at_message, message_of(c).as_deref());
+        // ORCH-743: a complex hand-off's task the planner writes; a simple one's code writes (ORCH-749)
+        let hands_off = calls
+            .iter()
+            .any(|(name, args)| name == "chat.dispatch_task" && args["complexity"] == "complex");
         let mut events: Vec<Value> = calls
             .iter()
             .map(|(name, args)| json!({"kind": "front_call", "name": name, "arguments": args}))
@@ -1503,18 +1561,18 @@ const EXPECTED: &[(&str, &[&str], &str)] = &[
     ),
     (
         "frames +plan_delta +plan_end +progress",
-        &["clarify_then_answer", "one_step_task", "multi_step_plan", "steer_running_task", "stop_by_task_stop", "stop_by_chat", "stop_plus_new_task", "global_stop", "checker_rejects", "checker_findings_fix", "worker_question_answered", "check_in_after_five", "restart_mid_task", "restart_with_open_question", "attachment_and_bad_params", "several_asks", "plan_parts_checklist", "answer_in_chat", "checklist_single", "ask_step", "checker_runtime_down", "earlier_result", "loop_steer_finish", "loop_pause_stop", "mention_paused", "owner_closed_tab", "reason_findings", "runtime_switch_tap", "stated_scope", "browse_as_corrected", "login_sites"],
-        "An accepted hand-off's ack is shown on the plan channel (ack, ack_end) before its plan frame (ORCH-735), and a planning line runs under it while the planner writes the task (ORCH-747); the recorded planner's whole answer streamed nothing first.",
+        &["multi_step_plan", "worker_question_answered", "several_asks", "plan_parts_checklist", "answer_in_chat", "checklist_single", "ask_step", "loop_steer_finish", "loop_pause_stop", "stated_scope"],
+        "An accepted complex hand-off's ack is shown on the plan channel (ack, ack_end) before its plan frame (ORCH-735), and a planning line runs under it while the planner writes the task (ORCH-747); the recorded planner's whole answer streamed nothing first.",
     ),
     (
         "frames +plan_delta +plan_end",
-        &["checker_skips_change_records", "confirm_no", "confirm_stop_pending", "confirm_yes", "conversation_change", "conversation_handover", "conversation_resume", "correct_pending_check", "event_wait", "one_step_with_tools", "pause_steer_resume", "probe_watch", "route_question", "tool_failure_then_retry", "wait_for_time", "wait_step"],
-        "An accepted hand-off's ack is shown on the plan channel (ack, ack_end) before its plan frame (ORCH-735), and a planning line runs under it while the planner writes the task (ORCH-747; these runs already had a live line later, so it shows as no new kind); the recorded planner's whole answer streamed nothing first.",
+        &["conversation_change", "conversation_handover", "conversation_resume", "event_wait", "probe_watch", "wait_step"],
+        "An accepted complex hand-off's ack is shown on the plan channel (ack, ack_end) before its plan frame (ORCH-735), and a planning line runs under it while the planner writes the task (ORCH-747; these runs already had a live line later, so it shows as no new kind); the recorded planner's whole answer streamed nothing first.",
     ),
     (
         "episodes.steps_json",
-        &["answer_in_chat", "ask_step", "attachment_and_bad_params", "browse_as_corrected", "check_in_after_five", "checker_findings_fix", "checker_rejects", "checker_runtime_down", "checker_skips_change_records", "checklist_single", "clarify_then_answer", "confirm_no", "confirm_stop_pending", "confirm_yes", "conversation_change", "conversation_handover", "conversation_resume", "correct_pending_check", "earlier_result", "event_wait", "global_stop", "login_sites", "loop_pause_stop", "loop_steer_finish", "mention_paused", "multi_step_plan", "one_step_task", "one_step_with_tools", "owner_closed_tab", "pause_steer_resume", "plan_parts_checklist", "probe_watch", "reason_findings", "restart_mid_task", "restart_with_open_question", "route_question", "runtime_switch_tap", "schedule_created_and_fired", "several_asks", "stated_scope", "steer_running_task", "stop_by_chat", "stop_by_task_stop", "stop_plus_new_task", "tool_failure_then_retry", "wait_for_time", "wait_step", "worker_question_answered", "plan_repair", "unbacked_part"],
-        "A hand-off's turn makes two planner calls (ORCH-743): the front door's, whose Planner line is its ack (\"task — On it.\"), then the planner's writing the task, whose line is the planner run's (\"task — <goal>\"); so the episode has one Planner line more, and each later line's \"verified in step N\" counts one further. In plan_repair and unbacked_part the planner's run repaired its first answer (two Planner lines); the front door hands off at once and the planner writing the task repairs it the same way (three).",
+        &["answer_in_chat", "ask_step", "checklist_single", "conversation_change", "conversation_handover", "conversation_resume", "event_wait", "loop_pause_stop", "loop_steer_finish", "multi_step_plan", "plan_parts_checklist", "probe_watch", "schedule_created_and_fired", "several_asks", "stated_scope", "wait_step", "worker_question_answered", "plan_repair", "unbacked_part"],
+        "A complex hand-off's turn makes two planner calls (ORCH-743; a simple one's makes one, ORCH-749, and its episode's Planner line is the planner run's, \"task — <goal>\"): the front door's, whose Planner line is its ack (\"task — On it.\"), then the planner's writing the task, whose line is the planner run's (\"task — <goal>\"); so the episode has one Planner line more, and each later line's \"verified in step N\" counts one further. In plan_repair and unbacked_part the planner's run repaired its first answer (two Planner lines); the front door hands off at once and the planner writing the task repairs it the same way (three).",
     ),
     (
         "frames +plan_delta +plan_end +progress -plan_abort",
@@ -1530,6 +1588,26 @@ const EXPECTED: &[(&str, &[&str], &str)] = &[
         "frames +plan_delta +plan_end -plan_abort",
         &["inventory_walk"],
         "The front door hands off at once (its ack shown: plan_delta, plan_end); the planner writing the task then gives a plan code refuses and repairs it into a reply, which stands (ORCH-743: a planner that replies instead is heard). That planner call has no live stream, so the owner sees neither the walk of the plan's folders (progress) nor the plan's withdrawal (plan_abort): the ack, then the reply.",
+    ),
+    (
+        "frames +plan_delta +plan_end",
+        &["attachment_and_bad_params", "browse_as_corrected", "check_in_after_five", "checker_findings_fix", "checker_rejects", "checker_runtime_down", "checker_skips_change_records", "clarify_then_answer", "confirm_no", "confirm_stop_pending", "confirm_yes", "correct_pending_check", "earlier_result", "global_stop", "login_sites", "mention_paused", "one_step_task", "one_step_with_tools", "owner_closed_tab", "pause_steer_resume", "reason_findings", "restart_mid_task", "restart_with_open_question", "route_question", "runtime_switch_tap", "steer_running_task", "stop_by_chat", "stop_by_task_stop", "stop_plus_new_task", "tool_failure_then_retry", "wait_for_time"],
+        "A simple hand-off (ORCH-749, the recorded task had no plan and at most one part): its accepted ack is shown on the plan channel (ack, ack_end) before its plan frame, and no planning line follows, since code writes the task and no planner call is made; the recorded planner's whole answer streamed nothing first.",
+    ),
+    (
+        "task_context.spec_json",
+        &["attachment_and_bad_params", "browse_as_corrected", "check_in_after_five", "checker_findings_fix", "checker_rejects", "checker_runtime_down", "checker_skips_change_records", "clarify_then_answer", "confirm_no", "confirm_stop_pending", "confirm_yes", "correct_pending_check", "earlier_result", "global_stop", "login_sites", "mention_paused", "one_step_task", "one_step_with_tools", "owner_closed_tab", "pause_steer_resume", "reason_findings", "restart_mid_task", "restart_with_open_question", "route_question", "runtime_switch_tap", "steer_running_task", "stop_by_chat", "stop_by_task_stop", "stop_plus_new_task", "tool_failure_then_retry", "wait_for_time"],
+        "A simple hand-off's task is code's (ORCH-749), not the planner's: one part {p1, his words as its quote, the name as its label, answer_step worker, conditions [0]} where the planner's single-ask form had parts []; the condition's owner_text is done_when (the recorded planner left it \"\"); targets are empty (one_step_with_tools, checker_skips_change_records, confirm_*, correct_pending_check, pause_steer_resume, tool_failure_then_retry and login_sites had the paths, apps or sites the owner named); and the identity is owner (browse_as_corrected's planner gave ferb).",
+    ),
+    (
+        "task_plans.request",
+        &["attachment_and_bad_params", "browse_as_corrected", "check_in_after_five", "checker_findings_fix", "checker_rejects", "checker_runtime_down", "checker_skips_change_records", "clarify_then_answer", "confirm_no", "confirm_stop_pending", "confirm_yes", "correct_pending_check", "earlier_result", "global_stop", "login_sites", "mention_paused", "one_step_task", "one_step_with_tools", "owner_closed_tab", "pause_steer_resume", "reason_findings", "restart_mid_task", "restart_with_open_question", "route_question", "runtime_switch_tap", "steer_running_task", "stop_by_chat", "stop_by_task_stop", "stop_plus_new_task", "tool_failure_then_retry", "wait_for_time"],
+        "The stored plan request holds the task's spec: the same differences as task_context.spec_json.",
+    ),
+    (
+        "later model call parts",
+        &["browse_as_corrected", "correct_pending_check", "login_sites", "pause_steer_resume", "steer_running_task"],
+        "The worker's and the checker's input carries the simple task's spec: its condition's owner_text and its one part are code's (task_context.spec_json), and its targets are the Concierge's reading of his words, which can differ from the recorded planner's.",
     ),
 ];
 

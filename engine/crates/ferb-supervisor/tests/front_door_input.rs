@@ -77,7 +77,8 @@ fn convert(answer: &Value) -> Vec<Value> {
     let text = answer["text"].as_str().unwrap_or_default().to_string();
     match answer["kind"].as_str() {
         Some("task") => events.push(json!({"kind": "front_call", "name": "chat.dispatch_task",
-            "arguments": {"ack": text, "goal": answer["task"]["goal"], "answers_question": aq}})),
+            "arguments": {"ack": text, "goal": answer["task"]["goal"], "complexity": "complex",
+                           "answers_question": aq}})),
         Some("clarify") => events.push(
             json!({"kind": "front_call", "name": "chat.ask", "arguments": {"question": text}}),
         ),

@@ -1021,8 +1021,9 @@ impl Inner {
         let rid = turn.lock().unwrap().request_id.clone();
         if self.deps.daemon.front_door() {
             match self.front_decide(turn, emit, cancel).await {
-                // decision: ORCH-743 — a hand-off carries only its ack and goal; the planner writes its task, with its
-                // answer form and rules, while the owner already reads the ack
+                // decision: ORCH-743 — a complex hand-off carries only its ack and goal; the planner writes its task,
+                // with its answer form and rules, while the owner already reads the ack. A simple one (ORCH-749)
+                // carries the task code wrote from its fields: it isn't taken here, and `route` starts it at once
                 Ok(out) if out.kind == "task" && out.task.is_none() => {
                     // decision: ORCH-747 — while the planner writes the task the owner sees a live line under the ack,
                     // its words changing every few seconds (one start time, so the app's timer runs on)

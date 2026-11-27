@@ -724,7 +724,7 @@
    "decision": "ORCH-736",
    "after": "chat.history",
    "name": "chat.dispatch_task",
-   "description": "Start one task on the Mac, the web or in an app. ack comes first: the one line the owner reads while it starts, in their words. FERB shows it once the task is accepted. goal is what the task must do and for whom, with every detail the owner gave; FERB then works out how. Set answers_question when this message answers FERB's previous question.",
+   "description": "Start one task on the Mac, the web or in an app. ack comes first: the one line the owner reads while it starts, in their words. FERB shows it once the task is accepted. goal is what the task must do and for whom, with every detail the owner gave. complexity: simple when one worker can do it in one go; then quote (the owner's exact words for it), name (two to five words), done_when (what the result must show) and identity (ferb for ordinary web work with no profile named, owner when it needs his accounts or he names his profile) are required, and profiles, folders, sites, apps, paths, recipients and earlier_results when his words name them. Otherwise complex: FERB plans it. Set answers_question when this message answers FERB's previous question.",
    "input_schema": {
     "additionalProperties": false,
     "properties": {
@@ -734,9 +734,77 @@
      "goal": {
       "type": "string"
      },
+     "complexity": {
+      "enum": [
+       "simple",
+       "complex"
+      ],
+      "type": "string"
+     },
      "answers_question": {
       "type": "boolean",
       "default": false
+     },
+     "quote": {
+      "type": "string",
+      "default": ""
+     },
+     "name": {
+      "type": "string",
+      "default": ""
+     },
+     "done_when": {
+      "type": "string",
+      "default": ""
+     },
+     "identity": {
+      "enum": [
+       "owner",
+       "ferb"
+      ],
+      "type": "string"
+     },
+     "profiles": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "folders": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "sites": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "apps": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "paths": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "recipients": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "earlier_results": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
      },
      "why": {
       "type": "string",
@@ -745,7 +813,8 @@
     },
     "required": [
      "ack",
-     "goal"
+     "goal",
+     "complexity"
     ],
     "title": "Input",
     "type": "object"

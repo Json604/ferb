@@ -15017,3 +15017,67 @@ had a live line); FERBNotch swift test (988, 9 skipped, 0 failures).
 Also decided with the owner today, not built: the Space-switch put-back (one live false positive: FERB put Code back
 after his own swipe to Brave during a Brave task; owner: leave as is) and the extension's debugger detach on an
 unrecorded tab (one live banner; owner: "might be jsut a one time err ig. so lets not fix it").
+
+
+## 2026-11-27 · 277 · A simple hand-off starts its worker with no planner call; a complex one is planned as before
+
+**Why (T-1344, ORCH-726 step 7, "Step 7 in detail").** Every hand-off waited 11-28 s for the planner to write a task
+(journal 276), though most are one ask a worker does in one go.
+
+**What.**
+- ORCH-749 (agent ruling, to record): `chat.dispatch_task` takes `complexity` ("simple" | "complex", required) and,
+  for a simple one, `quote`, `name`, `done_when` (strings, default "", required non-empty by code when simple) and
+  `profiles`, `folders`, `earlier_results` (lists of strings). ferb-supervisor `part_of` (front_door.rs
+  `simple_task`) writes a simple one's TaskSpec in the answer form's shape and validates it as the planner's: goal,
+  name, identity "owner", worker_type "default" (`SIMPLE_WORKER_TYPE`: the daemon's `worker_types()` always offers it
+  first; the form's default), targets empty, one part {id p1, quote, label = name, direct null, answer_step "worker"
+  (plans::SINGLE), conditions [0]}, one condition {text = owner_text = done_when, check none, layer outcome}, plan
+  null, keep_tabs_open false, the folders, earlier results and profiles given. `front_call` runs today's `problems()`
+  on it beside the message's accepted side entries (MEM-430 quote against his messages, folders, results, profiles,
+  worker type, parts). Accepted, the part carries its task, so `decide`'s ORCH-743 branch (task None) isn't taken: no
+  planner call, no planning line, `route` starts it; `handoff` is set only for a complex one. Refused: a complexity
+  that is neither ("complexity must be \"simple\" or \"complex\""); a simple one missing quote, name or done_when ("a
+  simple task needs <field>, a non-empty string (...)"); a list that isn't strings. A complex one's simple fields are
+  ignored. The name's two-to-five words and done_when's one sentence are prompt text only (as PRM-328's name is).
+- ferb-gateway `catalog_additions.json`: the schema above (`required` ack, goal, complexity) and the new description;
+  tests/front_door_tools.rs compares both and checks the argument model (defaults filled, a bad kind or list refused).
+- concierge.md: the dispatch bullet's first sentence followed by the new text, wrapped to the file's width.
+- ferbd front_door_replay.rs: a recorded task with no plan and at most one part is sent simple (quote: the recorded
+  part's, else the owner's message from the call's "owner's complete new message" block up to its first blank line,
+  which an attachment's sources follow; the task's name; its first condition's text as done_when; its lists); any
+  other, and one with no words of his (a scheduled run), complex as before. every_tool_through_the_program: a simple
+  hand-off. chat_replay.rs unchanged.
+
+**Expected differences (named in front_door_replay's EXPECTED; 31 scenarios now simple).** `task_context.spec_json`
+and `task_plans.request`: code's task (part p1 where the planner's single-ask form has parts [], owner_text =
+done_when where the recording had "", targets empty, identity owner where browse_as_corrected's planner gave ferb).
+`later model call parts` (11): the worker's and checker's line "What the owner named (as the planner read their
+words) — …" is gone with the targets. `journal kinds` (browse_as_corrected): no task.browses_as_owner (an owner
+identity naming no site browses where the worker says). `problems` (login_sites): ORCH-648's browsing question for an
+owner task naming sites is never asked. `frames +plan_delta +plan_end` for the simple ones: the ack and no planning
+line. `episodes.steps_json`: gone for the simple ones (one Planner line, as the planner run's).
+
+**Evidence.** Through ferb-test-guard: `cargo test -p ferb-supervisor -p ferb-gateway`: 62 binaries, 464 passed, 0 failed
+(front_door, front_door_input, front_door_tools and catalog run again after the last fmt); ferb-supervisor tests/front_door.rs 20 (5 new: a simple hand-off of one_step_task starts the same task
+rows with its goal, name and quote, no planner call, no planning line; a quote he never wrote refused and repaired in
+the run; done_when missing or "" refused naming it; a complex one planned as before with its simple fields ignored;
+part_of's refusals), the four that drive the run shown failing with the simple branch disabled; front_door_replay 10
+passed (57 scenarios, 4 skipped as before), shown failing with exactly the differences above before EXPECTED named
+them. ferbd chat_replay 10 passed (2 ignored), seams_wired 3, every_tool_through_the_program 2. clippy `--tests -D
+warnings` and fmt clean for the three crates.
+
+**For the coordinator (agent findings, not decided).** Identity "owner" and empty targets (the brief's spec) lose what
+the planner gave from his words: a web task the planner would give FERB's own profile ("ferb", supervisor.md) now runs
+as the owner and browses where the worker says; ORCH-648's browsing question for an owner task naming sites isn't
+asked; the worker and checker no longer read the sites, apps and paths he named. A simple hand-off may need
+`identity` and `sites` (or `targets`) fields: model-facing text, the owner's OK. The brief's part had answer_step None;
+`part_problems` refuses a part with neither a direct answer nor an answer step, so it is "worker".
+
+**Unverified.** No real runtime has called the new arguments; the 1 s target is unmeasured; a simple hand-off from a
+scheduled run (no message of his to quote) is untested.
+Coordinator, merging 277 with the owner's OK on both texts (PRM-388): the agent found that a simple task always
+running as the owner with no targets broke PRM-302 (ordinary web work runs as FERB) and lost "What the owner named",
+ORCH-648's browsing question and the recipients a send is checked against. With the owner's OK the simple hand-off
+also takes identity (required: ferb or owner, PRM-302's rule in its description) and sites, apps, paths and
+recipients, written into the task's targets. The replay's differences for "What the owner named" (6 scenarios),
+browse_as_corrected's task.browses_as_owner and login_sites' browsing question no longer occur.

@@ -957,3 +957,14 @@ words_source = "Owner 2026-11-27, approving librarian.md and the library, card a
 rule = "For ORCH-745 and ORCH-746. engine/runtime/memory/librarian.md is the Librarian's instruction (at most 6 lines a day of at most 15 words, a 40-word line a month or year, only what it is given, everything data); library::HEADER, CONTENTS_HEADER, profile::CARD_HEADER and words::TAGS_ARE_IDS are the front door's block headers as shown."
 paths = ["engine/runtime/memory/librarian.md"]
 untestable = "Prompt text is not tested (TEST-500); checked live on the owner's build."
+
+[PRM-388]
+title = "concierge.md and chat.dispatch_task: simple or complex, and a simple task's fields"
+by = "owner"
+date = 2026-11-27
+status = "active"
+words = "yes both texts are fine, land them"
+words_source = "Owner 2026-11-27, approving the step 7 concierge.md line and tool description; the identity and named-things additions were approved after: 'ok with your wording'."
+rule = "For ORCH-749 and PRM-302. concierge.md's hand-off rule and chat.dispatch_task's description: simple when one worker can do it in one go, with quote, name, done_when and identity (ferb for ordinary web work with no profile named, owner for his accounts or a profile he names), and the profiles, folders, sites, apps, paths, recipients or earlier results his words name; otherwise complex, and FERB plans it."
+paths = ["engine/runtime/orchestrator/prompts/concierge.md", "engine/crates/ferb-gateway/src/catalog_additions.json"]
+untestable = "Prompt text is not tested (TEST-500); the fields' checks are tested under ORCH-749."
