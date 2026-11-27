@@ -566,8 +566,6 @@ pub struct RunGrant {
     /// `max_calls` calls for this grant (0: no limit).
     pub tools: BTreeSet<String>,
     pub max_calls: u64,
-    /// RUN-483: a kept program's grant before its message exists: it lists its tools and every call is refused.
-    pub list_only: bool,
 }
 
 /// What `RunTokens::issue` takes besides the task and worker.
@@ -579,8 +577,6 @@ pub struct GrantSpec {
     pub observe_only: bool,
     pub tools: BTreeSet<String>,
     pub max_calls: u64,
-    /// RUN-483: see [`RunGrant::list_only`].
-    pub list_only: bool,
 }
 
 impl GrantSpec {
@@ -593,7 +589,6 @@ impl GrantSpec {
             observe_only: false,
             tools: BTreeSet::new(),
             max_calls: 0,
-            list_only: false,
         }
     }
 }
@@ -660,7 +655,6 @@ impl RunTokens {
             observe_only: spec.observe_only,
             tools: spec.tools,
             max_calls: spec.max_calls,
-            list_only: spec.list_only,
         };
         self.grants().insert(Self::digest(&token), Arc::new(grant));
         token

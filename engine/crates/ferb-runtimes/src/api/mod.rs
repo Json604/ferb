@@ -6,7 +6,6 @@
 
 pub mod anthropic;
 pub mod google;
-pub mod kept;
 pub mod openai;
 
 use std::collections::HashMap;
@@ -339,9 +338,6 @@ pub struct ApiRuntime {
     pub compaction: Option<crate::compact::Policy>,
     /// The time the compaction's lines name.
     pub clock: crate::compact::Clock,
-    /// T-1343: the HTTP client (and its pool of open connections) the keeper kept from an earlier call of the same
-    /// role; None builds one for this run, as today.
-    pub client: Option<reqwest::Client>,
 }
 
 impl ApiRuntime {
@@ -405,7 +401,6 @@ impl ApiRuntime {
             redact: None,
             compaction: None,
             clock: crate::compact::local_clock(),
-            client: None,
         })
     }
 
@@ -507,16 +502,6 @@ impl ApiRun {
     }
 }
 
-/// The run's HTTP client: `timeout_s` per request; `idle_s` keeps an unused connection open that long (T-1343).
-pub fn http_client(timeout_s: f64, idle_s: Option<f64>) -> Result<reqwest::Client, RuntimeError> {
-    let mut b = reqwest::Client::builder().timeout(Duration::from_secs_f64(timeout_s));
-    if let Some(idle) = idle_s {
-        b = b.pool_idle_timeout(Duration::from_secs_f64(idle));
-    }
-    b.build()
-        .map_err(|e| RuntimeError::Raised(crate::error::Raised::new("OSError", e.to_string())))
-}
-
 /// api.py `start`.
 pub async fn start(
     rt: &ApiRuntime,
@@ -579,10 +564,10 @@ pub async fn start(
             typed = "stated".into();
         }
     }
-    let client = match &rt.client {
-        Some(c) => c.clone(),
-        None => http_client(rt.timeout_s, None)?,
-    };
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs_f64(rt.timeout_s))
+        .build()
+        .map_err(|e| RuntimeError::Raised(crate::error::Raised::new("OSError", e.to_string())))?;
     let deadline = rt
         .limit_s
         .map(|s| Instant::now() + Duration::from_secs_f64(s.max(0.0)));

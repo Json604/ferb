@@ -222,57 +222,6 @@ pub struct RealFactory {
     pub refusals: Arc<Refusals>,
     pub claude_cli: Option<PathBuf>,
     pub proxy: Option<Arc<dyn ferb_runtimes::claude::ToolProxy>>,
-    /// T-1343 (kb/plans/front-door.md, "Keeping the runtime ready"): the daemon's one keeper of ready programs.
-    pub keeper: Option<ferb_runtimes::keep::Keeper>,
-    /// RUN-483: where a kept Claude program's listing token is issued (the daemon's run tokens).
-    pub tokens: Option<Arc<ferb_rpc::RunTokens>>,
-}
-
-/// RUN-483: a listing grant's token for a Claude Code program made ahead: it lists the named tools under the front
-/// door's scopes and every call with it is refused (`list_only`); it lapses after the longest a program waits.
-fn list_token(tokens: Arc<ferb_rpc::RunTokens>) -> ferb_runtimes::claude::ListToken {
-    Arc::new(move |names: &[String]| {
-        let scopes = ferb_orchestrator::lookups::PLANNER_SCOPES
-            .iter()
-            .chain(ferb_orchestrator::lookups::FRONT_SCOPES.iter())
-            .map(|s| s.to_string())
-            .collect();
-        Some(tokens.issue(
-            "keeper.listing",
-            "keeper",
-            ferb_rpc::auth::GrantSpec {
-                scopes,
-                identity: ferb_rpc::auth::Identity::Owner,
-                ttl_s: ferb_runtimes::claude::kept::BRIDGE_WAIT_S,
-                observe_only: false,
-                tools: names.iter().cloned().collect(),
-                max_calls: 0,
-                list_only: true,
-            },
-        ))
-    })
-}
-
-/// T-1343: the runtimes whose front door and planner programs are kept ready (5 idle minutes): every runtime (owner:
-/// one mechanism for every AI).
-pub const KEPT_RUNTIMES: &[&str] = &["codex", "claude", "anthropic", "openai", "google"];
-
-impl RealFactory {
-    /// The adapter a role's calls go through: the keeper's for the chat's front door and planner ("orchestrator") on a
-    /// kept runtime, else the runtime's own (today's start).
-    fn kept(
-        &self,
-        b: &Build,
-        runtime: &str,
-        rt: Arc<dyn ferb_runtimes::keep::Keepable>,
-    ) -> Arc<dyn ferb_runtimes::run::Adapter> {
-        match &self.keeper {
-            Some(k) if b.role == "orchestrator" && KEPT_RUNTIMES.contains(&runtime) => {
-                Arc::new(ferb_runtimes::keep::Kept::new(k.clone(), &b.role, rt))
-            }
-            _ => rt,
-        }
-    }
 }
 
 /// RUN-468: how a tool loop's earlier screens and large reads are compacted, by the owner's numbers (RUN-471). Claude
@@ -324,7 +273,7 @@ impl Factory for RealFactory {
                 }
                 rt.effort = b.effort.clone();
                 Ok(Built {
-                    adapter: self.kept(b, "codex", Arc::new(rt)),
+                    adapter: Arc::new(rt),
                     retried: none(),
                 })
             }
@@ -353,9 +302,8 @@ impl Factory for RealFactory {
                 rt.limit_s = b.limit_s;
                 rt.cli = self.claude_cli.clone();
                 rt.compaction = compaction();
-                rt.list_token = self.tokens.clone().map(list_token);
                 Ok(Built {
-                    adapter: self.kept(b, "claude", Arc::new(rt)),
+                    adapter: Arc::new(rt),
                     retried: none(),
                 })
             }
@@ -393,7 +341,7 @@ impl Factory for RealFactory {
                 rt.compaction = compaction();
                 let retried = rt.retried.clone();
                 Ok(Built {
-                    adapter: self.kept(b, provider, Arc::new(rt)),
+                    adapter: Arc::new(rt),
                     retried: Arc::new(move || {
                         retried.lock().map(|v| v.clone()).unwrap_or_default()
                     }),

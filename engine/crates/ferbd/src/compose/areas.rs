@@ -343,8 +343,6 @@ pub struct GroupB {
     pub notifier: Arc<notify::Notifier>,
     pub sense: Option<Arc<ferb_sense::manager::Sense>>,
     pub native: bool,
-    /// T-1343: the keeper of ready model programs, ended with the daemon.
-    pub keeper: Option<ferb_runtimes::keep::Keeper>,
 }
 
 /// `_osascript_notify` and Mac presence (`Desk`); nothing posts and the Mac counts as in use when the Mac's parts
@@ -604,7 +602,6 @@ impl runtimes::CheckHost for Checks {
                 observe_only,
                 tools: tools.clone(),
                 max_calls: u64::from(max_calls),
-                list_only: false,
             },
         )
     }
@@ -975,9 +972,6 @@ pub fn group_b(
     let keys_area: Arc<std::sync::OnceLock<runtimes::Runtimes>> =
         Arc::new(std::sync::OnceLock::new());
     let k = keys_area.clone();
-    // T-1343: one keeper of ready model programs for the daemon's life, its idle ones ended by a sweep
-    let keeper = ferb_runtimes::keep::Keeper::new(Arc::new(ferb_runtimes::monotonic_now));
-    keeper.run_sweeps(30.0);
     let factory = Arc::new(super::runtimes::RealFactory {
         redactor: s.redactor.clone(),
         bridge,
@@ -996,8 +990,6 @@ pub fn group_b(
         }))),
         claude_cli: ferb_daemon::areas_b::runtimes::Programs::claude_cli(programs.as_ref()).ok(),
         proxy: s.claude_proxy.clone(),
-        keeper: Some(keeper.clone()),
-        tokens: Some(s.tokens.clone()),
     });
     let rt_deps = rt_deps_partial(factory);
     let rt = runtimes::Runtimes::new(host.clone(), rt_deps.clone());
@@ -1013,7 +1005,6 @@ pub fn group_b(
         notifier,
         sense: Some(sense),
         native: opts.native,
-        keeper: Some(keeper),
     }
 }
 
@@ -1082,10 +1073,6 @@ impl GroupB {
     }
 
     pub async fn shutdown(&self) {
-        // T-1343: the ready programs end with the daemon
-        if let Some(k) = &self.keeper {
-            k.shut_down().await;
-        }
         if let Some(s) = &self.sense {
             s.stop().await;
             for (part, ms) in s.slow_stop() {

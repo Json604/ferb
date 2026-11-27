@@ -353,7 +353,6 @@ fn grant_of(op: &Value) -> RunGrant {
         observe_only: op.get("observe_only").is_some_and(|v| v == true),
         tools: BTreeSet::new(),
         max_calls: 0,
-        list_only: false,
     }
 }
 

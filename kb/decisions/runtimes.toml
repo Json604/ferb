@@ -754,25 +754,28 @@ paths = ["engine/crates/ferb-runtimes/src/run.rs", "engine/crates/ferb-runtimes/
 title = "One keeper holds a ready model program per role, runtime and model, ended after 5 idle minutes"
 by = "agent"
 date = 2026-11-27
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-744"
 rule = "For ORCH-726 (step 6). ferb-runtimes keep::Keeper owns ready programs: one per (role, runtime, model) beside those in use, the only thing that starts or ends them; ended after 5 idle minutes (owner), after its message on Claude Code (used once), on a model, effort, tool-list or sign-in change, a crash, or the daemon's stop. Codex keeps its app-server and per message unsubscribes, rewrites the template and resumes the cached thread. Daemon: the orchestrator role (front door, planner) on every runtime."
 why = "A program started before the message saves its start on every turn: 0.13-0.25 s on Claude Code, 0.7-1.2 s on Codex (measured)."
-paths = ["engine/crates/ferb-runtimes/src/keep.rs", "engine/crates/ferbd/src/compose/runtimes.rs"]
+paths = ["engine/crates/ferb-runtimes/src", "engine/crates/ferbd/src/compose/runtimes.rs"]
 
 [RUN-482]
 title = "A kept program's tool bridge reads its message's token per request; blank between messages"
 by = "agent"
 date = 2026-11-27
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-744"
 rule = "For RUN-481. A kept program's tool bridge (FERB_RUN_TOKEN_WAIT set) reads the 0600 token file in the program's 0700 folder on every request and holds none between; the file holds a message's token only while it runs (written by rename before it, blanked after it ended); one message per program at a time, a second concurrent message gets its own program and file. A blank file is refused (no live grant) without reaching the daemon. Today's bridges keep their one token."
 why = "A program started before its message can't be given the message's grant at start; the token must never outlive its grant nor serve two turns."
-paths = ["engine/crates/ferb-runtimes/src/mcp_bridge.rs", "engine/crates/ferb-runtimes/src/keep.rs"]
+paths = ["engine/crates/ferb-runtimes/src/mcp_bridge.rs"]
 
 [RUN-483]
 title = "A Claude Code program made ahead lists FERB's tools with a listing grant; nothing runs with it"
 by = "agent"
 date = 2026-11-27
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-744"
 rule = "For RUN-482. When the keeper makes a Claude Code program ahead, its token file holds a listing grant's token (list_only: the front door's tools under its scopes, lapsing after the longest a program waits) until its message's own token replaces it. The gateway refuses every call made with a list_only grant. Codex starts its tool bridge per thread, after the message's token is written, and needs none."
 why = "Live 2026-11-27: a Claude program made ahead with a blank token file came up with no tools; the model wrote a tool call as text and it reached the owner as the reply."
-paths = ["engine/crates/ferb-runtimes/src/claude/kept.rs", "engine/crates/ferb-gateway/src/admit.rs", "engine/crates/ferbd/src/compose/runtimes.rs"]
+paths = ["engine/crates/ferb-gateway/src/admit.rs", "engine/crates/ferbd/src/compose/runtimes.rs"]

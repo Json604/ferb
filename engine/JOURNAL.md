@@ -14864,3 +14864,15 @@ message's own token replaces as before. ferbd issues it from the daemon's RunTok
 
 **Evidence.** ferb-gateway tests/front_door_tools.rs: a listing grant lists every front tool and runs none. Live check
 on the owner's build next. **Open:** a guard that throws away a ready program reporting no FERB tools.
+
+## 2026-11-27 · 275 · Step 6 dropped: every run starts its program fresh again
+
+**Why (ORCH-744, owner).** Live on his build the ready Claude program failed twice: first it came up with no tools
+(274), then, with the listing grant, its calls ran on the listing grant and were refused ("task is not running"; cause
+not found). The measured gain was about 0.2 s a message on Claude Code (0.7-1.2 s on Codex). Owner: "if you think
+some more tries can help then do, else lets just not do this"; the coordinator recommended stopping.
+
+**What.** Commits 4cf57759, a5eca16a and 4a4f9e8b are reverted in code (the keeper, the kept adapters, the token
+file read per request, the listing grant and `list_only`); journal entries 271, 273, 274 and kb records RUN-481..483
+stay as history, superseded by ORCH-744. T-1343 (step 6 and preparing while typing) is removed; T-1349 (a Codex
+app-server left running when the watchdog drops its start) stays: it is in today's start too.

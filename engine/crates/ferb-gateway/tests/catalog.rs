@@ -75,7 +75,6 @@ fn every_listing_is_python_s_byte_for_byte() {
             observe_only: g["observe_only"].as_bool().unwrap(),
             tools: set(&g["tools"]),
             max_calls: g["max_calls"].as_u64().unwrap(),
-            list_only: false,
         };
         let all = tools_for(&r, &grant, &Live::default());
         // decision: DMN-595: about.diagnostics follows about.read in every listing that holds it, unless the grant
@@ -267,7 +266,6 @@ fn the_trace_tool_is_offered_and_admitted_only_to_a_grant_naming_it() {
         observe_only,
         tools: tools.iter().map(|s| s.to_string()).collect(),
         max_calls: 0,
-        list_only: false,
     };
     let planner = grant(&ferb_orchestrator::lookups::PLANNER_TOOLS, true);
     let worker = grant(&[], false);
@@ -429,7 +427,6 @@ fn the_device_facts_are_a_planner_lookup_and_a_workers_tool() {
         observe_only,
         tools: tools.iter().map(|s| s.to_string()).collect(),
         max_calls: 0,
-        list_only: false,
     };
     for g in [
         grant(&ferb_orchestrator::lookups::PLANNER_TOOLS, true),
@@ -471,7 +468,6 @@ fn a_checks_calls_past_its_cap_are_refused_with_the_checks_words() {
         observe_only: true,
         tools: tools.iter().map(|s| s.to_string()).collect(),
         max_calls: 6,
-        list_only: false,
     };
     let check = grant(&[]);
     for name in ["task.evidence", "browser.snapshot"] {

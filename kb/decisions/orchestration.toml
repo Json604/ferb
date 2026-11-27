@@ -2779,3 +2779,15 @@ rule = "Supersedes ORCH-741; step 7 in part. chat.dispatch_task takes ack, goal 
 why = "Live 2026-11-27: with the whole task form as tool arguments, which no runtime enforces and no prompt explained, Codex guessed fields wrong and was refused up to five times: hand-offs took 36-58 s, the planner's 8-18 s."
 supersedes = ["ORCH-741"]
 paths = ["engine/crates/ferb-supervisor/src/flow/turn/front_door.rs", "engine/crates/ferb-supervisor/src/flow/turn.rs", "engine/crates/ferb-supervisor/src/planner.rs"]
+
+[ORCH-744]
+title = "No ready model program kept ahead of a message: front door step 6 is dropped"
+by = "owner"
+date = 2026-11-27
+status = "active"
+words = "ok i thinkthis program starting first thign isnt happenigna dn rather improving speed its just error after err - if you think some more tries can help then do, else lets just not do this"
+words_source = "Owner 2026-11-27, after two failed live checks of step 6 on his build (a ready Claude program without tools, then its calls on the listing grant), for a gain of about 0.2 s a message."
+rule = "Supersedes RUN-481, RUN-482 and RUN-483 and step 6 of ORCH-726's plan: every model run starts its program fresh, as before step 6; no keeper, no program made ahead, no listing grant, no preparing while he types. The code was reverted."
+supersedes = ["RUN-481", "RUN-482", "RUN-483"]
+paths = ["engine/crates/ferb-runtimes/src/claude/mod.rs"]
+untestable = "The absence of a mechanism; today's start path is covered by the runtimes' own tests."

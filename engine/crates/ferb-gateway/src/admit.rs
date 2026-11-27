@@ -9,9 +9,6 @@ use crate::listing::{identity, observes};
 use crate::tool::Tool;
 use crate::words::{fill, CHECKER_READ_ONLY, CHECK_CALLS_SPENT, LOOKUPS_SPENT};
 
-/// RUN-483: what a call made with a kept program's listing grant gets.
-pub const LIST_ONLY: &str = "no message is running in this program yet, so no tool can run";
-
 /// Why a call isn't admitted: the reply's content, whether its footer names FERB as the origin, and the reason a
 /// small `tool.refused` span records (None: no span, the task isn't running or was stopped).
 #[derive(Debug, Clone, PartialEq)]
@@ -76,15 +73,6 @@ pub fn admit(
         });
     }
     let tool = tool.expect("checked above");
-    // decision: RUN-483 — a kept program's grant before its message lists tools; it never runs one
-    if grant.list_only {
-        return Err(Refusal {
-            content: obj(json!({"error": LIST_ONLY})),
-            ferb_origin: true,
-            span_reason: Some("a kept program's listing grant: its message hasn't started".into()),
-            over_cap: false,
-        });
-    }
     if grant.observe_only && !observes(tool) {
         return Err(Refusal {
             content: obj(json!({"error": CHECKER_READ_ONLY})),

@@ -4,7 +4,6 @@
 //! catalog, a read-only sandbox, approval never, a tool-catalog check of the request trace that fails closed and an
 //! item gate that stops the run on anything not FERB's.
 
-pub mod kept;
 pub mod stream;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -212,9 +211,6 @@ pub struct CodexRuntime {
     pub host: Host,
     /// FERB's capability names the run was given (a plain-mode tool event names its call's, RUN-480).
     pub tool_names: Vec<String>,
-    /// T-1343: set only on a program the keeper keeps across messages: its tool bridge reads the token file at each
-    /// request and waits this long for a blank one (`mcp_bridge::TOKEN_WAIT_ENV`).
-    pub keep_wait_s: Option<f64>,
 }
 
 impl CodexRuntime {
@@ -254,7 +250,6 @@ impl CodexRuntime {
             allowed,
             host,
             tool_names: tool_names.to_vec(),
-            keep_wait_s: None,
         }
     }
 
@@ -292,19 +287,11 @@ impl CodexRuntime {
         let Some(token_file) = token_file else {
             return Err(value_error("worker mode needs a run token file"));
         };
-        let mut env = format!(
+        let env = format!(
             "{{FERB_RUN_TOKEN_FILE={},FERB_HOME={}}}",
             ferb_py::json::dumps(&path_str(token_file)),
             ferb_py::json::dumps(&path_str(&self.ferb_home))
         );
-        if let Some(wait) = self.keep_wait_s {
-            env.pop();
-            env.push_str(&format!(
-                ",{}={}}}",
-                crate::mcp_bridge::TOKEN_WAIT_ENV,
-                ferb_py::json::dumps(&format!("{wait}"))
-            ));
-        }
         Ok(vec![
             "-c".into(),
             format!(

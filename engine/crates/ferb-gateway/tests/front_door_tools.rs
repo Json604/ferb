@@ -195,7 +195,6 @@ fn grant(scopes: &[&str], tools: &[&str], observe_only: bool) -> RunGrant {
         observe_only,
         tools: tools.iter().map(|s| s.to_string()).collect(),
         max_calls: 0,
-        list_only: false,
     }
 }
 
@@ -288,24 +287,4 @@ fn a_hand_off_passes_the_argument_model_unchanged() {
     assert!(check(
         json!({"ack": "On it.", "goal": goal, "task": {"goal": goal}})
     ));
-}
-
-// decision: RUN-483 (a Claude Code program made ahead lists its tools with a listing grant; nothing runs with it)
-#[test]
-fn a_listing_grant_lists_the_front_doors_tools_and_runs_none() {
-    let mut listing = grant(
-        &["task:read", "trail:read", "chat:act"],
-        &FRONT_TOOLS,
-        false,
-    );
-    listing.list_only = true;
-    for t in FRONT_TOOLS {
-        let tool: Arc<dyn Tool> = Arc::new(Named(t.to_string()));
-        assert!(
-            ferb_gateway::listing::offered(&listing, tool.as_ref()),
-            "{t} listed"
-        );
-        let refused = ferb_gateway::admit::admit(&listing, Some(tool.as_ref()), t, false, true, 0);
-        assert!(refused.is_err(), "{t} ran with a listing grant");
-    }
 }

@@ -319,7 +319,6 @@ fn task(words: &str) -> Run {
         observe_only: false,
         tools: BTreeSet::new(),
         max_calls: 0,
-        list_only: false,
     };
     Run {
         pairs,

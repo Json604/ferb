@@ -36,81 +36,6 @@ pub fn token_from(env: &HashMap<String, String>) -> Option<Secret> {
     (!token.is_empty()).then(|| Secret::from(token))
 }
 
-/// T-1343 (kb/plans/front-door.md, "Keeping the runtime ready"): set (to a number of seconds) only in the tool bridge
-/// of a model program FERB keeps ready across messages. Such a program starts before its message's grant exists, so
-/// its token file is blank until FERB writes the message's token into it and blank again once the message ended. The
-/// bridge then reads the file for each request instead of once at its start, holds its `initialize` answer until the
-/// file has a token (at most this long; then it refuses, so the program gets no tools), and a request that finds the
-/// file blank waits the same way and is refused after. Without it the bridge is today's: one token, read at start.
-pub const TOKEN_WAIT_ENV: &str = "FERB_RUN_TOKEN_WAIT";
-
-/// Where a bridge's token comes from.
-pub enum TokenSource {
-    /// Today's: given once at the start (FERB_RUN_TOKEN, or the file read then).
-    Fixed(Secret),
-    /// A kept program's ([`TOKEN_WAIT_ENV`]): the file's content at each request.
-    File {
-        path: PathBuf,
-        wait: std::time::Duration,
-    },
-}
-
-/// How often a kept program's bridge looks at a blank token file again.
-const TOKEN_POLL: std::time::Duration = std::time::Duration::from_millis(20);
-
-impl TokenSource {
-    /// The token a request is sent with now; None when a kept program's file stayed blank for the whole wait.
-    pub async fn current(&self) -> Option<Secret> {
-        match self {
-            TokenSource::Fixed(t) => Some(t.duplicate()),
-            TokenSource::File { path, wait } => {
-                let until = tokio::time::Instant::now() + *wait;
-                loop {
-                    if let Some(t) = read_token(path) {
-                        return Some(t);
-                    }
-                    if tokio::time::Instant::now() >= until {
-                        return None;
-                    }
-                    tokio::time::sleep(TOKEN_POLL).await;
-                }
-            }
-        }
-    }
-
-    fn waits(&self) -> bool {
-        matches!(self, TokenSource::File { .. })
-    }
-}
-
-fn read_token(path: &Path) -> Option<Secret> {
-    let text = std::fs::read_to_string(path).ok()?;
-    let token = ferb_py::value::strip(&text);
-    (!token.is_empty()).then(|| Secret::from(token))
-}
-
-/// The bridge's token source: a kept program's file ([`TOKEN_WAIT_ENV`] and FERB_RUN_TOKEN_FILE, no FERB_RUN_TOKEN),
-/// else today's [`token_from`].
-pub fn source_from(env: &HashMap<String, String>) -> Option<TokenSource> {
-    let direct = env.get("FERB_RUN_TOKEN").is_some_and(|t| !t.is_empty());
-    let wait = env
-        .get(TOKEN_WAIT_ENV)
-        .and_then(|w| w.trim().parse::<f64>().ok())
-        .filter(|w| w.is_finite() && *w > 0.0);
-    let file = env.get("FERB_RUN_TOKEN_FILE").filter(|f| !f.is_empty());
-    match (direct, wait, file) {
-        (false, Some(w), Some(f)) => Some(TokenSource::File {
-            path: PathBuf::from(f),
-            wait: std::time::Duration::from_secs_f64(w),
-        }),
-        _ => token_from(env).map(TokenSource::Fixed),
-    }
-}
-
-/// What a kept program's bridge answers when its token file stayed blank: the call is refused, nothing is sent.
-pub const NO_GRANT: &str =
-    "this tool bridge has no live grant (its message has not started or already ended)";
-
 /// What the shim prints and exits 1 with when no runtime FERB started gave it a token.
 pub const NO_TOKEN: &str =
     "ferb mcp: FERB_RUN_TOKEN is not set (only runtimes started by FERB may use this)";
@@ -262,7 +187,7 @@ fn text_result(text: &str, is_error: bool) -> Value {
 
 struct Bridge {
     socket: PathBuf,
-    token: TokenSource,
+    token: Secret,
     /// mcp name -> capability name, from the last list.
     names: Mutex<HashMap<String, String>>,
     out: tokio::sync::Mutex<Box<dyn AsyncWrite + Send + Unpin>>,
@@ -277,10 +202,7 @@ impl Bridge {
     }
 
     async fn list(&self, id: &Value) -> String {
-        let Some(token) = self.token.current().await else {
-            return error_frame(id, 0, NO_GRANT, None);
-        };
-        match daemon_call(&self.socket, &token, "tools.list", json!({})).await {
+        match daemon_call(&self.socket, &self.token, "tools.list", json!({})).await {
             Ok(r) => {
                 let tools = r
                     .get("tools")
@@ -337,12 +259,13 @@ impl Bridge {
                 }
             }
         }
-        let out = match self.token.current().await {
-            Some(token) => {
-                daemon_call(&self.socket, &token, "tools.call", Value::Object(request)).await
-            }
-            None => Err(CallError::Rpc(NO_GRANT.into())),
-        };
+        let out = daemon_call(
+            &self.socket,
+            &self.token,
+            "tools.call",
+            Value::Object(request),
+        )
+        .await;
         let result = match out {
             Err(CallError::Rpc(m)) => text_result(&format!("FERB refused: {m}"), true),
             Err(CallError::Broken(class, words)) => text_result(
@@ -394,15 +317,6 @@ where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send + 'static,
 {
-    serve_from(input, output, socket, TokenSource::Fixed(token)).await
-}
-
-/// [`serve`] with the token from `token` (a kept program's file, T-1343).
-pub async fn serve_from<R, W>(input: R, output: W, socket: PathBuf, token: TokenSource)
-where
-    R: AsyncRead + Unpin + Send + 'static,
-    W: AsyncWrite + Unpin + Send + 'static,
-{
     let bridge = Arc::new(Bridge {
         socket,
         token,
@@ -448,10 +362,6 @@ where
         };
         let line = match method.as_str() {
             "initialize" => match valid_initialize(params) {
-                // a kept program's bridge answers only once its message's token is there (T-1343)
-                Some(_) if bridge.token.waits() && bridge.token.current().await.is_none() => {
-                    error_frame(&id, 0, NO_GRANT, None)
-                }
                 Some(version) => {
                     initialized = true;
                     result_frame(
@@ -523,11 +433,11 @@ where
 /// exit status (1 without a token, after printing NO_TOKEN).
 pub async fn run_stdio(ferb_home: &Path) -> i32 {
     let env: HashMap<String, String> = std::env::vars().collect();
-    let Some(token) = source_from(&env) else {
+    let Some(token) = token_from(&env) else {
         eprintln!("{NO_TOKEN}");
         return 1;
     };
-    serve_from(
+    serve(
         tokio::io::stdin(),
         tokio::io::stdout(),
         ferb_home.join("run").join("ferb.sock"),

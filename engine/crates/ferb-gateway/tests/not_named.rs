@@ -310,7 +310,6 @@ fn task(words: &str, payload: impl Fn(&std::path::Path) -> String) -> Run {
         observe_only: false,
         tools: BTreeSet::new(),
         max_calls: 0,
-        list_only: false,
     };
     Run {
         submit,

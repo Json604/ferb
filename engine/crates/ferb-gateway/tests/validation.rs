@@ -60,7 +60,6 @@ fn grant(identity: Identity, scopes: BTreeSet<String>, observe_only: bool) -> Ru
         observe_only,
         tools: BTreeSet::new(),
         max_calls: 0,
-        list_only: false,
     }
 }
 

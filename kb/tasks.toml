@@ -896,15 +896,6 @@ why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 5. The prompt t
 decisions = ["ORCH-726"]
 after = ["T-1341"]
 
-[T-1343]
-title = "Front door step 6: a ready program on every runtime (5 idle minutes), preparing while he types"
-area = "runtimes"
-kind = "build"
-status = "open"
-why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 6. Codex: unsubscribe, template, resume per message (measured 21 ms, cache kept). The tool token, the sign-in copy and the typing RPC are settled first."
-decisions = ["ORCH-726"]
-after = ["T-1342"]
-
 [T-1344]
 title = "Front door step 7: complex work to the task architect; simple work starts its worker at once"
 area = "orchestration"
@@ -912,7 +903,7 @@ kind = "build"
 status = "open"
 why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 7. The architect keeps today's plan rules and validation."
 decisions = ["ORCH-726"]
-after = ["T-1343"]
+after = ["T-1342"]
 
 [T-1346]
 title = "Question cards: the task's reason first; the \"FERB treats ... as yours\" line behind an info icon"
@@ -947,4 +938,4 @@ area = "runtimes"
 kind = "bug"
 status = "open"
 why = "Found by journal 271's agent (read in the code, not reproduced live): its reader and stderr tasks hold the run, so the run's Drop never ends the program. Today's start and a kept one alike."
-decisions = ["RUN-481"]
+decisions = ["RUN-472"]
