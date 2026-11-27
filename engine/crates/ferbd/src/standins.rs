@@ -934,6 +934,7 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
                     observe_only: req["observe_only"].as_bool().unwrap_or(false),
                     tools,
                     max_calls: req["max_calls"].as_u64().unwrap_or(0),
+                    list_only: false,
                 },
             );
             Ok(json!(token))
@@ -1034,6 +1035,7 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
                 observe_only: req["observe_only"].as_bool().unwrap_or(false),
                 tools: set("tools"),
                 max_calls: req["max_calls"].as_u64().unwrap_or(0),
+                list_only: false,
             };
             let tools = crate::compose::rpc::tools_for(&d.gateway, &d.b_tools(), &grant);
             Ok(json!(tools))

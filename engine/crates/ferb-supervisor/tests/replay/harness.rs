@@ -757,6 +757,7 @@ impl Daemon for TestDaemon {
                     .map(|t| t.iter().cloned().collect())
                     .unwrap_or_default(),
                 max_calls: max_calls.unwrap_or(0) as u64,
+                list_only: false,
             },
         );
         self.grants.lock().unwrap().insert(
@@ -1330,6 +1331,7 @@ impl Daemon for TestDaemon {
                 observe_only: true,
                 tools: BTreeSet::new(),
                 max_calls: 0,
+                list_only: false,
             };
             self.gw()
                 .call(&grant, tool, args)

@@ -14847,3 +14847,20 @@ its 5 idle minutes. Not wired yet: preparing while he types (needs the app's sid
 Corrected the same day: `KEPT_RUNTIMES` is every runtime (Codex, Claude Code, the API loop). Keeping Codex and the API
 loop off until a live check was the coordinator's call against the owner's decision ("lets make teh 'keeping a program
 running' universal, so that we dont miss any AI"); each runtime is now checked live on his build instead.
+
+## 2026-11-27 · 274 · A Claude program made ahead lists its tools with a listing grant
+
+**Why (RUN-483).** Live on the owner's build (request 68793787): the first message ran in a fresh Claude program and
+left one ready; the second ran in it (start 2 ms) with no tools (input 19,222 tokens against 30,985: the tool
+definitions missing), and the model's tool call written as text reached the owner as the reply. Claude Code lists a
+tool server's tools at its start; the bridge held its `initialize` while the token file was blank, and the message's
+token came too late for that list.
+
+**What.** RunGrant and GrantSpec gain `list_only`; the gateway refuses every call with such a grant (admit.rs,
+LIST_ONLY) while listing works as for any grant. ClaudeRuntime gains `list_token`; a program made ahead writes a
+listing grant's token (the front door's scopes and its tools; ttl BRIDGE_WAIT_S) into its token file, which the
+message's own token replaces as before. ferbd issues it from the daemon's RunTokens. Every grant literal gains
+`list_only: false`.
+
+**Evidence.** ferb-gateway tests/front_door_tools.rs: a listing grant lists every front tool and runs none. Live check
+on the owner's build next. **Open:** a guard that throws away a ready program reporting no FERB tools.

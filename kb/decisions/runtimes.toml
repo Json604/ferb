@@ -767,3 +767,12 @@ status = "active"
 rule = "For RUN-481. A kept program's tool bridge (FERB_RUN_TOKEN_WAIT set) reads the 0600 token file in the program's 0700 folder on every request and holds none between; the file holds a message's token only while it runs (written by rename before it, blanked after it ended); one message per program at a time, a second concurrent message gets its own program and file. A blank file is refused (no live grant) without reaching the daemon. Today's bridges keep their one token."
 why = "A program started before its message can't be given the message's grant at start; the token must never outlive its grant nor serve two turns."
 paths = ["engine/crates/ferb-runtimes/src/mcp_bridge.rs", "engine/crates/ferb-runtimes/src/keep.rs"]
+
+[RUN-483]
+title = "A Claude Code program made ahead lists FERB's tools with a listing grant; nothing runs with it"
+by = "agent"
+date = 2026-11-27
+status = "active"
+rule = "For RUN-482. When the keeper makes a Claude Code program ahead, its token file holds a listing grant's token (list_only: the front door's tools under its scopes, lapsing after the longest a program waits) until its message's own token replaces it. The gateway refuses every call made with a list_only grant. Codex starts its tool bridge per thread, after the message's token is written, and needs none."
+why = "Live 2026-11-27: a Claude program made ahead with a blank token file came up with no tools; the model wrote a tool call as text and it reached the owner as the reply."
+paths = ["engine/crates/ferb-runtimes/src/claude/kept.rs", "engine/crates/ferb-gateway/src/admit.rs", "engine/crates/ferbd/src/compose/runtimes.rs"]

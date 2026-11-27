@@ -604,6 +604,7 @@ impl runtimes::CheckHost for Checks {
                 observe_only,
                 tools: tools.clone(),
                 max_calls: u64::from(max_calls),
+                list_only: false,
             },
         )
     }
@@ -996,6 +997,7 @@ pub fn group_b(
         claude_cli: ferb_daemon::areas_b::runtimes::Programs::claude_cli(programs.as_ref()).ok(),
         proxy: s.claude_proxy.clone(),
         keeper: Some(keeper.clone()),
+        tokens: Some(s.tokens.clone()),
     });
     let rt_deps = rt_deps_partial(factory);
     let rt = runtimes::Runtimes::new(host.clone(), rt_deps.clone());

@@ -1825,6 +1825,7 @@ mod wiring_tests {
             observe_only: false,
             tools: Default::default(),
             max_calls: 0,
+            list_only: false,
         };
         assert_eq!(act.point(&a, &grant).await, Ok(None));
         assert!(act.terminal_input(&a, "t-1").await.is_none());

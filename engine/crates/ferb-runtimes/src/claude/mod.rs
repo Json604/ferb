@@ -240,7 +240,13 @@ pub struct ClaudeRuntime {
     /// each request and holds its `initialize` answer until the message's token is there, waiting at most this long
     /// (`mcp_bridge::TOKEN_WAIT_ENV`), and Claude Code waits as long for the bridge (MCP_TIMEOUT).
     pub keep_wait_s: Option<f64>,
+    /// RUN-483: issues a listing grant's token for these tools (it lists them; every call is refused), written into a
+    /// program made ahead so Claude Code lists FERB's tools at its start, before its message's token exists.
+    pub list_token: Option<ListToken>,
 }
+
+/// RUN-483: a listing grant's token for the tools named.
+pub type ListToken = Arc<dyn Fn(&[String]) -> Option<String> + Send + Sync>;
 
 impl ClaudeRuntime {
     #[allow(clippy::too_many_arguments)]
@@ -305,6 +311,7 @@ impl ClaudeRuntime {
             compaction: None,
             tool_names: tool_names.to_vec(),
             keep_wait_s: None,
+            list_token: None,
         }
     }
 

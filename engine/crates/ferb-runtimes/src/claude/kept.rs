@@ -129,7 +129,14 @@ impl Keepable for ClaudeRuntime {
             let mut steps = Steps::new(rt.now());
             let run_id = format!("run-{}", (rt.host.token_hex)(6));
             let token_file = if has_token {
-                Some(write_token_file(&rt.host.temp_root, "")?)
+                // decision: RUN-483 — a listing token until the message's own: Claude Code lists FERB's tools at its
+                // start and would come up without them while the file is blank (live 2026-11-27)
+                let listing = rt
+                    .list_token
+                    .as_ref()
+                    .and_then(|issue| issue(&rt.tool_names))
+                    .unwrap_or_default();
+                Some(write_token_file(&rt.host.temp_root, &listing)?)
             } else {
                 None
             };

@@ -711,6 +711,7 @@ impl SupDaemon {
                 .map(|t| t.iter().cloned().collect())
                 .unwrap_or_default(),
             max_calls: 0,
+            list_only: false,
         }
     }
 
@@ -802,6 +803,7 @@ impl Daemon for SupDaemon {
                     .map(|t| t.iter().cloned().collect())
                     .unwrap_or_default(),
                 max_calls: max_calls.unwrap_or(0) as u64,
+                list_only: false,
             },
         )
     }
@@ -1331,6 +1333,7 @@ impl Daemon for SupDaemon {
             observe_only: true,
             tools: BTreeSet::new(),
             max_calls: 0,
+            list_only: false,
         };
         let (gw, tool, args, span) = (
             self.gateway.clone(),
@@ -1577,6 +1580,7 @@ impl Daemon for SupDaemon {
             observe_only: true,
             tools: BTreeSet::new(),
             max_calls: 0,
+            list_only: false,
         };
         Box::pin(async move {
             self.tools

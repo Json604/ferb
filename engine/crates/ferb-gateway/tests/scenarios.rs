@@ -1012,6 +1012,7 @@ fn setup(r: &mut Run, sc: &Value) {
                 .into_iter()
                 .collect(),
             max_calls: t.get("max_calls").and_then(Value::as_u64).unwrap_or(0),
+            list_only: false,
         };
         r.grants.push((s(&t, "grant").unwrap_or(id), grant));
     }
@@ -2415,6 +2416,7 @@ fn the_daemon_recordings_file_calls_get_the_same_replies() {
                 observe_only: false,
                 tools: BTreeSet::new(),
                 max_calls: 0,
+                list_only: false,
             };
             let args = c["arguments"].as_object().unwrap().clone();
             let reply = rt.block_on(async {

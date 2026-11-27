@@ -224,6 +224,33 @@ pub struct RealFactory {
     pub proxy: Option<Arc<dyn ferb_runtimes::claude::ToolProxy>>,
     /// T-1343 (kb/plans/front-door.md, "Keeping the runtime ready"): the daemon's one keeper of ready programs.
     pub keeper: Option<ferb_runtimes::keep::Keeper>,
+    /// RUN-483: where a kept Claude program's listing token is issued (the daemon's run tokens).
+    pub tokens: Option<Arc<ferb_rpc::RunTokens>>,
+}
+
+/// RUN-483: a listing grant's token for a Claude Code program made ahead: it lists the named tools under the front
+/// door's scopes and every call with it is refused (`list_only`); it lapses after the longest a program waits.
+fn list_token(tokens: Arc<ferb_rpc::RunTokens>) -> ferb_runtimes::claude::ListToken {
+    Arc::new(move |names: &[String]| {
+        let scopes = ferb_orchestrator::lookups::PLANNER_SCOPES
+            .iter()
+            .chain(ferb_orchestrator::lookups::FRONT_SCOPES.iter())
+            .map(|s| s.to_string())
+            .collect();
+        Some(tokens.issue(
+            "keeper.listing",
+            "keeper",
+            ferb_rpc::auth::GrantSpec {
+                scopes,
+                identity: ferb_rpc::auth::Identity::Owner,
+                ttl_s: ferb_runtimes::claude::kept::BRIDGE_WAIT_S,
+                observe_only: false,
+                tools: names.iter().cloned().collect(),
+                max_calls: 0,
+                list_only: true,
+            },
+        ))
+    })
 }
 
 /// T-1343: the runtimes whose front door and planner programs are kept ready (5 idle minutes): every runtime (owner:
@@ -326,6 +353,7 @@ impl Factory for RealFactory {
                 rt.limit_s = b.limit_s;
                 rt.cli = self.claude_cli.clone();
                 rt.compaction = compaction();
+                rt.list_token = self.tokens.clone().map(list_token);
                 Ok(Built {
                     adapter: self.kept(b, "claude", Arc::new(rt)),
                     retried: none(),
