@@ -444,6 +444,8 @@ struct Channel {
     lines: LineGuard,
     streamed: String,
     visible: bool,
+    /// What the owner was shown on this channel, after redaction and the guard (an accepted ack's `plan_end` names it).
+    shown: String,
 }
 
 impl Channel {
@@ -455,6 +457,7 @@ impl Channel {
             lines: LineGuard::new(reply),
             streamed: String::new(),
             visible: false,
+            shown: String::new(),
         }
     }
 
@@ -464,6 +467,7 @@ impl Channel {
         let guarded = self.lines.feed(policy, &safe, last);
         if !guarded.is_empty() {
             self.visible = true;
+            self.shown.push_str(&guarded);
             emit(json!({"type": format!("{}_delta", self.name), "text": guarded}));
         }
     }
@@ -598,7 +602,9 @@ impl PlainReply {
         self.ack
             .show(self.policy.as_ref(), self.emit.as_ref(), "", true);
         if self.ack.visible {
-            (self.emit)(json!({"type": "plan_end"}));
+            // decision: ORCH-747 — accepted: code took the hand-off, so the ack is never withdrawn; the app may show it
+            // at once wherever it shows a plan line (the closed notch too), with the exact text the chat was shown
+            (self.emit)(json!({"type": "plan_end", "accepted": true, "text": self.ack.shown}));
         }
         self.ack = Channel::new("plan", false, &self.redactor);
     }

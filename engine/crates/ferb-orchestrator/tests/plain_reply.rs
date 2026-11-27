@@ -324,7 +324,7 @@ fn the_ack_is_guarded_as_a_tasks_line_on_the_plan_channel() {
         joined(&taken(&frames)),
         vec![
             json!({"type": "plan_delta", "text": "(from the task) FERB will book it."}),
-            json!({"type": "plan_end"}),
+            json!({"type": "plan_end", "accepted": true, "text": "(from the task) FERB will book it."}),
         ]
     );
     // a later call's ack streams afresh, its first line guarded again
@@ -334,7 +334,7 @@ fn the_ack_is_guarded_as_a_tasks_line_on_the_plan_channel() {
         joined(&taken(&frames)),
         vec![
             json!({"type": "plan_delta", "text": "(from the task) Ferb's on it."}),
-            json!({"type": "plan_end"}),
+            json!({"type": "plan_end", "accepted": true, "text": "(from the task) Ferb's on it."}),
         ]
     );
     // the reply's guard is not the ack's: a reply line starting "FERB's" is shown as written (GATE-581)
@@ -380,7 +380,8 @@ fn a_refused_hand_off_withdraws_its_ack_and_a_repaired_one_streams_afresh() {
         joined(&taken(&frames)),
         vec![
             json!({"type": "plan_delta", "text": "Saving [redacted]."}),
-            json!({"type": "plan_end"}),
+            // decision: ORCH-747 — the accepted ack's text is what was shown: redacted, never the raw words
+            json!({"type": "plan_end", "accepted": true, "text": "Saving [redacted]."}),
         ]
     );
 }

@@ -841,3 +841,33 @@ fn several_stops_in_one_message_are_each_checked_and_other_controls_stay_one() {
     let third = got[2].1.clone().unwrap_err();
     assert!(third.contains("One control per message"), "{third}");
 }
+
+// decision: ORCH-747 (the accepted ack ends marked accepted with its shown text; a live planning line runs until the plan)
+#[test]
+fn a_hand_off_shows_its_accepted_ack_then_a_planning_line_until_the_plan() {
+    let (_, report) = run("one_step_task", true, None);
+    let frames = frames(&report);
+    let kinds: Vec<&str> = frames
+        .iter()
+        .map(|f| f["type"].as_str().unwrap_or(""))
+        .collect();
+    let end = frames
+        .iter()
+        .position(|f| f["type"] == "plan_end")
+        .expect("the ack ends");
+    assert_eq!(frames[end]["accepted"], json!(true), "{frames:#?}");
+    assert_eq!(frames[end]["text"], json!("On it."));
+    let plan = frames
+        .iter()
+        .position(|f| f["type"] == "plan")
+        .expect("the plan");
+    let line = frames
+        .iter()
+        .position(|f| f["type"] == "progress" && f["planning"] == json!(true))
+        .expect("a planning line");
+    assert!(end < line && line < plan, "{kinds:?}");
+    assert_eq!(
+        frames[line]["text"],
+        json!(ferb_supervisor::words::PLANNING_LINES[0])
+    );
+}

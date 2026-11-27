@@ -1502,9 +1502,14 @@ const EXPECTED: &[(&str, &[&str], &str)] = &[
         "A run ended on its hand-off or question (ORCH-733) reads no further event, so the scripted usage event after its calls is never read: one usage record fewer. Whether a real runtime's usage reaches the record at its close (RUN-477) is unverified here.",
     ),
     (
+        "frames +plan_delta +plan_end +progress",
+        &["clarify_then_answer", "one_step_task", "multi_step_plan", "steer_running_task", "stop_by_task_stop", "stop_by_chat", "stop_plus_new_task", "global_stop", "checker_rejects", "checker_findings_fix", "worker_question_answered", "check_in_after_five", "restart_mid_task", "restart_with_open_question", "attachment_and_bad_params", "several_asks", "plan_parts_checklist", "answer_in_chat", "checklist_single", "ask_step", "checker_runtime_down", "earlier_result", "loop_steer_finish", "loop_pause_stop", "mention_paused", "owner_closed_tab", "reason_findings", "runtime_switch_tap", "stated_scope", "browse_as_corrected", "login_sites"],
+        "An accepted hand-off's ack is shown on the plan channel (ack, ack_end) before its plan frame (ORCH-735), and a planning line runs under it while the planner writes the task (ORCH-747); the recorded planner's whole answer streamed nothing first.",
+    ),
+    (
         "frames +plan_delta +plan_end",
-        &["clarify_then_answer", "one_step_task", "one_step_with_tools", "checker_skips_change_records", "multi_step_plan", "confirm_no", "confirm_stop_pending", "steer_running_task", "stop_by_task_stop", "stop_by_chat", "stop_plus_new_task", "global_stop", "wait_for_time", "tool_failure_then_retry", "checker_rejects", "checker_findings_fix", "worker_question_answered", "check_in_after_five", "restart_mid_task", "restart_with_open_question", "attachment_and_bad_params", "several_asks", "plan_parts_checklist", "answer_in_chat", "checklist_single", "ask_step", "wait_step", "route_question", "checker_runtime_down", "correct_pending_check", "earlier_result", "loop_steer_finish", "loop_pause_stop", "mention_paused", "owner_closed_tab", "reason_findings", "runtime_switch_tap", "event_wait", "conversation_handover", "conversation_change", "stated_scope", "browse_as_corrected", "probe_watch", "login_sites", "conversation_resume", "confirm_yes", "pause_steer_resume"],
-        "An accepted hand-off's ack is shown on the plan channel (ack, ack_end) before its plan frame (ORCH-735); the recorded planner's whole answer streamed nothing first.",
+        &["checker_skips_change_records", "confirm_no", "confirm_stop_pending", "confirm_yes", "conversation_change", "conversation_handover", "conversation_resume", "correct_pending_check", "event_wait", "one_step_with_tools", "pause_steer_resume", "probe_watch", "route_question", "tool_failure_then_retry", "wait_for_time", "wait_step"],
+        "An accepted hand-off's ack is shown on the plan channel (ack, ack_end) before its plan frame (ORCH-735), and a planning line runs under it while the planner writes the task (ORCH-747; these runs already had a live line later, so it shows as no new kind); the recorded planner's whole answer streamed nothing first.",
     ),
     (
         "episodes.steps_json",
@@ -1512,7 +1517,7 @@ const EXPECTED: &[(&str, &[&str], &str)] = &[
         "A hand-off's turn makes two planner calls (ORCH-743): the front door's, whose Planner line is its ack (\"task — On it.\"), then the planner's writing the task, whose line is the planner run's (\"task — <goal>\"); so the episode has one Planner line more, and each later line's \"verified in step N\" counts one further. In plan_repair and unbacked_part the planner's run repaired its first answer (two Planner lines); the front door hands off at once and the planner writing the task repairs it the same way (three).",
     ),
     (
-        "frames +plan_delta +plan_end -plan_abort",
+        "frames +plan_delta +plan_end +progress -plan_abort",
         &["plan_repair", "unbacked_part"],
         "The planner's run showed the refused plan and withdrew it (plan_abort) before the repaired one; the front door shows a hand-off only once code accepted it (ack, ack_end).",
     ),
@@ -1522,7 +1527,7 @@ const EXPECTED: &[(&str, &[&str], &str)] = &[
         "The recorded answer pauses the chat in the owner's words and closes it quoting words he never wrote, and its repair repeats them. As in the planner's run, the pause is applied and the close refused (ORCH-739: the call keeps its good entry and its error names the refused one), so the call shows as refused in the trace.",
     ),
     (
-        "frames +plan_delta +plan_end -progress -plan_abort",
+        "frames +plan_delta +plan_end -plan_abort",
         &["inventory_walk"],
         "The front door hands off at once (its ack shown: plan_delta, plan_end); the planner writing the task then gives a plan code refuses and repairs it into a reply, which stands (ORCH-743: a planner that replies instead is heard). That planner call has no live stream, so the owner sees neither the walk of the plan's folders (progress) nor the plan's withdrawal (plan_abort): the ack, then the reply.",
     ),

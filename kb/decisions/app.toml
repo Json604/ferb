@@ -2910,7 +2910,8 @@ live = ["LIVE-812"]
 title = "The closed notch shows a task's reply only once FERB accepted it"
 by = "owner"
 date = 2026-11-07
-status = "active"
+status = "superseded"
+superseded_by = "APP-1145"
 words = "oh ok, make sure tha tthis also doesnt show in the temo acknowledgement notch response for the task."
 words_source = "Owner, 2026-11-07, about the reply that flashed in the closed notch and was then withdrawn for repair (APP-786)"
 rule = "Refines APP-622/624's planning preview for tasks: the closed notch no longer streams a task's reply (plan_delta), since the daemon may still withdraw it; it shows the reply when the plan event arrives, then for six seconds as before. A withdrawn reply no longer blocks the accepted one from showing. Plain answers are unchanged (they open the chat)."
@@ -4893,3 +4894,15 @@ rule = "For APP-1143. PasteEditorTextView, an NSTextView with its own UndoManage
 why = "The native view keeps undo, selection, cut/copy/paste, input methods and Command-A, which the panels route to the focused field (APP-717). Its own undo never reaches a closed editor. Removing on close lets select-all-and-type replace the text. Multi-line text needs Return for lines."
 rejected = ["Return sends from the editor too (APP-554 everywhere): editing a log or a list needs new lines, and Shift-Return there would be easy to miss", "Remove the chip the moment its text is empty: select-all and type to replace it would lose the chip", "Mark the owner's words typed inside a chip as his own (not pasted): which words inside are typed isn't tracked for a held paste, and the conservative reading is the paste's"]
 paths = ["apps/mac/FERBNotch/Sources/FERBNotch/ComposerPaste.swift::PasteEditorTextView", "apps/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift::HandlesOwnReturn", "apps/mac/FERBNotch/Sources/FERBNotch/ChatInput.swift::KeyFocusTextView", "apps/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift::NotchModel.closeShownPaste", "apps/mac/FERBNotch/Sources/FERBNotch/PanelCoordinator.swift", "apps/mac/FERBNotch/Sources/FERBNotch/ChatWindow.swift"]
+
+[APP-1145]
+title = "The closed notch shows the front door's accepted ack at once, and once"
+by = "owner"
+date = 2026-11-27
+status = "active"
+words = "yes yes, but just make the line like an indicator not frozen, have a few words that keep changing ig, that could be better."
+words_source = "Owner 2026-11-27, approving that the closed notch show the ack right away and not again with the plan, and a planning line while the task is written."
+rule = "Supersedes APP-787. The closed notch still never shows a task's reply while it streams (plan_delta), since it may be withdrawn; it shows the front door's ack when its plan_end arrives marked accepted (ORCH-747), for six seconds as before, and the plan event's same words don't show it again. A withdrawn reply never blocks the accepted one. Plain answers are unchanged (they open the chat)."
+supersedes = ["APP-787"]
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift"]
+untestable = "The closed notch's presentation is checked live by the owner (APP-567); the daemon's frames are tested (ORCH-747)."

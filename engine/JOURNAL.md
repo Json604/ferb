@@ -14996,3 +14996,24 @@ ORCH-719 item 6's "newest 15 open items" is not built (not in this brief). The l
 window doesn't show the result) still carries `Result id-…` ids. `smallest_model` on Codex depends on its catalog
 having a priced model. The Memory page still lists all profile rows (the card is the prompt's view). The live five-year
 size is invented data; the plan's 8k fixed part waits on the tools' schemas.
+
+## 2026-11-27 · 276 · The accepted ack shows once, and a changing planning line runs until the plan
+
+**Why (ORCH-747, APP-1145, owner).** Live: the closed notch showed the ack only when the plan came (APP-787 held
+every streamed plan line back, since the old planner could withdraw one), so it seemed to arrive twice, and nothing
+moved during the 11-28 s the planner took to write a task.
+
+**What.** PlainReply's ack_end sends plan_end {accepted: true, text: what the chat was shown (redacted)}. FERB.app's
+closed notch shows that text at once (DaemonConnection.swift); the plan's same words don't show again (the preview
+is already up or dismissed). While the planner writes a handed-off task, decide sends progress {planning: true}
+under the ack, one start time, the words cycling every 2.5 s through words::PLANNING_LINES ("Working out the steps…",
+"Picking where to look…", "Deciding what counts as done…"); `biased` select sends the first line before the
+planner runs (without it the replay showed the line missing at random).
+
+**Evidence.** ferb-orchestrator plain_reply (10, the redacted case included); ferb-supervisor front_door (15, the new
+ack-then-planning-line test); ferbd front_door_replay (10; the frame entries split by whether the old run already
+had a live line); FERBNotch swift test (988, 9 skipped, 0 failures).
+
+Also decided with the owner today, not built: the Space-switch put-back (one live false positive: FERB put Code back
+after his own swipe to Brave during a Brave task; owner: leave as is) and the extension's debugger detach on an
+unrecorded tab (one live banner; owner: "might be jsut a one time err ig. so lets not fix it").

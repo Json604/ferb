@@ -2815,3 +2815,13 @@ rule = "For ORCH-726 step 8 and ORCH-719. Conversation lines carry their [cN] ta
 why = "The per-entry origin lists and 32-character ids cost tokens without helping a decision; a day-stable block is cached once a day."
 supersedes = ["ORCH-728"]
 paths = ["engine/crates/ferb-supervisor/src/history.rs", "engine/crates/ferb-learning/src/library.rs", "engine/crates/ferb-supervisor/src/flow/library.rs"]
+
+[ORCH-747]
+title = "An accepted ack ends marked accepted; a changing planning line runs until the plan"
+by = "owner"
+date = 2026-11-27
+status = "active"
+words = "yes yes, but just make the line like an indicator not frozen, have a few words that keep changing ig, that could be better."
+words_source = "Owner 2026-11-27, on a live line under the ack while the planner writes a handed-off task (it took 11-28 s live)."
+rule = "For ORCH-743. The front door's accepted ack ends with plan_end {accepted: true, text: what the chat was shown, redacted}. While the planner writes the task FERB sends progress {planning: true} lines under it, one start time, the words changing every 2.5 s through words::PLANNING_LINES, until the plan comes."
+paths = ["engine/crates/ferb-orchestrator/src/reply_stream.rs", "engine/crates/ferb-supervisor/src/flow/turn.rs", "engine/crates/ferb-supervisor/src/words.rs"]

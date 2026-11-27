@@ -1024,7 +1024,28 @@ impl Inner {
                 // decision: ORCH-743 — a hand-off carries only its ack and goal; the planner writes its task, with its
                 // answer form and rules, while the owner already reads the ack
                 Ok(out) if out.kind == "task" && out.task.is_none() => {
-                    let planned = self.planner_decide(turn, None, cancel).await;
+                    // decision: ORCH-747 — while the planner writes the task the owner sees a live line under the ack,
+                    // its words changing every few seconds (one start time, so the app's timer runs on)
+                    let ticker = {
+                        let emit = emit.clone();
+                        let started_at = self.now_iso();
+                        async move {
+                            for line in crate::words::PLANNING_LINES.iter().cycle() {
+                                let _ = emit.send(json!({"type": "progress", "text": line,
+                                    "planning": true, "started_at": started_at}));
+                                tokio::time::sleep(std::time::Duration::from_secs_f64(
+                                    crate::words::PLANNING_LINE_S,
+                                ))
+                                .await;
+                            }
+                        }
+                    };
+                    // biased: the ticker is polled first, so its first line always goes out before the planner runs
+                    let planned = tokio::select! {
+                        biased;
+                        _ = ticker => unreachable!("the planning line runs until the plan is written"),
+                        r = self.planner_decide(turn, None, cancel) => r,
+                    };
                     turn.lock().unwrap().handoff = None;
                     return Ok(super::turn::front_door::with_task(out, planned?));
                 }

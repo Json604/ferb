@@ -427,7 +427,14 @@ extension NotchModel {
                 // APP-787: the closed notch never shows a task's reply while it streams: the daemon may still withdraw
                 // it (a plan sent back for repair, `plan_abort`). It shows the reply once FERB accepted it (`plan`).
                 if expanded || chatInWindow { acknowledgement.suppress(turn: localID) }
-            case "plan_abort", "plan_end": break      // nothing streamed into the closed notch, so nothing to withdraw
+            case "plan_abort": break      // nothing streamed into the closed notch, so nothing to withdraw
+            case "plan_end":
+                // ORCH-747: the front door's ack ends `accepted` (code took the hand-off, so it is never withdrawn):
+                // the closed notch shows it now instead of when the plan comes; the plan's same words don't show again
+                if event["accepted"] as? Bool == true, let text = event["text"] as? String {
+                    if expanded || chatInWindow { acknowledgement.suppress(turn: localID) }
+                    else { acknowledgement.finish(text, turn: localID) }
+                }
             case "plan":
                 if expanded || chatInWindow { acknowledgement.suppress(turn: localID) }
                 else if let text = event["text"] as? String, text != previousPlan {

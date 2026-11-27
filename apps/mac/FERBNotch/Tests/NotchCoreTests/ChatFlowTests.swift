@@ -260,7 +260,7 @@ final class ChatFlowTests: XCTestCase {
         XCTAssertFalse(restored.turns[0].isVerified)
     }
 
-    // decision: APP-787
+    // decision: APP-1145
     func testTheClosedNotchShowsATasksReplyOnlyOnceFERBAcceptedIt() {
         // Owner 2026-11-07: a reply the planner withdrew (its plan sent back for repair) flashed in the closed notch;
         // "make sure tha tthis also doesnt show in the temo acknowledgement notch response for the task".
