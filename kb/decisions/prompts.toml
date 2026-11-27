@@ -934,3 +934,15 @@ rule = "For ORCH-735. engine/runtime/orchestrator/prompts/concierge.md is the fr
 why = "The front door replaces the planner's 301-line role and its answer form with a short role and typed tools."
 paths = ["engine/runtime/orchestrator/prompts/concierge.md"]
 untestable = "Prompt text is not tested (TEST-500); the front door tests check that concierge.md is the run's role."
+
+[PRM-386]
+title = "concierge.md: the front door asks when the owner's words fit two readings, never guesses"
+by = "owner"
+date = 2026-11-27
+status = "active"
+words = "yeah thats good, land it"
+words_source = "Owner 2026-11-27, approving the widened ask rule after the front door read \"set a timer for 5:40\" as 5 min 40 s and told him after; he asked to generalise it beyond times."
+rule = "For PRM-385. concierge.md's ask rule: a what, who, which or when that the message, the conversation and the records don't settle (missing, or the words fit two readings that lead to different results) gets one short chat.ask question and nothing else; never pick a reading and tell the owner after; never ask how or for routine permission."
+why = "Live 2026-11-27: the old planner asked \"5 minute 40 second timer, or an alarm at 5:40?\"; the front door guessed a 5.67-minute timer."
+paths = ["engine/runtime/orchestrator/prompts/concierge.md"]
+untestable = "Prompt text is not tested (TEST-500); checked live by resending the owner's message."
