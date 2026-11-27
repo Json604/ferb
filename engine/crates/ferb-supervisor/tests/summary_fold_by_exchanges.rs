@@ -88,8 +88,7 @@ fn journal(w: &World, kind: &str) -> Vec<Value> {
 }
 
 // decision: ORCH-303
-// decision: ORCH-304
-// decision: ORCH-718
+// decision: ORCH-718 (the fold as a Python recording's replay keeps it; ORCH-745 ended it for the front door)
 #[test]
 fn a_chat_of_short_exchanges_folds_and_the_next_planner_reads_the_last_20() {
     let name = "plain_reply";

@@ -164,6 +164,7 @@ fn every_planner_call() {
                 covered: &covered,
                 reads: &Reads(&outcomes),
                 zone: &zone,
+                lean: false,
             });
             let got: Vec<Value> = entries.iter().map(entry_json).collect();
             assert_eq!(Value::Array(got), tl["entries"], "{what}: the timeline");
@@ -333,6 +334,7 @@ fn every_planner_call() {
                 sent_from: &[],
                 // a recording's planner had no such line (ORCH-730 is the bounded planner's)
                 last_said: None,
+                library: None,
                 wrap: &wrap,
                 zone: &zone,
             });
@@ -616,6 +618,7 @@ fn an_owner_message_says_which_device_it_was_sent_from() {
         covered: &BTreeSet::new(),
         reads: &Reads(&outcomes),
         zone: &zone,
+        lean: false,
     });
     let lines: Vec<&str> = entries.iter().map(|e| e.text.as_str()).collect();
     assert!(

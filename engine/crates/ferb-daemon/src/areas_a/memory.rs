@@ -487,6 +487,9 @@ pub fn pending_own(st: &State, kind: &str) -> Option<String> {
 /// `_chat_forget`: a forget the owner asked for in chat. Nothing is deleted now: FERB asks a plain Yes/No question
 /// naming exactly what goes and what stays; [`question_answered`] forgets on the Yes.
 pub fn chat_forget(st: &State, item_id: &str, request_id: &str) -> ferb_learning::Result<String> {
+    // front door step 8: the card names an item by its handle (`m:1a2b3c4d`)
+    let named = ferb_learning::profile::from_handle(&st.store, item_id)?;
+    let item_id = named.as_deref().unwrap_or(item_id);
     let node = st.learning.get(item_id, true)?;
     let ident = match &node {
         Some(n) if n["kind"] == "fact" => n["body"]
@@ -807,6 +810,10 @@ pub fn time_meanings(st: &State) -> Vec<(String, String)> {
 /// `_memory_id`: a memory id the planner named: a memory item's id, or the fact node it was shown as.
 pub fn memory_id(st: &State, ident: &str) -> String {
     let ident = ferb_py::value::strip(ident).to_owned();
+    // front door step 8: the card names an item by its handle (`m:1a2b3c4d`)
+    if let Ok(Some(id)) = ferb_learning::profile::from_handle(&st.store, &ident) {
+        return id;
+    }
     if matches!(st.memory.get(&ident), Ok(Some(_))) {
         return ident;
     }

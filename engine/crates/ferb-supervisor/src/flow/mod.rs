@@ -45,6 +45,7 @@ pub mod entries;
 pub mod entries_rpc;
 pub mod fold;
 pub mod host;
+pub mod library;
 pub mod loops;
 pub mod memory_side;
 pub mod store;
@@ -843,6 +844,8 @@ pub struct Turn {
     pub front: Option<turn::front_door::FrontRun>,
     /// ORCH-743: the front door's hand-off goal while the planner writes its task (its tail says so); None otherwise.
     pub handoff: Option<String>,
+    /// Front door step 8: what each conversation tag the planner was shown names.
+    pub tags: std::collections::BTreeMap<String, crate::history::Tagged>,
 }
 
 impl Turn {

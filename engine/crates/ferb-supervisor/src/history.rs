@@ -43,6 +43,10 @@ pub struct Entry {
     pub values: Option<Value>,
     /// ORCH-619: a result's id, "" for any other entry.
     pub result: String,
+    /// Its tag in the conversation (`c3`), "" before tags are given.
+    pub tag: String,
+    /// The task it is about (a result's, a part's, a stopped task's reply), "" for none.
+    pub task: String,
 }
 
 /// What the timeline reads besides the rows.
@@ -66,6 +70,9 @@ pub struct Timeline<'a> {
     pub covered: &'a BTreeSet<String>,
     pub reads: &'a dyn TimelineReads,
     pub zone: &'a Zone,
+    /// Front door step 8: the shorter lines (no 32-hex ids, the tag is the entry's id, an origin list becomes "has
+    /// outside content" or nothing). Off for a replay of a Python recording, whose planner read today's lines.
+    pub lean: bool,
 }
 
 fn s(data: &Map<String, Value>, key: &str) -> Option<String> {
@@ -89,6 +96,22 @@ fn held_in(data: &Map<String, Value>, key: &str, set: &BTreeSet<String>) -> bool
 
 fn shown(held: &BTreeSet<String>) -> String {
     origin::shown(held.iter().map(String::as_str))
+}
+
+/// Front door step 8: what a lean line says of an entry's origins: only that it holds outside content.
+pub const OUTSIDE: &str = "has outside content";
+
+fn outside_of(held: &BTreeSet<String>) -> bool {
+    held.iter().any(|o| origin::is_external(o))
+}
+
+/// "; has outside content" when the entry holds some, else "".
+fn lean_origin(held: &BTreeSet<String>) -> String {
+    if outside_of(held) {
+        format!("; {OUTSIDE}")
+    } else {
+        String::new()
+    }
 }
 
 /// continuity.py `_reserved`, as the conversation store's (ferb-orchestrator `continuity::RESERVED_SESSIONS`): a
@@ -121,6 +144,17 @@ pub fn self_post(
     conversation: Option<&str>,
     task_ids: Option<&BTreeSet<String>>,
     zone: &Zone,
+) -> Option<Entry> {
+    self_post_lines(entry, conversation, task_ids, zone, false)
+}
+
+/// [`self_post`], with the lean lines when `lean` (front door step 8).
+pub fn self_post_lines(
+    entry: &JournalRow,
+    conversation: Option<&str>,
+    task_ids: Option<&BTreeSet<String>>,
+    zone: &Zone,
+    lean: bool,
 ) -> Option<Entry> {
     let data = &entry.data;
     let held = origin::split(Some(&entry.origin));
@@ -155,7 +189,21 @@ pub fn self_post(
             false,
         );
         let cut = if short != body { "; short form" } else { "" };
-        let who = if entry.kind == "schedule.posted" {
+        let who = if lean && entry.kind == "schedule.posted" {
+            format!(
+                "FERB (posted by itself: scheduled run “{}” result, {}{cut}; model-written with code's lines{})",
+                text(data, "name"),
+                f(data, "status"),
+                lean_origin(&held)
+            )
+        } else if lean {
+            format!(
+                "FERB (posted by itself: part “{}” of a task, {}{cut}; model-written{})",
+                text(data, "label"),
+                f(data, "state"),
+                lean_origin(&held)
+            )
+        } else if entry.kind == "schedule.posted" {
             format!(
                 "FERB (posted by itself: scheduled run “{}” result, {}{cut}; model-written with code's lines; \
                  origin {})",
@@ -184,6 +232,7 @@ pub fn self_post(
     } else {
         result_reference(&entry.id, data.get("task_id").map(py_str).as_deref())
     };
+    let task = s(data, "task_id").unwrap_or_default();
     Some(Entry {
         at: entry.at,
         text: format!("({}) {who}: {said}", when(&entry.at, zone)),
@@ -197,6 +246,8 @@ pub fn self_post(
         opens: false,
         values: stored_values(&entry.kind, data),
         result,
+        tag: String::new(),
+        task,
     })
 }
 
@@ -254,7 +305,7 @@ pub fn timeline(t: &Timeline<'_>) -> (Vec<Entry>, Vec<(String, Time)>) {
             continue;
         }
         if SELF_POSTS.contains(&entry.kind.as_str()) {
-            if let Some(made) = self_post(entry, t.conversation, t.task_ids, t.zone) {
+            if let Some(made) = self_post_lines(entry, t.conversation, t.task_ids, t.zone, t.lean) {
                 items.push(made);
             }
             continue;
@@ -290,13 +341,22 @@ pub fn timeline(t: &Timeline<'_>) -> (Vec<Entry>, Vec<(String, Time)>) {
                 continue;
             }
             let short = short_report(&said, crate::lines::truthy(data.get("index")));
-            who.push_str(&format!(
-                " (task {} result, {}{}; origin {})",
-                f(data, "task_id"),
-                f(data, "status"),
-                if short != said { "; short form" } else { "" },
-                shown(&held)
-            ));
+            if t.lean {
+                who.push_str(&format!(
+                    " (task result, {}{}{})",
+                    f(data, "status"),
+                    if short != said { "; short form" } else { "" },
+                    lean_origin(&held)
+                ));
+            } else {
+                who.push_str(&format!(
+                    " (task {} result, {}{}; origin {})",
+                    f(data, "task_id"),
+                    f(data, "status"),
+                    if short != said { "; short form" } else { "" },
+                    shown(&held)
+                ));
+            }
             said = as_data(&short);
         } else if entry.kind == "chat.reply" {
             let code = data
@@ -326,12 +386,20 @@ pub fn timeline(t: &Timeline<'_>) -> (Vec<Entry>, Vec<(String, Time)>) {
                     .get(&f(data, "told_task"))
                     .cloned()
                     .unwrap_or_default();
-                who.push_str(&format!(
-                    " (task {} result, stopped, as code recorded it{}; origin {})",
-                    f(data, "told_task"),
-                    if short != end { "; short form" } else { "" },
-                    shown(&held)
-                ));
+                if t.lean {
+                    who.push_str(&format!(
+                        " (task result, stopped, as code recorded it{}{})",
+                        if short != end { "; short form" } else { "" },
+                        lean_origin(&held)
+                    ));
+                } else {
+                    who.push_str(&format!(
+                        " (task {} result, stopped, as code recorded it{}; origin {})",
+                        f(data, "told_task"),
+                        if short != end { "; short form" } else { "" },
+                        shown(&held)
+                    ));
+                }
                 let mut text = as_data(&short);
                 if !rest.is_empty() {
                     text.push_str("\nFERB (reply, model-written, unchecked): ");
@@ -343,19 +411,29 @@ pub fn timeline(t: &Timeline<'_>) -> (Vec<Entry>, Vec<(String, Time)>) {
                 who.push_str(" (code record)");
             } else {
                 who.push_str(" (reply, model-written, unchecked");
-                if outside {
+                if outside && t.lean {
+                    who.push_str(&format!("; {OUTSIDE}"));
+                } else if outside {
                     who.push_str(&format!("; origin {}", shown(&held)));
                 }
                 who.push(')');
                 said = (if outside { as_data(&prose) } else { prose }) + &code_line;
             }
         } else if entry.kind == "chat.clarify" && outside {
-            who.push_str(&format!(" (origin {})", shown(&held)));
+            if t.lean {
+                who.push_str(&format!(" ({OUTSIDE})"));
+            } else {
+                who.push_str(&format!(" (origin {})", shown(&held)));
+            }
             said = as_data(&said);
         }
         let mut refs = Vec::new();
         if entry.kind == "chat.notice" {
-            who.push_str(&format!(" (noticed; origin {})", shown(&held)));
+            if t.lean {
+                who.push_str(&format!(" (noticed{})", lean_origin(&held)));
+            } else {
+                who.push_str(&format!(" (noticed; origin {})", shown(&held)));
+            }
             let mut notice = Map::new();
             notice.insert("text".into(), Value::String(said.clone()));
             notice.insert(
@@ -380,6 +458,10 @@ pub fn timeline(t: &Timeline<'_>) -> (Vec<Entry>, Vec<(String, Time)>) {
                 task_of.filter(|v| !v.is_null()).map(py_str).as_deref(),
             )
         };
+        let task = task_of
+            .filter(|v| !v.is_null())
+            .map(py_str)
+            .unwrap_or_default();
         items.push(Entry {
             at: entry.at,
             text: format!("({}) {who}: {said}", when(&entry.at, t.zone)),
@@ -393,6 +475,8 @@ pub fn timeline(t: &Timeline<'_>) -> (Vec<Entry>, Vec<(String, Time)>) {
             opens: entry.kind == "chat.message" && !crate::lines::truthy(data.get("read_with")),
             values: stored_values(&entry.kind, data),
             result,
+            tag: String::new(),
+            task,
         });
     }
     let mut ages = Vec::new();
@@ -403,13 +487,20 @@ pub fn timeline(t: &Timeline<'_>) -> (Vec<Entry>, Vec<(String, Time)>) {
             continue;
         }
         ages.push((format!("c{}", n + 1), item.at));
-        let tail = if item.result.is_empty() {
-            format!("Full source: {}", item.reference)
+        // decision: ORCH-719 — front door step 8: the tag is the entry's id; no 32-hex id in the line
+        let text = if t.lean {
+            format!("{tag}{}", item.text)
         } else {
-            item.reference.clone()
+            let tail = if item.result.is_empty() {
+                format!("Full source: {}", item.reference)
+            } else {
+                item.reference.clone()
+            };
+            format!("{tag}{}\n[{tail}]", item.text)
         };
         shown_entries.push(Entry {
-            text: format!("{tag}{}\n[{tail}]", item.text),
+            text,
+            tag: format!("c{}", n + 1),
             ..item
         });
     }
@@ -496,7 +587,7 @@ pub fn hard_stop(entries: &[Entry], tokens: Tokenizer) -> usize {
 /// none of their words, so its origin is FERB's. A notice that is the last entry before the owner's new message is
 /// still shown in full (he may be replying to it); the rest of its run is folded. Nothing is removed from the journal or
 /// from search.
-// decision: ORCH-728
+// decision: ORCH-746
 pub fn fold_notices(entries: Vec<Entry>, zone: &Zone) -> Vec<Entry> {
     let last = entries.len().checked_sub(1);
     let mut out: Vec<Entry> = Vec::new();
@@ -533,6 +624,8 @@ pub fn fold_notices(entries: Vec<Entry>, zone: &Zone) -> Vec<Entry> {
             opens: false,
             values: None,
             result: String::new(),
+            tag: first.tag.clone(),
+            task: String::new(),
         });
         run.clear();
     };
@@ -547,6 +640,65 @@ pub fn fold_notices(entries: Vec<Entry>, zone: &Zone) -> Vec<Entry> {
     }
     flush(&mut run, &mut out);
     out
+}
+
+/// Front door step 8 (kb/plans/front-door.md "Conversation lines"): FERB's own notices (`chat.notice`, its toasts)
+/// leave the planner's word-for-word window altogether; they stay in the journal and chat.history finds them. A
+/// notice that is the last entry before the owner's new message is still shown (he may be replying to it).
+pub fn drop_notices(entries: Vec<Entry>) -> Vec<Entry> {
+    let last = entries.len().checked_sub(1);
+    entries
+        .into_iter()
+        .enumerate()
+        .filter(|(i, e)| e.kind != "chat.notice" || Some(*i) == last)
+        .map(|(_, e)| e)
+        .collect()
+}
+
+/// Front door step 8: what one conversation tag names.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Tagged {
+    /// The entry's journal id.
+    pub id: String,
+    /// The task it is about, "" for none.
+    pub task: String,
+    /// The result it shows (ORCH-619: a result's own id, or the result a stopped task's reply told), "" for none.
+    pub result: String,
+}
+
+/// Front door step 8: what each tag of the conversation names.
+pub fn tags_of(entries: &[Entry]) -> Vec<(String, Tagged)> {
+    entries
+        .iter()
+        .filter(|e| !e.tag.is_empty())
+        .map(|e| {
+            (
+                e.tag.clone(),
+                Tagged {
+                    id: e
+                        .handle
+                        .strip_prefix(ENTRY)
+                        .unwrap_or(&e.handle)
+                        .to_string(),
+                    task: e.task.clone(),
+                    result: e.result.clone(),
+                },
+            )
+        })
+        .collect()
+}
+
+/// The tag a lookup or an answer named (`c3`, `[c3]`, `C3`), as it is written in the lines; None for anything else.
+pub fn as_tag(text: &str) -> Option<String> {
+    let t = text
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim();
+    let digits = t.strip_prefix('c').or_else(|| t.strip_prefix('C'))?;
+    (!digits.is_empty() && digits.len() <= 9 && digits.chars().all(|c| c.is_ascii_digit()))
+        .then(|| format!("c{}", digits.trim_start_matches('0')))
+        .filter(|t| t.len() > 1)
 }
 
 /// A context block with the origins of what it shows (S3), as `_supervise` carries each.
@@ -567,6 +719,26 @@ pub fn conversation_blocks(
     tokens: Tokenizer,
     not_shown: usize,
 ) -> Vec<Sourced> {
+    conversation_blocks_lines(
+        entries,
+        summary,
+        since_last_notice,
+        tokens,
+        not_shown,
+        false,
+    )
+}
+
+/// [`conversation_blocks`], with the lean lines' header when `lean` (front door step 8): it says the tag is each
+/// entry's id.
+pub fn conversation_blocks_lines(
+    entries: Vec<Entry>,
+    summary: Option<&JournalRow>,
+    since_last_notice: bool,
+    tokens: Tokenizer,
+    not_shown: usize,
+    lean: bool,
+) -> Vec<Sourced> {
     let entries = if since_last_notice {
         match entries.iter().rposition(|e| e.kind == "chat.notice") {
             Some(last) => entries[last + 1..].to_vec(),
@@ -576,6 +748,9 @@ pub fn conversation_blocks(
         entries
     };
     let mut header = CONVERSATION_HEADER.to_string();
+    if lean {
+        header.push_str(TAGS_ARE_IDS);
+    }
     let mut refs = Vec::new();
     let mut made = BTreeSet::new();
     let mut payload = String::new();
@@ -614,6 +789,12 @@ pub fn conversation_blocks(
     for e in entries {
         let mut source_refs = vec![e.handle.clone()];
         source_refs.extend(e.refs.iter().cloned());
+        // front door step 8: a lean line holds no id, so a reply that shows a stopped task's result names it in its
+        // lineage (the latest result's block reads it, `planner::latest_unless_shown`)
+        let result = format!("{ENTRY}{}", e.result);
+        if lean && !e.result.is_empty() && !source_refs.contains(&result) {
+            source_refs.push(result);
+        }
         out.push(Sourced {
             block: ContextBlock {
                 cache: true,

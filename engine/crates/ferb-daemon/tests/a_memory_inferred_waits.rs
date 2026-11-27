@@ -80,6 +80,11 @@ fn always_on(st: &State) -> String {
     memory::core_profile_text(st) + &memory::core_profile_pending(st)
 }
 
+/// How the card names an item (front door step 8: a short handle in place of its 32-hex id).
+fn on_card(text: &str, id: &str) -> bool {
+    text.contains(&ferb_learning::profile::handle(id))
+}
+
 /// The owner's store before this build: what he said, what the Mac scan saw, and the imported lines an earlier build
 /// put in always on, then all approved by one Approve all in the review (23 Nov, 03:40:49).
 fn owners_store(st: &std::rc::Rc<State>) -> (String, String, Vec<String>, Vec<String>) {
@@ -215,9 +220,10 @@ async fn the_upgrade_takes_every_imported_line_out_of_always_on_and_asks_nothing
     d.on(move |st| {
         Box::pin(async move {
             // his words and the observed fact stay always on; no imported line does, approved or not (MEM-489)
+            // (front door step 8: the card names each by its handle)
             let text = always_on(&st);
-            assert!(text.contains(&h) && text.contains(&s), "{text}");
-            assert!(!l.iter().chain(&j).any(|id| text.contains(id)), "{text}");
+            assert!(on_card(&text, &h) && on_card(&text, &s), "{text}");
+            assert!(!l.iter().chain(&j).any(|id| on_card(&text, id)), "{text}");
             assert_eq!(st.profile.entries().unwrap().len(), 2);
             // nothing deleted: every one is still remembered and found by the lookups' search
             for id in l.iter().chain(&j) {
@@ -240,7 +246,7 @@ async fn the_upgrade_takes_every_imported_line_out_of_always_on_and_asks_nothing
             assert_eq!(moved(&st), 1);
             memory::start(&st).unwrap();
             assert_eq!(moved(&st), 1);
-            assert!(!l.iter().chain(&j).any(|id| always_on(&st).contains(id)));
+            assert!(!l.iter().chain(&j).any(|id| on_card(&always_on(&st), id)));
         })
     })
     .await;
@@ -289,7 +295,7 @@ async fn ferbs_own_understanding_is_suggested_and_the_memory_pages_no_keeps_it_o
                     "inferred",
                     &again.id,
                 );
-                assert!(!always_on(&st).contains(&id), "never by itself");
+                assert!(!on_card(&always_on(&st), &id), "never by itself");
                 memory_import::hourly(&st).await;
                 id
             })
@@ -316,7 +322,7 @@ async fn ferbs_own_understanding_is_suggested_and_the_memory_pages_no_keeps_it_o
             assert_eq!(memory_import::job(&st).review().unwrap()["count"], json!(0));
             assert!(memory::pending_own(&st, memory_import::REVIEW_KIND).is_none());
             memory_import::hourly(&st).await;
-            assert!(!always_on(&st).contains(&i));
+            assert!(!on_card(&always_on(&st), &i));
             assert_eq!(st.memory.get(&i).unwrap().unwrap().status, "active");
         })
     })

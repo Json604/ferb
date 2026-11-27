@@ -857,6 +857,9 @@ impl Env {
             memory.clone(),
             Box::new(move |k, d| j2.append(k, Some(d), None).map(|_| ())),
         ));
+        // the frozen Python fixtures recorded the profile's text before the card (front door step 8): these tests read
+        // it with its ids; tests/card.rs reads the card
+        profile.card.set(false);
         {
             let e = events.clone();
             *profile.on_change.borrow_mut() =

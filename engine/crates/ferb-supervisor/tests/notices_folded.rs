@@ -1,7 +1,7 @@
-//! ORCH-728 (front door step 3a): FERB's own notices leave the planner's word-for-word window. A run of consecutive
-//! notices is one line (how many FERB posted there, their tags and times, chat.history reads them); a notice that is
-//! the last entry before the owner's new message is still shown in full. Nothing leaves the journal. Only with the
-//! bounded planner (a Python recording's replay keeps its input). Through the real supervisor on the recorded
+//! ORCH-728 (front door step 3a), and step 8 after it: FERB's own notices leave the planner's word-for-word window
+//! (step 3a folded each run into one line; step 8 leaves them out altogether, `history::drop_notices`); a notice that
+//! is the last entry before the owner's new message is still shown in full. Nothing leaves the journal. Only with the
+//! bounded planner (a Python recording's replay keeps its input). `fold_notices` itself is still tested below. Through the real supervisor on the recorded
 //! plain_reply scenario with stand-in models (temp store, injected ids and time), and the rule on invented entries.
 
 mod common;
@@ -113,40 +113,39 @@ fn planner_entries(bounded: bool) -> (Vec<String>, i64) {
     )
 }
 
-// decision: ORCH-728
+// decision: ORCH-726 — front door step 8 (superseding ORCH-746's one line per run): FERB's own notices leave the
+// window altogether; they stay in the journal; the last entry before the new message stays whole
 #[test]
-fn a_run_of_notices_is_one_line_and_the_last_entry_stays_whole() {
+fn notices_leave_the_window_and_the_last_entry_stays_whole() {
     let (entries, kept) = planner_entries(true);
     assert_eq!(kept, 7, "nothing leaves the journal");
     let line = |needle: &str| entries.iter().filter(|e| e.contains(needle)).count();
-    assert_eq!(
-        line("[c3]–[c7] (Thu 01 Jan 08:10 to Thu 01 Jan 08:14) FERB posted 5 notices here by itself (not shown; \
-              chat.history reads them in full)."),
-        1,
-        "{entries:#?}"
-    );
-    assert_eq!(
-        line("[c10] (Thu 01 Jan 08:30) FERB posted 1 notice here by itself (not shown; chat.history reads it in full)."),
-        1,
-        "{entries:#?}"
-    );
+    assert_eq!(line("FERB posted"), 0, "{entries:#?}");
     for n in 0..6 {
-        assert_eq!(line(&notice(n)), 0, "notice {n} is folded: {entries:#?}");
+        assert_eq!(line(&notice(n)), 0, "notice {n} is not shown: {entries:#?}");
     }
     assert_eq!(
         line(&notice(6)),
         1,
         "the last entry before the new message stays whole"
     );
-    // the owner's and FERB's words are all there, each once
+    // the owner's and FERB's words are all there, each once, and the tags keep their numbers
     for n in 0..2 {
         assert_eq!(line(&format!("INVENTED-MESSAGE-{n}")), 1);
         assert_eq!(line(&format!("INVENTED-REPLY-{n}")), 1);
     }
-    assert_eq!(entries.len(), 7, "{entries:#?}");
+    assert!(
+        entries.iter().any(|e| e.starts_with("[c8] ")),
+        "{entries:#?}"
+    );
+    assert!(
+        entries.iter().any(|e| e.starts_with("[c11] ")),
+        "{entries:#?}"
+    );
+    assert_eq!(entries.len(), 5, "{entries:#?}");
 }
 
-// decision: ORCH-728 (a replay of a Python recording keeps its planner's input)
+// decision: ORCH-746 (a replay of a Python recording keeps its planner's input)
 #[test]
 fn a_replay_of_a_python_recording_reads_every_notice() {
     let (entries, _) = planner_entries(false);
@@ -173,10 +172,12 @@ fn entry(n: usize, kind: &str) -> Entry {
         opens: kind == "chat.message",
         values: None,
         result: String::new(),
+        tag: format!("c{}", n + 1),
+        task: String::new(),
     }
 }
 
-// decision: ORCH-728
+// decision: ORCH-746
 #[test]
 fn every_run_folds_and_the_line_keeps_every_notice_as_its_source() {
     let kinds = [

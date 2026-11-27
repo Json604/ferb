@@ -487,6 +487,9 @@ pub struct TestDaemon {
     /// ORCH-735: a test turns the front door on; each front call a script made (its tool and what `front_call` said).
     pub front: AtomicBool,
     pub front_results: Mutex<Vec<(String, Result<String, String>)>>,
+    /// Front door step 8: what each `tagged` event of a script got (the 32-hex id a conversation tag names, as a lookup
+    /// under the run's grant asks for it).
+    pub tagged_results: Mutex<Vec<Option<String>>>,
     /// A test's memory port (None: none here, as the recordings had): each item `remember` was given, saved.
     pub memory_port: Mutex<Option<Vec<Value>>>,
 }
@@ -1620,8 +1623,26 @@ impl EventSource for ScriptEvents {
             self.at += 1;
             // a test's own script: the model takes this long before its next event (the injected clock moves on)
             // a test's own script: a lookup's record as the gateway writes it (`record_call`), the run going on
-            while ev["kind"] == "advance" || ev["kind"] == "record_call" {
-                if ev["kind"] == "record_call" {
+            while ev["kind"] == "advance" || ev["kind"] == "record_call" || ev["kind"] == "tagged" {
+                if ev["kind"] == "tagged" {
+                    // a test's own script: a lookup names an entry by its tag (front door step 8)
+                    let sup = self
+                        .daemon
+                        .sup
+                        .lock()
+                        .unwrap()
+                        .clone()
+                        .expect("the supervisor");
+                    let named = match ev["named"].as_str() {
+                        Some("task") => ferb_supervisor::flow::library::Named::Task,
+                        Some("result") => ferb_supervisor::flow::library::Named::Result,
+                        _ => ferb_supervisor::flow::library::Named::Entry,
+                    };
+                    let got = sup
+                        .inner()
+                        .tagged(&self.grant_task, &s(&ev["value"]), named);
+                    self.daemon.tagged_results.lock().unwrap().push(got);
+                } else if ev["kind"] == "record_call" {
                     let sup = self
                         .daemon
                         .sup
@@ -2178,6 +2199,7 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         bounded: AtomicBool::new(false),
         front: AtomicBool::new(false),
         front_results: Mutex::default(),
+        tagged_results: Mutex::default(),
         memory_port: Mutex::default(),
         code_look: Mutex::default(),
         probes: Mutex::default(),

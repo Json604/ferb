@@ -1319,3 +1319,13 @@ rule = "An item an import brought in (an import's journal source or an import li
 why = "All 65 always-on lines in his store were imported coding-agent habits and tastes, sent with every message."
 supersedes = ["MEM-483"]
 paths = ["engine/crates/ferb-learning/src/profile.rs", "engine/crates/ferb-learning/src/import_review.rs"]
+
+[MEM-490]
+title = "The card carries the owner's own words, what he approved and observed facts; never an import"
+by = "owner"
+date = 2026-11-27
+status = "active"
+words = "keep that. looks fine. continue"
+words_source = "Owner 2026-11-27, asked whether the always-on card keeps observed facts (MEM-480) or only what he stated or approved (the front door plan)."
+rule = "For MEM-480 and MEM-489. The front door's always-on card holds the owner's own words, what he approved and observed facts, each with one short label and a handle; never an imported line and never FERB's own understanding without his Yes; at most 1,500 tokens (ORCH-719)."
+paths = ["engine/crates/ferb-learning/src/profile.rs"]

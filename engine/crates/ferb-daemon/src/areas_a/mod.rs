@@ -10,6 +10,7 @@
 pub mod candidates;
 pub mod cards;
 pub mod chat_history;
+pub mod library;
 pub mod memory;
 pub mod memory_import;
 pub mod persona;

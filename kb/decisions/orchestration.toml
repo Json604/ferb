@@ -61,7 +61,8 @@ legacy = "notes/orchestration.md decision 4"
 title = "The running summary holds the recent two weeks and what is still open"
 by = "owner"
 date = 2026-10-31
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-745"
 words_source = "notes/orchestration.md owner decision 4, the owner's 2026-10-31 addition: an agent's paraphrase; no verbatim quote recorded"
 rule = "The summary holds the recent ~2 weeks plus what is still open (waiting tasks, open questions, promises); older settled material falls out of it, since memory facts and episodes hold what lasts. It folds about every 20-40 exchanges, in the background after the reply; the planner reads only the latest summary."
 paths = ["ferb/orchestrator/prompts/summary.md", "ferb/orchestrator/supervisor.py::Supervisor._keep_recent"]
@@ -2633,7 +2634,8 @@ untestable = "Built with the library under T-1337; its test carries this id then
 title = "FERB's own notices leave the planner's word-for-word window as one line per run"
 by = "agent"
 date = 2026-11-26
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-746"
 rule = "For ORCH-726, refines ORCH-724. With the bounded planner, a run of consecutive chat.notice entries in the planner's conversation is one line saying how many FERB posted there and that chat.history reads them; a notice that is the last entry before the new message stays whole. The journal and search keep every notice."
 why = "45 of the 91 window entries in his store were notices (41 memory notices in a row)."
 paths = ["engine/crates/ferb-supervisor/src/history.rs::fold_notices", "engine/crates/ferb-supervisor/src/words.rs"]
@@ -2791,3 +2793,25 @@ rule = "Supersedes RUN-481, RUN-482 and RUN-483 and step 6 of ORCH-726's plan: e
 supersedes = ["RUN-481", "RUN-482", "RUN-483"]
 paths = ["engine/crates/ferb-runtimes/src/claude/mod.rs"]
 untestable = "The absence of a mechanism; today's start path is covered by the runtimes' own tests."
+
+[ORCH-745]
+title = "A daily Librarian call writes each day's index lines; the running summary and its fold go"
+by = "owner"
+date = 2026-11-26
+status = "active"
+words = "no, then add a daily librarian call. one call isnt taht much anyways"
+words_source = "Owner 2026-11-26, on the front door plan (ORCH-726): asked whether the library's day lines should come from code alone or from a model."
+rule = "Supersedes ORCH-304. After a day with messages closes, one model call (role librarian, the cheapest model of his provider) reads that day's chat, with outside content held back, and code's list of what FERB recorded, and writes at most 6 topic lines, once; one call a month and one a year write those lines. No call on a silent day. The running summary and its fold no longer run; older chat stays stored and searchable."
+why = "The summary cost about $0.10 and 19 s a fold and once contradicted a live reminder; a dated index written once is a pointer the front door can trust."
+supersedes = ["ORCH-304"]
+paths = ["engine/crates/ferb-daemon/src/areas_a/library.rs", "engine/runtime/memory/librarian.md"]
+
+[ORCH-746]
+title = "The front door's input: lines tagged cN, the card, the library index in the cached part"
+by = "agent"
+date = 2026-11-27
+status = "active"
+rule = "For ORCH-726 step 8 and ORCH-719. Conversation lines carry their [cN] tag as the id (lookups and earlier_results take it), \"has outside content\" in place of the origin list, and only the last FERB notice; code keeps every origin. The library (day, month and year lines, then what memory holds: each kind, its count and 8 newest names) sits in the cached part after Layer 1, byte-stable within a day. Card handles are m: and the id's last 8 characters."
+why = "The per-entry origin lists and 32-character ids cost tokens without helping a decision; a day-stable block is cached once a day."
+supersedes = ["ORCH-728"]
+paths = ["engine/crates/ferb-supervisor/src/history.rs", "engine/crates/ferb-learning/src/library.rs", "engine/crates/ferb-supervisor/src/flow/library.rs"]

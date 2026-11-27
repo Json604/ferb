@@ -14876,3 +14876,123 @@ some more tries can help then do, else lets just not do this"; the coordinator r
 file read per request, the listing grant and `list_only`); journal entries 271, 273, 274 and kb records RUN-481..483
 stay as history, superseded by ORCH-744. T-1343 (step 6 and preparing while typing) is removed; T-1349 (a Codex
 app-server left running when the watchdog drops its start) stays: it is in today's start too.
+
+
+## 2026-11-27 · 272 · The card, the library and the Librarian; shorter conversation lines; the running summary gone
+
+**Why (T-1337, ORCH-726 step 8, ORCH-719 items 6 and 7, ORCH-727).** The plan's step 8: what the front door and the
+planner always read is the card (only what the owner said, approved or FERB observed), a dated library index and a
+contents list of memory, and lines without what a model does not need; the running summary (measured $0.10 and 19 s
+a fold on Sonnet, and once contradicting a live reminder) gives way to the Librarian's day lines.
+
+**What.**
+- Conversation lines (ferb-supervisor `history.rs`, `Timeline::lean`, on with `bounded_planner()`): `[cN]` stays and
+  is the entry's id; no 32-hex id in a line (no `Full source: chat.history entry_id=…`, no `Result id: …; task.evidence
+  task_id=…`, no `task <id>` in a label); an origin list becomes "; has outside content" or nothing; FERB's own notices
+  leave the window (`drop_notices`, superseding ORCH-728's one line per run; a notice that is the last entry before the
+  new message stays). The header says the tag is the id (`words::TAGS_ARE_IDS`). Every origin stays on the blocks as
+  before (sink rule, provenance): only text changes. A reply showing a stopped task's result names that result in its
+  block's lineage, so `latest_unless_shown` still sees it.
+- Tags as ids (`flow/library.rs`): the turn keeps what each tag of its view names (entry id, its task, the result it
+  shows; `Turn::tags`, every entry of the chat, the hard stop's left-out ones too). `Inner::tagged(caller_task, value,
+  Named)` answers a lookup under `<request>.lookups`; ferbd's chat.history (`entry_id`, `task_id`), task.evidence and
+  task.trace (`task_id`) call it (`untag`). `problems()` turns a tag in `earlier_results` (task and steps) into the
+  result's id and in `control.task_id` into the task's. Outside a turn a tag names nothing.
+- The card (ferb-learning `profile.rs`, `CoreProfile::card`, on in FERB, off in the Python-fixture test support): the
+  prompt text holds only his words, what he approved and observed facts (MEM-480; never an import, MEM-489; never FERB's
+  understanding without his Yes), one short label a line ("his words", "observed", "approved", "until …") and a handle
+  `m:<last 8 chars of the id>` in place of the id (its "about" kept), within 1,500 tokens (ORCH-719). `from_handle` resolves a handle;
+  ferb-daemon's `memory_id` and `chat_forget` take one. The Memory page's markdown keeps the full ids.
+- The library (ferb-learning `library.rs`): `index_text` gives one block: the Librarian's day lines for the 14 days
+  before today (newest first), one line per closed month of this year, one per closed year, and the contents list (each
+  kind, its count, its 8 most recently stated names as of the start of the day; an import's line counted, never named).
+  A line one of whose records (journal entry, memory item, task) is gone is not shown: a forget or a deleted turn takes
+  its lines out. The same bytes all day unless the Librarian writes or a record goes. Placed in the planner's and the
+  front door's input right after Layer 1, in the cached part (not for the intro's preview, a temporary chat or a
+  schedule's run); only with `bounded_planner()`.
+- The Librarian (ferb-daemon `areas_a/library.rs`, run from ferbd's hourly `memory_pass`): code's list for a closed day
+  (each top task's short name and how it ended, reminders/timers and schedules set, memory saved that day, how many
+  forgotten) and the day's chat in his chats, entries with outside content shown only as "(holds outside content: not
+  shown here)"; one call writes `library.day` {day, lines: [{text, refs}]} (at most 6 lines, each cut to 25 words, tags
+  turned into refs); a closed month with day lines gets `library.month` (40 words), a closed year whose months are all
+  written `library.year`. Each call on the runtimes area's role `librarian`: the orchestrator's runtime on its smallest
+  model (`smallest_model`: the lowest input price in FERB's price table among the models that runtime offers FERB, else
+  the owner's own model). Spans `model.learning`, usage `model.usage` with role "librarian". New prompt
+  `engine/runtime/memory/librarian.md` (model-facing, listed for the owner below).
+- The running summary and its fold go with `bounded_planner()`: no `chat.summary` is read and `start_keep_recent` is
+  not started after a turn. A Python recording's replay keeps both (and today's lines, notices, no library).
+
+**Rate (for any user).** At most one day call a day on the Mac's calendar, only for a closed day of the last 14 that had
+a message of his and has no lines (newest first; a Mac that was off catches up one day a day); none on a silent day.
+At most one month call a day, only for a closed month with day lines and no line (about 1 a month), one year call a
+day for a closed year (about 1 a year). A failed call counts as that day's call and is tried again the next day. Light
+or heavy user: at most 30 + 1 calls a month on the smallest model; a heavy day's input is bounded (400 entries of at
+most 400 characters plus code's list).
+
+**Measured (ferb-supervisor `tests/front_door_input.rs`, FERB's o200k estimate; before = HEAD 51e4ae77 in a separate
+worktree).** Recorded scenarios carry almost no history, so they differ only by the header's tag line (+48 tokens):
+plain_reply's front door call 8,909 → 8,957 tokens (instructions 2,052, tools 6,445, Layer 1 51, header 26 → 74, tail
+335); one_step_task's planner call 12,151 → 12,199 (instructions 9,001, tools 2,676). After 20 invented everyday
+exchanges: 11,475 → 10,943 tokens (conversation entries 2,540 → 1,960, -23%; the invented ids there are short, real
+32-hex ids save more). The library on an invented five-year store in November: 13,399 chars, 2,513 tokens. The front
+door's fixed part with the card at its limit and that library: 2,052 + 1,500 + 6,445 + 51 + 2,513 = 12,561 tokens: the
+plan's 8k is NOT met, because the tool descriptions alone are 6,445 (the six front-door tools take the planner form's
+parts as schemas, step 5); without them 6,116. An ordinary turn: 14,956 tokens, within 15k (barely; the tools again).
+The coordinator relayed the owner (2026-11-27): "the goal is not to reach too low prompt size just to get faster but
+get bad results, unwanted answers... just dont loose quality but if there room to empty we can". So the guards assert
+the numbers reached, with about 5% headroom, never the plan's estimate: the fixed part ≤ 13,200, the fixed part without
+tools ≤ 6,450, an ordinary turn ≤ 15,700.
+
+**What was cut, and what was kept on purpose.** Cut (each named in the brief and judged not needed to decide): the
+32-hex ids in lines (the tag names the same entry, result and task, and every lookup and the answer's ids take it),
+the per-entry origin list (code keeps every origin; the model reads whether the entry holds outside content), FERB's
+toast notices (journal and search keep them; the last one before the new message stays), the running summary (the
+library and chat.history replace it). Kept: each card line's "about" (restored after the owner's word: it can matter to
+a reply), observed facts on the card (MEM-480), each entry's date and time, the "short form", "model-written,
+unchecked" and "code record" labels, the outside content wrapped as data, the hard stop's count of what is not shown,
+the latest-result block's ids. Candidates the owner may want back, not cut further here: the outside origin's name
+(which site, now only "has outside content"); notices' text in the window; the tools' schemas (6,445 tokens, step 5's,
+the largest block; not this step's to cut).
+
+**Evidence.** Through ferb-test-guard: ferb-learning 14 test binaries, 54 passed, 0 failed; ferb-daemon 41 binaries,
+258 passed, 0 failed; ferb-supervisor 45 binaries, 274 passed, 0 failed; ferbd chat_replay and front_door_replay 20
+passed, 2 ignored (as before), every recorded scenario's outcome unchanged (their daemons are Python replays:
+`bounded_planner` false). After the owner's word the card's "about" was restored and the guards set to the numbers
+reached; ferb-learning (54), ferb-daemon's memory and Librarian tests (20) and front_door_input (2) were run again,
+all passing. clippy `--tests -D warnings` and fmt clean for the four crates. New tests: ferb-learning `tests/library.rs` (4: the
+five-year store's shape and size, the same bytes all day, a forget and a deleted turn take their lines out, the
+Librarian's input holds no outside content or imported name), `tests/card.rs` (2), `src/library.rs` unit (dates);
+ferb-daemon `tests/a_librarian.rs` (4: no call on a silent day or while the day is open, one call after, written once,
+one day call a day newest first, the month's line, the smallest model); ferb-supervisor `tests/conversation_tags.rs`
+(3: no 32-hex id, "has outside content", today's lines in a Python replay, a lookup's tag → entry, result, task, none
+outside the turn) and `tests/front_door_input.rs` (2). Changed as named differences: `notices_folded.rs`
+(notices leave, ORCH-728's fold superseded), `raw_chat_hard_stop.rs` (no summary call; ORCH-724's fold of what the
+stop leaves out gone), `planner_trims.rs` (a lean line holds no "Result id"; the unit case's lineage), ferb-daemon
+`a_memory_inferred_waits.rs` (the card names items by handle).
+
+**Deviations and rulings (agent, for the coordinator to record).** The library is placed in the cached part right
+after Layer 1 (the plan's input order), not "after the cached part" as the brief's parenthesis read: day-stable, so the
+conversation's cache is rewritten once a day, where the tail would resend ~2.5k tokens uncached every turn (one line in
+`planner_sourced` to move). Observed facts stay on the card (MEM-480's words, owner) where the plan says "stated or
+approved": the two differ, his to settle. Outside content never reaches the Librarian (the index is always sent). The
+contents' "most recently used" is the newest `observed_at` (FERB keeps no record of reads). Months shown: this year's
+closed months only (a month's days older than 14 days and before it closes are not in the index: chat.history finds
+them). One call of each kind a day, including catch-up and retries. Handles are the id's last 8 characters. Day lines
+cut at 25 words, entries at 400 characters, 400 entries a day: agent numbers. The six lookups of ferbd take tags
+(ferbd touched for `untag` and the pass's one call).
+
+**Superseded or changed decisions.** ORCH-304 (owner, the running summary): replaced by the Librarian's day lines
+(owner, 2026-11-26, ORCH-726). ORCH-303 and ORCH-718 (the summary plus 20-39 exchanges; the fold by exchanges) and
+ORCH-724's fold of what the hard stop leaves out (its hard stop stays): in force only for a Python replay. ORCH-728
+(notices folded into one line): notices now leave the window. ORCH-619's "Result id" on a line: the tag names the
+result. MEM-489, MEM-480, ORCH-719's numbers (14 days, 6 lines, 40 words, 1,500 tokens) and ORCH-727 (8 names): kept.
+
+**New model-facing text, for the owner.** `engine/runtime/memory/librarian.md` (whole file); the block headings
+`library::HEADER`, `CONTENTS_HEADER`, `profile::CARD_HEADER`, `words::TAGS_ARE_IDS`; the line words "has outside
+content", "(holds outside content: not shown here)". No owner-facing text changes.
+
+**Unverified / open.** No real model has read the card, the index or the lean lines, or answered the Librarian's form.
+ORCH-719 item 6's "newest 15 open items" is not built (not in this brief). The latest-result block (shown only when the
+window doesn't show the result) still carries `Result id-…` ids. `smallest_model` on Codex depends on its catalog
+having a priced model. The Memory page still lists all profile rows (the card is the prompt's view). The live five-year
+size is invented data; the plan's 8k fixed part waits on the tools' schemas.

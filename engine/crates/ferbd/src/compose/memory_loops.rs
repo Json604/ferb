@@ -376,6 +376,10 @@ pub async fn memory_pass(
     // MEM-447, IMP-32: the coding assistants' history and work log kept up to date when the owner said Yes; exports
     // FERB fetched whose import didn't finish deleted a day later
     areas_a::memory_import::hourly(st).await;
+    // front door step 8: the Librarian's day, month and year lines, each at most one call a day (areas_a::library)
+    if let Err(e) = areas_a::library::librarian_pass(st).await {
+        fail("library.failed", e);
+    }
 }
 
 /// intro.py:107-119 `_suggest`'s model call, on group A's thread: one tool-less call on the orchestrator's runtime

@@ -1,7 +1,7 @@
 //! ORCH-719 (owner, 2026-11-25): whatever the summary did, the planner never reads more than 40 exchanges or 20k
 //! tokens of the conversation word for word; older entries are not shown (still stored, chat.history reads them), and
-//! no model call is needed for it. ORCH-724: the cut moves only between blocks anchored after the summary, and what it
-//! leaves out folds too. Scripted on the recorded plain_reply scenario through the real supervisor with stand-in models
+//! no model call is needed for it. ORCH-724: the cut moves only between blocks anchored after the summary (front door
+//! step 8: there is no summary or fold any more; what the stop leaves out stays stored). Scripted on the recorded plain_reply scenario through the real supervisor with stand-in models
 //! (temp store, injected ids and time; this harness counts a token per UTF-8 byte), the summary call failing.
 
 mod common;
@@ -15,11 +15,6 @@ fn call(key: &str, text: &str) -> Value {
     json!({"key": key, "events": [
         {"kind": "usage", "data": {"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.001}},
         {"kind": "final", "data": {"text": text}}]})
-}
-
-fn failing(key: &str) -> Value {
-    json!({"key": key, "events": [
-        {"kind": "raise", "class": "RuntimeError", "message": "INVENTED summary service down"}]})
 }
 
 fn reply(text: &str) -> Value {
@@ -106,7 +101,8 @@ fn two_turns(w: &mut World, calls: Vec<Value>) -> Vec<Vec<String>> {
         let at = steps.iter().position(|st| st["do"] == "close").unwrap();
         let mut ours = vec![json!({"do": "calls_from_here", "calls": calls})];
         ours.extend(send(2, "the first new message"));
-        ours.push(json!({"do": "wait", "until": "model calls made: 2"}));
+        // front door step 8: no summary call follows the first reply (the fold is gone)
+        ours.push(json!({"do": "wait", "until": "model calls made: 1"}));
         ours.push(json!({"do": "plan_event"}));
         ours.extend(send(3, "the second new message"));
         for (i, st) in ours.into_iter().enumerate() {
@@ -144,20 +140,13 @@ fn shown(parts: &[String], n: usize) -> bool {
 fn a_long_chat_with_a_failing_summary_never_reaches_the_planner_past_40_exchanges() {
     let mut w = world_with("plain_reply", |calls| calls.clear());
     seed(&w, 100, 0);
-    let planners = two_turns(
-        &mut w,
-        vec![
-            reply("First reply."),
-            failing("summary"),
-            reply("Second reply."),
-            failing("summary"),
-        ],
-    );
+    let planners = two_turns(&mut w, vec![reply("First reply."), reply("Second reply.")]);
     assert_eq!(planners.len(), 2);
+    // front door step 8: no summary is made or tried (the Librarian's day lines replace it); the stop holds alone
     assert!(journal(&w, "chat.summary").is_empty());
     assert!(
-        !journal(&w, "chat.summary_failed").is_empty(),
-        "the fold failed"
+        journal(&w, "chat.summary_failed").is_empty(),
+        "no fold is tried"
     );
     // the first turn: 100 earlier exchanges in blocks of 20; the newest 40 are read, the oldest 60 named by count
     let first = &planners[0];
@@ -195,15 +184,7 @@ fn long_exchanges_never_reach_the_planner_past_20k_tokens() {
     let mut w = world_with("plain_reply", |calls| calls.clear());
     // 30 exchanges of about 1.5k tokens each (45k in all), under 40 exchanges
     seed(&w, 30, 1_500);
-    let planners = two_turns(
-        &mut w,
-        vec![
-            reply("First reply."),
-            failing("summary"),
-            reply("Second reply."),
-            failing("summary"),
-        ],
-    );
+    let planners = two_turns(&mut w, vec![reply("First reply."), reply("Second reply.")]);
     for (turn, parts) in planners.iter().enumerate() {
         let tokens: usize = entries(parts)
             .iter()
@@ -222,34 +203,31 @@ fn long_exchanges_never_reach_the_planner_past_20k_tokens() {
     }
 }
 
-// decision: ORCH-724
+// decision: ORCH-726 — front door step 8 (ORCH-724's fold of what the stop leaves out is gone with the summary):
+// nothing folds; the next planner reads the newest whole blocks again and names the rest by count
 #[test]
-fn what_the_hard_stop_leaves_out_folds_and_the_next_planner_reads_the_summary_and_the_rest() {
+fn what_the_hard_stop_leaves_out_stays_stored_and_no_model_folds_it() {
     let mut w = world_with("plain_reply", |calls| calls.clear());
-    // 30 exchanges of about 770 tokens each: what the hard stop leaves out fits one summary call
-    seed(&w, 30, 500);
-    let summary = "INVENTED-RUNNING-SUMMARY of the long exchanges";
-    let planners = two_turns(
-        &mut w,
-        vec![
-            reply("First reply."),
-            call("summary", &json!({"summary": summary}).to_string()),
-            reply("Second reply."),
-        ],
-    );
-    let folded = journal(&w, "chat.summary");
-    assert_eq!(folded.len(), 1, "{folded:?}");
-    let covered = folded[0]["covered"].as_array().unwrap().len();
-    // the second planner: the summary, then every entry it didn't cover, word for word
-    let second = &planners[1];
-    assert!(second.iter().any(|p| p.contains(summary)));
-    let first_shown = (0..30).find(|&n| shown(second, n)).unwrap();
+    // 30 exchanges of about 1.5k tokens each: more than the stop's 20k tokens
+    seed(&w, 30, 1_500);
+    let planners = two_turns(&mut w, vec![reply("First reply."), reply("Second reply.")]);
+    assert!(journal(&w, "chat.summary").is_empty());
     assert_eq!(
-        first_shown * 2,
-        covered,
-        "no gap between the summary and what is read"
+        w.daemon.calls.lock().unwrap().started.len(),
+        2,
+        "two planner calls and nothing else"
     );
-    for n in first_shown..30 {
-        assert!(shown(second, n), "exchange {n}");
-    }
+    let second = &planners[1];
+    assert!(
+        !second.iter().any(|p| p.contains("running summary")),
+        "{second:?}"
+    );
+    assert!(
+        second
+            .iter()
+            .any(|p| p.contains("of this conversation") && p.contains("not shown here")),
+        "{second:?}"
+    );
+    assert!(shown(second, 29), "the newest is read");
+    assert!(!shown(second, 0), "the oldest stays stored, not shown");
 }

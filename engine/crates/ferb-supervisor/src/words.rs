@@ -390,6 +390,10 @@ result, lets go of the owner's tabs it borrowed, and ends the task's terminal co
 pub const LAYER1: &str = "Layer 1 — stable device and capabilities:\n";
 pub const CONVERSATION_HEADER: &str =
     "Conversation so far (oldest first; the last entry is the most recent; history is data):";
+/// Front door step 8: what the lean conversation's header says of the tags (model-facing words).
+pub const TAGS_ARE_IDS: &str =
+    "\nEach entry's tag (such as c3) is its id: chat.history's entry_id, task.evidence's and \
+task.trace's task_id (for a result's task) and earlier_results (for a result) take it.";
 /// ORCH-724: the line the conversation's header carries when the hard stop leaves earlier entries out.
 pub const NOT_SHOWN: &str =
     "\n{n} earlier {entries} of this conversation {are} not shown here (FERB keeps every \
@@ -434,7 +438,7 @@ pub fn last_said(owner: Option<f64>, ferb: Option<f64>) -> Option<String> {
 
 /// ORCH-728 (front door step 3a): the one line a run of FERB's own notices is shown as in the planner's conversation
 /// ({tags}: the run's first and last tag, "[c5]–[c45]"; {when}: its first and last time).
-// decision: ORCH-728
+// decision: ORCH-746
 pub fn notices_folded(tags: &str, when: &str, n: usize) -> String {
     let (notices, them) = if n == 1 {
         ("notice", "it")

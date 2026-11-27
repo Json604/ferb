@@ -706,6 +706,7 @@ fn a_temporary_conversation_holds_only_its_own_rows() {
             covered: &Default::default(),
             reads: &NoReads,
             zone: &zone,
+            lean: false,
         });
         entries.into_iter().map(|e| e.text).collect()
     };

@@ -25,9 +25,7 @@ use tokio::sync::{oneshot, Notify};
 use super::store::Entry;
 use super::{Emit, Failure, Flow, Inner, Request, Start, Turn};
 use crate::chat_line::{ChatLine, Decision, Role};
-use crate::history::{
-    conversation_blocks, hard_stop, latest_result, timeline, Sourced, Timeline, TimelineReads,
-};
+use crate::history::{hard_stop, latest_result, timeline, Sourced, Timeline, TimelineReads};
 use crate::planner::{self, LatestReads, PlannerTurn};
 use crate::seams::JournalRow;
 use crate::words::*;
@@ -420,8 +418,11 @@ impl Inner {
             Err(failure) => self.failed(&turn, &failure, emit).await,
             Ok(d) => {
                 self.lapsed_question(session_id, &turn);
-                // the running summary's fold, in the background (fold.rs)
-                self.start_keep_recent(session_id);
+                // the running summary's fold, in the background (fold.rs), only for a replay of a Python recording:
+                // front door step 8 removed it (the Librarian's day lines replace it, ORCH-304's replacement)
+                if !self.deps.daemon.bounded_planner() {
+                    self.start_keep_recent(session_id);
+                }
                 self.route(&turn, d.out, emit).await
             }
         };
@@ -1119,6 +1120,30 @@ impl Inner {
     ) -> Flow<Vec<String>> {
         let mut problems = Vec::new();
         let session = turn.lock().unwrap().session.clone();
+        // front door step 8: an entry's tag in the conversation names the result or the task it shows
+        {
+            use super::library::Named;
+            let named = |v: &mut String, what: Named| {
+                if let Some(id) = self.tagged_in(turn, v, what) {
+                    *v = id;
+                }
+            };
+            if let Some(control) = candidate.control.as_mut() {
+                named(&mut control.task_id, Named::Task);
+            }
+            if let Some(task) = candidate.task.as_mut() {
+                task.earlier_results
+                    .iter_mut()
+                    .for_each(|r| named(r, Named::Result));
+                if let Some(plan) = task.plan.as_mut() {
+                    for step in plan.steps.iter_mut() {
+                        step.earlier_results
+                            .iter_mut()
+                            .for_each(|r| named(r, Named::Result));
+                    }
+                }
+            }
+        }
         if let Some(control) = &candidate.control {
             if self
                 .control_conversation(&control.task_id, &session)
@@ -1806,10 +1831,16 @@ impl Inner {
         String,
         LastSaid,
     )> {
-        let summary = self
-            .of_kind(SUMMARY_KIND, "session_id", session, None)
-            .last()
-            .cloned();
+        // decision: ORCH-719 — front door step 8: the running summary and its fold are gone (the library's index after
+        // the cached part replaces it); a Python recording's replay still reads the summary its planner read
+        let lean = self.deps.daemon.bounded_planner();
+        let summary = if lean {
+            None
+        } else {
+            self.of_kind(SUMMARY_KIND, "session_id", session, None)
+                .last()
+                .cloned()
+        };
         let covered: BTreeSet<String> = match &summary {
             None => BTreeSet::new(),
             Some(s) => self
@@ -1842,6 +1873,7 @@ impl Inner {
             covered: &covered,
             reads: &Reads(self),
             zone: &zone,
+            lean,
         });
         let latest = latest_result(&entries);
         // decision: ORCH-730 — the owner's previous message and FERB's last reply (this turn's messages are not here)
@@ -1855,6 +1887,11 @@ impl Inner {
         let said = LastSaid {
             owner: last_of(&["chat.message"]),
             ferb: last_of(&["chat.reply", "chat.clarify", "task.answer"]),
+            tags: if lean {
+                crate::history::tags_of(&entries)
+            } else {
+                Vec::new()
+            },
         };
         let summary_row = summary.as_ref().map(Entry::row);
         // decision: ORCH-719 — the hard stop: whatever the summary did, at most 40 exchanges and 20k tokens word for
@@ -1866,17 +1903,19 @@ impl Inner {
             0
         };
         entries.drain(..not_shown);
-        // decision: ORCH-728 — FERB's own notices leave the word-for-word window, one line per run (the attention
-        // check reads only what follows the last notice: nothing to fold there)
-        if self.deps.daemon.bounded_planner() && !since_last_notice {
-            entries = crate::history::fold_notices(entries, &zone);
+        // front door step 8 (superseding ORCH-728's one line per run): FERB's own notices leave the word-for-word
+        // window; they stay in the journal and chat.history finds them (the attention check reads only what follows
+        // the last notice: none there)
+        if lean && !since_last_notice {
+            entries = crate::history::drop_notices(entries);
         }
-        let conversation = conversation_blocks(
+        let conversation = crate::history::conversation_blocks_lines(
             entries,
             summary_row.as_ref(),
             since_last_notice,
             self.deps.tokenizer,
             not_shown,
+            lean,
         );
         Ok((conversation, ages, latest, said))
     }
@@ -1951,6 +1990,19 @@ impl Inner {
         // the conversation (`_conversation_blocks`)
         let (conversation, ages, latest, said) =
             self.conversation_view(&current, &session, false)?;
+        // front door step 8: what each tag names, for the lookups and the answer that name an entry by it
+        turn.lock().unwrap().tags = said.tags.iter().cloned().collect();
+        // front door step 8: the library's index and contents, after the cached part's facts; never for the intro's
+        // preview, a temporary chat or a schedule's run
+        let library = if self.deps.daemon.bounded_planner()
+            && !preview
+            && !fresh
+            && ferb_learning::library::library_conversation(Some(&session))
+        {
+            self.library_block()
+        } else {
+            None
+        };
         // decision: ORCH-725 — no line of the entries' ages (a Python recording's replay keeps it)
         let ages = if self.deps.daemon.bounded_planner() {
             Vec::new()
@@ -2145,6 +2197,7 @@ impl Inner {
             message_origin: &t.message_origin,
             sent_from: &sent_from,
             last_said: last_said.as_deref(),
+            library,
             wrap: &wrap,
             zone: &zone,
         });
@@ -3230,10 +3283,13 @@ impl Prepare {
 }
 
 /// ORCH-730: when the owner's previous message and FERB's last reply in this chat were, as the conversation holds them.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct LastSaid {
     pub owner: Option<ferb_clock::py::Time>,
     pub ferb: Option<ferb_clock::py::Time>,
+    /// Front door step 8: what each of the conversation's tags names, every entry
+    /// of the chat's (the hard stop's left-out ones too); empty for a replay of a Python recording.
+    pub tags: Vec<(String, crate::history::Tagged)>,
 }
 
 /// ORCH-703: what the owner reads when FERB's plan for his message still couldn't be carried out after a repair.

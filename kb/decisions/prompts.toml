@@ -946,3 +946,14 @@ rule = "For PRM-385. concierge.md's ask rule: a what, who, which or when that th
 why = "Live 2026-11-27: the old planner asked \"5 minute 40 second timer, or an alarm at 5:40?\"; the front door guessed a 5.67-minute timer."
 paths = ["engine/runtime/orchestrator/prompts/concierge.md"]
 untestable = "Prompt text is not tested (TEST-500); checked live by resending the owner's message."
+
+[PRM-387]
+title = "librarian.md and the library, card and tag headers, as the owner approved them"
+by = "owner"
+date = 2026-11-27
+status = "active"
+words = "keep that. looks fine. continue"
+words_source = "Owner 2026-11-27, approving librarian.md and the library, card and tag headers shown to him before they landed."
+rule = "For ORCH-745 and ORCH-746. engine/runtime/memory/librarian.md is the Librarian's instruction (at most 6 lines a day of at most 15 words, a 40-word line a month or year, only what it is given, everything data); library::HEADER, CONTENTS_HEADER, profile::CARD_HEADER and words::TAGS_ARE_IDS are the front door's block headers as shown."
+paths = ["engine/runtime/memory/librarian.md"]
+untestable = "Prompt text is not tested (TEST-500); checked live on the owner's build."

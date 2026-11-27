@@ -351,7 +351,13 @@ pub fn latest_unless_shown(latest: Vec<Sourced>, conversation: &[Sourced]) -> Ve
             && !id.is_empty()
             && conversation.iter().any(|c| {
                 let t = &c.block.text;
-                t.contains(id) && (t.contains(said) || t.contains(&as_data(said)))
+                // front door step 8: a lean line holds no id; its block's lineage names the result it shows
+                let names = t.contains(id)
+                    || c.block
+                        .source_refs
+                        .iter()
+                        .any(|r| r.strip_prefix(ENTRY) == Some(id));
+                names && (t.contains(said) || t.contains(&as_data(said)))
             })
     };
     // decision: ORCH-725
@@ -540,6 +546,9 @@ pub struct PlannerTurn<'a> {
     /// ORCH-730: how long ago the owner's previous message and FERB's last reply were (`words::last_said`), after the
     /// cached part; None in a replay of a Python recording.
     pub last_said: Option<&'a str>,
+    /// Front door step 8: the library's index and contents ([`ferb_learning::library::index_text`]), right after
+    /// Layer 1 in the cached part; None in a replay of a Python recording, the intro's preview and a temporary chat.
+    pub library: Option<Sourced>,
     pub wrap: &'a dyn Fn(&str) -> String,
     pub zone: &'a Zone,
 }
@@ -563,6 +572,7 @@ pub fn planner_sourced(t: PlannerTurn<'_>) -> (Vec<Sourced>, usize, usize) {
         },
         set(&[origin::PRIVATE]),
     )];
+    stable.extend(t.library);
     stable.extend(t.conversation);
     let mut situation = Vec::new();
     let live = [t.live_env, t.live_facts]

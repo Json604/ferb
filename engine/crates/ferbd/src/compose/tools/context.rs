@@ -6,6 +6,7 @@
 //! FERB's package folder, never copied), `memory.read` (`ferb/orchestrator/evidence.py` `MemoryRead`), `about.read`'s
 //! run (`ferb/daemon/about.py` `AboutRead`). Fixture: engine/fixtures/ferbd/make_tools.py.
 
+use ferb_supervisor::flow::library::Named;
 use std::collections::BTreeSet;
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::path::Path;
@@ -1073,7 +1074,7 @@ fn evidence_run(
         offset: u(a, "offset", 0),
         max_chars: u(a, "max_chars", 12000),
         evidence_id: s(a, "evidence_id"),
-        task_id: s(a, "task_id"),
+        task_id: untag(p, caller, s(a, "task_id"), Named::Task),
     };
     let db = p.db();
     let d = crate::basics::lock(&db);
@@ -1132,7 +1133,7 @@ fn trace_run(
     a: &Args,
     caller: &str,
 ) -> Result<ferb_gateway::tool::ToolOutput, ToolError> {
-    let task_id = s_or(a, "task_id");
+    let task_id = untag(p, caller, Some(s_or(a, "task_id")), Named::Task).unwrap_or_default();
     if task_id.is_empty() || !conversation_tasks(p, caller).contains(&task_id) {
         return Ok(error(
             "that task isn't one of this conversation's tasks (chat.history include_tasks=true lists them)",
@@ -1165,6 +1166,16 @@ fn trace_run(
     Ok(answer(content, false, sources).into())
 }
 
+/// Front door step 8: a conversation tag (`c3`) the caller's chat turn was shown, as the 32-hex id it stands for (the
+/// entry's, or its task's); anything else as it is.
+fn untag(p: &Parts, caller: &str, value: Option<String>, named: Named) -> Option<String> {
+    let v = value?;
+    let id = p
+        .supervisor()
+        .and_then(|sup| sup.inner().tagged(caller, &v, named));
+    Some(id.unwrap_or(v))
+}
+
 /// `_conversation_tasks`: the tasks of the conversation a running task belongs to (from its live record's tree and
 /// the stored chat); none for a task without a live record.
 fn conversation_tasks(p: &Parts, task_id: &str) -> BTreeSet<String> {
@@ -1189,8 +1200,8 @@ async fn chat_history_run(
         query: s_or(a, "query"),
         since: s(a, "since"),
         until: s(a, "until"),
-        entry_id: s(a, "entry_id"),
-        task_id: s(a, "task_id"),
+        entry_id: untag(p, task, s(a, "entry_id"), Named::Entry),
+        task_id: untag(p, task, s(a, "task_id"), Named::Task),
         include_tasks: b(a, "include_tasks"),
         after: i(a, "after", 0),
         limit: i(a, "limit", 20),

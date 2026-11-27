@@ -44,6 +44,9 @@ pub mod journal;
 #[cfg(feature = "store")]
 pub mod learning;
 #[cfg(feature = "store")]
+/// The library: the dated index the Librarian writes and the contents list of memory (front door step 8).
+pub mod library;
+#[cfg(feature = "store")]
 pub mod mac_profile;
 #[cfg(feature = "store")]
 pub mod playbooks;

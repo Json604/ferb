@@ -526,6 +526,15 @@ impl Runtimes {
         schema: &Value,
         effort: Option<&str>,
     ) -> Result<(Build, Built), RuntimeError> {
+        // front door step 8: the Librarian runs on the owner's chosen provider (the orchestrator's runtime), on its
+        // smallest model
+        if role == crate::areas_a::library::LIBRARIAN_ROLE {
+            let name = self.runtime_for("orchestrator");
+            let chosen = catalog::role_model(&self.cfg(), &name, "orchestrator");
+            let offered = ferb_runtimes::models::known_models(&name, &self.host.home);
+            let model = smallest_model(&name, &chosen, &offered);
+            return self.build_runtime(&name, role, mode, tool_names, schema, effort, &model, "");
+        }
         self.build_runtime(
             &self.runtime_for(role),
             role,
@@ -1772,4 +1781,40 @@ fn effort_levels(
         }
     }
     (out_levels, out_defaults)
+}
+
+/// The smallest model of a runtime (front door step 8, the Librarian's; agent ruling): the one with the lowest input
+/// price in FERB's price table among the models the runtime offers FERB (`known_models`: Codex's catalog for FERB's
+/// sign-in, Claude's documented ids) or, for an API key, among the priced models of that provider's family; the
+/// owner's chosen model when none of them is priced (a price is the only size fact FERB holds for every provider).
+pub fn smallest_model(runtime: &str, chosen: &str, offered: &[String]) -> String {
+    let family = match runtime {
+        "anthropic" | "claude" => "claude-",
+        "openai" | "codex" => "gpt-",
+        "google" => "gemini-",
+        _ => "",
+    };
+    let candidates: Vec<String> = if offered.is_empty() {
+        ferb_runtimes::prices::PRICED
+            .iter()
+            .filter(|m| !family.is_empty() && m.starts_with(family))
+            .map(|m| m.to_string())
+            .collect()
+    } else {
+        offered.to_vec()
+    };
+    let price = |m: &str| ferb_runtimes::prices::prices(m).first().map(|p| p.input);
+    let mut best: Option<(f64, String)> = None;
+    for m in candidates {
+        let Some(p) = price(&m) else {
+            continue;
+        };
+        if best
+            .as_ref()
+            .is_none_or(|(b, n)| p < *b || (p == *b && m < *n))
+        {
+            best = Some((p, m));
+        }
+    }
+    best.map(|(_, m)| m).unwrap_or_else(|| chosen.to_string())
 }

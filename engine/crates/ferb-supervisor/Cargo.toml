@@ -16,7 +16,7 @@ default = ["store"]
 # Python supervisor does. Without it the crate is the composition alone (prompts, history, planner blocks, lines).
 # The supervisor plugged into the daemon's areas (flow/daemon_seams.rs): ferb-daemon's group A seams. Mac-side.
 daemon = ["store", "dep:ferb-daemon", "ferb-gateway/store"]
-store = ["dep:ferb-store", "dep:rusqlite", "dep:ferb-worker", "dep:ferb-trace", "dep:ferb-policy", "dep:ferb-fs", "dep:ferb-learning", "dep:ferb-memory", "dep:futures-util", "ferb-orchestrator/store", "ferb-clock/store"]
+store = ["dep:ferb-store", "dep:rusqlite", "dep:ferb-worker", "dep:ferb-trace", "dep:ferb-policy", "dep:ferb-fs", "dep:ferb-learning", "ferb-learning/store", "dep:ferb-memory", "dep:futures-util", "ferb-orchestrator/store", "ferb-clock/store"]
 
 [dependencies]
 chrono = { version = "0.4.42", default-features = false, features = ["std", "clock"] }

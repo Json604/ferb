@@ -86,6 +86,8 @@ impl Inner {
             covered: &covered,
             reads: &super::turn::Reads(self),
             zone: &zone,
+            // the fold runs only for a replay of a Python recording (front door step 8 removed it): today's lines
+            lean: false,
         })
         .0
     }

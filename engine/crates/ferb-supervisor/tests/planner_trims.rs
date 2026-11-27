@@ -1,6 +1,7 @@
 //! ORCH-725 (agent, for ORCH-719's part 8): the planner's context without what it repeated on every turn after its
 //! cached part. No line of the conversation entries' ages (each entry shows its own date and time); the latest
-//! result's block only when the conversation doesn't already show that result word for word with its id. Through the
+//! result's block only when the conversation doesn't already show that result word for word with its id (front
+//! door step 8: its tag, the line's lineage naming the result). Through the
 //! real supervisor on the recorded stop_after_end scenario (its fourth call carried both, the result also shown whole
 //! in the conversation) with stand-in models, temp store, injected ids and time; and the rule itself on invented blocks.
 
@@ -52,7 +53,8 @@ fn a_result_the_conversation_shows_whole_is_not_repeated_and_no_ages_line_is_sen
         .filter(|t| t.contains("\"There are 3 files.\""))
         .collect();
     assert_eq!(shown.len(), 1, "{last:?}");
-    assert!(shown[0].starts_with("[c") && shown[0].contains("Result id: "));
+    // front door step 8: the line's tag is its id (no "Result id: <32 hex>" in it)
+    assert!(shown[0].starts_with("[c") && !shown[0].contains("Result id: "));
     assert!(!last.iter().any(|t| t.starts_with(LATEST_RESULT)));
     // the time is still told: now, and each entry's own
     assert!(last
@@ -89,9 +91,12 @@ fn the_latest_block_stays_unless_every_row_is_shown_whole_with_its_id() {
     let short = entry("[c2] FERB (task t-1 result, done; short form): \"First paragraph of the invented report.\"\n[Result id: r-1]");
     assert_eq!(latest_unless_shown(latest.clone(), &short).len(), 1);
     // whole, but without its id (another entry quoting it): kept
-    let other = entry(&format!(
-        "[c2] FERB (reply): {said}\n[Full source: chat.history entry_id=x-9]"
-    ));
+    // (its block's lineage is its own entry: front door step 8 reads a lean line's result from the lineage)
+    let other = vec![block(
+        &format!("[c2] FERB (reply): {said}\n[Full source: chat.history entry_id=x-9]"),
+        "",
+        &["entry:x-9"],
+    )];
     assert_eq!(latest_unless_shown(latest.clone(), &other).len(), 1);
     // whole and with its id, as data or as a reply's words: left out
     let whole = entry(&format!(
@@ -100,6 +105,11 @@ fn the_latest_block_stays_unless_every_row_is_shown_whole_with_its_id() {
     assert!(latest_unless_shown(latest.clone(), &whole).is_empty());
     let told = entry(&format!("[c3] FERB (reply, model-written, unchecked): {said}\n[Result id: r-1; task.evidence task_id=t-1]"));
     assert!(latest_unless_shown(latest.clone(), &told).is_empty());
+    // front door step 8: a lean line holds no id; its lineage names the result it shows
+    let lean = entry(&format!(
+        "[c2] (Thu 01 Jan 09:00) FERB (task result, done): {quoted}"
+    ));
+    assert!(latest_unless_shown(latest.clone(), &lean).is_empty());
     // a card: every row must be shown, or all stay
     let two = vec![
         latest[0].clone(),
