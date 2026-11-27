@@ -940,3 +940,11 @@ status = "open"
 why = "ORCH-738 (owner 2026-11-27). Which model writes the bracket and from which record (the checker's gaps, ORCH-606) is the agent's to propose, with its rate per answer. After the front door."
 decisions = ["ORCH-738"]
 after = ["T-1337"]
+
+[T-1349]
+title = "A Codex app-server is left running when the worker's watchdog drops its start part way"
+area = "runtimes"
+kind = "bug"
+status = "open"
+why = "Found by journal 271's agent (read in the code, not reproduced live): its reader and stderr tasks hold the run, so the run's Drop never ends the program. Today's start and a kept one alike."
+decisions = ["RUN-481"]

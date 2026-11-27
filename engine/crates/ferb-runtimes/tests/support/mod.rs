@@ -236,6 +236,8 @@ pub enum Keying {
 /// A scripted program: each stdin line's key picks the next reaction from `script.on[key]`.
 pub struct FakeApp {
     pub lines: Mutex<Vec<String>>,
+    /// The file a request's `params.path` named, as it was when the request arrived (a resumed template).
+    pub read: Mutex<Vec<String>>,
     counts: Mutex<BTreeMap<String, usize>>,
     script: Value,
     env: BTreeMap<String, String>,
@@ -272,6 +274,15 @@ impl FakeApp {
         let Ok(msg) = serde_json::from_str::<Value>(&line) else {
             return;
         };
+        if let Some(path) = msg
+            .get("params")
+            .and_then(|p| p.get("path"))
+            .and_then(Value::as_str)
+        {
+            if let Ok(text) = std::fs::read_to_string(path) {
+                self.read.lock().unwrap().push(text);
+            }
+        }
         let key = self.key(&msg);
         let n = {
             let mut c = self.counts.lock().unwrap();
@@ -385,6 +396,7 @@ impl Spawner for FakeSpawner {
             let (tx, _) = watch::channel(Some(0));
             let app = Arc::new(FakeApp {
                 lines: Mutex::new(Vec::new()),
+                read: Mutex::new(Vec::new()),
                 counts: Mutex::new(BTreeMap::new()),
                 script: json!({}),
                 env: BTreeMap::new(),
@@ -417,6 +429,7 @@ impl Spawner for FakeSpawner {
         };
         let app = Arc::new(FakeApp {
             lines: Mutex::new(Vec::new()),
+            read: Mutex::new(Vec::new()),
             counts: Mutex::new(BTreeMap::new()),
             script,
             env: spec.env.clone(),

@@ -749,3 +749,21 @@ status = "active"
 rule = "For ORCH-726 (step 4). A supervisor run with no answer form emits TextDelta for its answer text as written, then ToolCall {tool, name, phase: started, arguments or null} and {tool, name, phase: completed, arguments, error} on Claude Code, Codex and the API loop alike; its final text is its last message. Its cancel interrupts the turn first (Claude's interrupt, Codex's turn/interrupt, at most 2 s), ends the program, raises nothing and hands usage through unreported_usage. Runs with an answer form stay as recorded."
 why = "The front door must show its words and a lookup's status as they happen, the same way whatever AI runs it."
 paths = ["engine/crates/ferb-runtimes/src/run.rs", "engine/crates/ferb-runtimes/src/claude/mod.rs", "engine/crates/ferb-runtimes/src/codex/stream.rs", "engine/crates/ferb-runtimes/src/api/mod.rs"]
+
+[RUN-481]
+title = "One keeper holds a ready model program per role, runtime and model, ended after 5 idle minutes"
+by = "agent"
+date = 2026-11-27
+status = "active"
+rule = "For ORCH-726 (step 6). ferb-runtimes keep::Keeper owns ready programs: one per (role, runtime, model) beside those in use, the only thing that starts or ends them; ended after 5 idle minutes (owner), after its message on Claude Code (used once), on a model, effort, tool-list or sign-in change, a crash, or the daemon's stop. Codex keeps its app-server and per message unsubscribes, rewrites the template and resumes the cached thread. Daemon: the orchestrator role on runtimes in ferbd KEPT_RUNTIMES (Claude Code first)."
+why = "A program started before the message saves its start on every turn: 0.13-0.25 s on Claude Code, 0.7-1.2 s on Codex (measured)."
+paths = ["engine/crates/ferb-runtimes/src/keep.rs", "engine/crates/ferbd/src/compose/runtimes.rs"]
+
+[RUN-482]
+title = "A kept program's tool bridge reads its message's token per request; blank between messages"
+by = "agent"
+date = 2026-11-27
+status = "active"
+rule = "For RUN-481. A kept program's tool bridge (FERB_RUN_TOKEN_WAIT set) reads the 0600 token file in the program's 0700 folder on every request and holds none between; the file holds a message's token only while it runs (written by rename before it, blanked after it ended); one message per program at a time, a second concurrent message gets its own program and file. A blank file is refused (no live grant) without reaching the daemon. Today's bridges keep their one token."
+why = "A program started before its message can't be given the message's grant at start; the token must never outlive its grant nor serve two turns."
+paths = ["engine/crates/ferb-runtimes/src/mcp_bridge.rs", "engine/crates/ferb-runtimes/src/keep.rs"]

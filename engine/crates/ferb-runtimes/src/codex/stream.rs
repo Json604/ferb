@@ -63,13 +63,30 @@ struct State {
     watcher_crash: Option<Raised>,
     /// RUN-480: a plain-mode cancel is ending the turn (interrupt first); nothing after it is an error or an event.
     ending: bool,
+    /// T-1343: the request-trace lines the stderr reader checked over the program's life (each holds a request's
+    /// tool catalog), the count when this turn began, and this turn's model calls (`thread/tokenUsage/updated`).
+    trace_lines: u64,
+    turn_trace_start: u64,
+    turn_calls: u64,
+}
+
+/// What belongs to one message in a program: today a run is one message, a kept program takes several (T-1343).
+pub(super) struct TurnInfo {
+    pub(super) rt: Arc<CodexRuntime>,
+    pub(super) task_id: String,
+    pub(super) run_id: String,
+    pub(super) deadline: Option<Instant>,
+}
+
+/// A kept program's link to its keeper (T-1343).
+pub(super) struct KeptLink {
+    pub(super) settings: String,
+    pub(super) back: crate::keep::Back,
 }
 
 /// One live Codex run: everything its readers, its consumer and its control share.
 pub struct CodexRun {
-    rt: CodexRuntime,
-    task_id: String,
-    run_id: String,
+    turn: Mutex<TurnInfo>,
     st: Mutex<State>,
     auth: Mutex<Option<Auth>>,
     proc: Mutex<Option<Arc<dyn ProcControl>>>,
@@ -82,14 +99,19 @@ pub struct CodexRun {
     temporary: Mutex<Option<PathBuf>>,
     lock: Mutex<Option<fs::File>>,
     token_file: Mutex<Option<PathBuf>>,
-    deadline: Option<Instant>,
     cleanup_done: tokio::sync::Mutex<bool>,
     context_role: Mutex<String>,
     /// Told when the turn completed or the transport closed (a plain-mode cancel waits for its interrupt).
     turn_end: tokio::sync::Notify,
+    /// T-1343: a kept program (several messages, one at a time); None for today's one-message run.
+    kept: Option<KeptLink>,
+    /// T-1343: the message the program is on (a turn's control acts only while it is the current one).
+    generation: std::sync::atomic::AtomicU64,
+    /// Told when the stderr reader checked another request-trace line.
+    trace_seen: tokio::sync::Notify,
 }
 
-fn timer_now(rt: &CodexRuntime) -> ferb_core::timing::Now {
+pub(super) fn timer_now(rt: &CodexRuntime) -> ferb_core::timing::Now {
     let m = rt.monotonic.clone();
     Box::new(move || m())
 }
@@ -156,6 +178,23 @@ impl From<Raised> for Exit {
 impl CodexRun {
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
         self.st.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn turn_info(&self) -> std::sync::MutexGuard<'_, TurnInfo> {
+        self.turn.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The settings of the message the program is on.
+    pub(super) fn rt(&self) -> Arc<CodexRuntime> {
+        self.turn_info().rt.clone()
+    }
+
+    fn task_id(&self) -> String {
+        self.turn_info().task_id.clone()
+    }
+
+    fn deadline(&self) -> Option<Instant> {
+        self.turn_info().deadline
     }
 
     fn is_checked(&self) -> bool {
@@ -232,7 +271,7 @@ impl CodexRun {
                 _ => Err(RuntimeError::protocol(codex_error(
                     &format!("Codex could not complete {method}"),
                     obj.get("error"),
-                    &self.rt.redact,
+                    &self.rt().redact,
                 ))),
             }
         }
@@ -242,7 +281,7 @@ impl CodexRun {
     }
 
     /// codex_stream.py `_save_refresh`: a refreshed login goes back only while the source is still the one copied.
-    fn save_refresh(&self) {
+    pub(super) fn save_refresh(&self) {
         let mut guard = self.auth.lock().unwrap_or_else(|e| e.into_inner());
         let Some(auth) = guard.as_mut() else { return };
         let Ok(refreshed) = fs::read(&auth.copy) else {
@@ -287,7 +326,7 @@ impl CodexRun {
     /// RUN-480: a plain-mode run's turn is ended in Codex first (`turn/interrupt`, measured on 0.166.0: the turn
     /// ends in about 5 ms with its usage reported), waiting at most [`INTERRUPT_WAIT_S`] for the turn to complete,
     /// so the usage Codex counted reaches the reader before the app-server is killed.
-    async fn interrupt(&self) {
+    pub(super) async fn interrupt(&self) {
         let (thread_id, turn_id) = {
             let mut st = self.lock();
             if st.closed || st.cancelled || st.turn_completed || st.turn_id.is_none() {
@@ -317,9 +356,14 @@ impl CodexRun {
     /// stopped, a refreshed login published, the run's folder removed and its lock released. A plain-mode run's turn
     /// is interrupted first (RUN-480).
     pub async fn cancel(&self) {
-        if self.rt.plain() {
+        if self.rt().plain() {
             self.interrupt().await;
         }
+        self.end_program().await;
+    }
+
+    /// [`CodexRun::cancel`] without the interrupt: the program ends with today's code.
+    pub(super) async fn end_program(&self) {
         self.lock().cancelled = true;
         self.close_transport(RuntimeError::protocol("Codex run closed"));
         let mut done = self.cleanup_done.lock().await;
@@ -355,7 +399,7 @@ impl CodexRun {
 
     /// codex_stream.py `steer` (worker mode only: `CodexRuntime.continue_`).
     pub async fn steer(&self, message: &str) -> Result<(), RuntimeError> {
-        if self.rt.mode != Mode::Worker {
+        if self.rt().mode != Mode::Worker {
             return Err(RuntimeError::unsupported(
                 "Only active Codex worker turns accept steering",
             ));
@@ -489,13 +533,13 @@ pub async fn start(
         state.insert("token_file".into(), json!(path_str(&t)));
     }
     let handle = RunHandle {
-        id: run.run_id.clone(),
+        id: run.turn_info().run_id.clone(),
         runtime: "codex".into(),
         task_id: task.id.clone(),
         state,
     };
     let control: Arc<CodexRun> = run.clone();
-    let events = EventStream::spawn(move |y| events_body(run, y));
+    let events = EventStream::spawn(move |y| events_body(run, None, y));
     Ok(Started {
         handle,
         events,
@@ -513,7 +557,7 @@ impl CodexRun {
 }
 
 /// codex_exec.py `ensure_version` / `check_version`: once per binary per process; a mismatch is never remembered.
-async fn ensure_version(rt: &CodexRuntime) -> Result<(), RuntimeError> {
+pub(super) async fn ensure_version(rt: &CodexRuntime) -> Result<(), RuntimeError> {
     let known = rt
         .host
         .caches
@@ -585,6 +629,41 @@ async fn start_stream(
     run_token: &str,
 ) -> Result<(Arc<CodexRun>, Map<String, Value>), RuntimeError> {
     let mut steps = Steps::new(timer_now(rt));
+    let deadline = rt
+        .timeout_s
+        .map(|s| Instant::now() + Duration::from_secs_f64(s.max(0.0)));
+    let run = new_run(rt, &task.id, deadline, None)?;
+    let token = (rt.mode == Mode::Worker || !run_token.is_empty()).then_some(run_token);
+    let body = async {
+        program_body(&run, rt, token, &mut steps).await?;
+        turn_body(&run, rt, task, request, &mut steps).await
+    };
+    let body = async {
+        match deadline {
+            Some(d) => match tokio::time::timeout_at(d, body).await {
+                Ok(r) => r,
+                Err(_) => Err(RuntimeError::Raised(Raised::timeout())),
+            },
+            None => body.await,
+        }
+    };
+    match body.await {
+        Ok(()) => Ok((run, steps.steps.clone())),
+        Err(e) => {
+            run.cancel().await;
+            Err(e)
+        }
+    }
+}
+
+/// The run's owner-only folder and its lock, and the run itself (not started yet). `kept`: a program kept across
+/// messages (T-1343).
+pub(super) fn new_run(
+    rt: &CodexRuntime,
+    task_id: &str,
+    deadline: Option<Instant>,
+    kept: Option<KeptLink>,
+) -> Result<Arc<CodexRun>, RuntimeError> {
     let Some(home) = codex_home(&rt.ferb_home) else {
         return Err(RuntimeError::account_error("auth_required", None));
     };
@@ -620,13 +699,13 @@ async fn start_stream(
     }
     let (notes_tx, notes_rx) = mpsc::unbounded_channel();
     let (checked, _) = watch::channel(false);
-    let deadline = rt
-        .timeout_s
-        .map(|s| Instant::now() + Duration::from_secs_f64(s.max(0.0)));
-    let run = Arc::new(CodexRun {
-        rt: rt.clone(),
-        task_id: task.id.clone(),
-        run_id: format!("run-{}", (rt.host.token_hex)(6)),
+    Ok(Arc::new(CodexRun {
+        turn: Mutex::new(TurnInfo {
+            rt: Arc::new(rt.clone()),
+            task_id: task_id.to_string(),
+            run_id: format!("run-{}", (rt.host.token_hex)(6)),
+            deadline,
+        }),
         st: Mutex::new(State {
             closed: false,
             cancelled: false,
@@ -647,6 +726,9 @@ async fn start_stream(
             context_window: Value::Null,
             watcher_crash: None,
             ending: false,
+            trace_lines: 0,
+            turn_trace_start: 0,
+            turn_calls: 0,
         }),
         auth: Mutex::new(Some(Auth {
             source: home.join("auth.json"),
@@ -660,171 +742,352 @@ async fn start_stream(
         checked,
         reader: Mutex::new(None),
         watcher: Mutex::new(None),
-        temporary: Mutex::new(Some(root.clone())),
+        temporary: Mutex::new(Some(root)),
         lock: Mutex::new(Some(lock)),
         token_file: Mutex::new(None),
-        deadline,
         cleanup_done: tokio::sync::Mutex::new(false),
         context_role: Mutex::new(String::new()),
         turn_end: tokio::sync::Notify::new(),
-    });
-    let body = async {
-        let mut token_file = None;
-        if rt.mode == Mode::Worker || !run_token.is_empty() {
-            let path = root.join("run-token");
-            private_write(&path, run_token.as_bytes())?;
-            *run.token_file.lock().unwrap_or_else(|e| e.into_inner()) = Some(path.clone());
-            token_file = Some(path);
+        kept,
+        generation: std::sync::atomic::AtomicU64::new(0),
+        trace_seen: tokio::sync::Notify::new(),
+    }))
+}
+
+impl CodexRun {
+    pub(super) fn root(&self) -> Option<PathBuf> {
+        self.temporary.lock().ok().and_then(|t| t.clone())
+    }
+
+    /// T-1343: what a kept program was made for.
+    pub(super) fn kept_settings(&self) -> &str {
+        self.kept
+            .as_ref()
+            .map(|k| k.settings.as_str())
+            .unwrap_or("")
+    }
+
+    pub(super) fn kept_back(&self) -> Option<crate::keep::Back> {
+        self.kept.as_ref().map(|k| k.back.clone())
+    }
+
+    pub(super) fn generation(&self) -> u64 {
+        self.generation.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub(super) fn next_generation(&self) {
+        self.generation
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// T-1343: the program can take a message: its app-server runs and its transport is open, nothing outside FERB
+    /// was seen, and FERB's sign-in is still the one it copied (another run's refresh or a new sign-in ends it, so a
+    /// kept program never goes on with a refresh token that was already used).
+    pub(super) fn kept_alive(&self) -> bool {
+        {
+            let st = self.lock();
+            if st.closed || st.cancelled || st.violation.is_some() || st.watcher_crash.is_some() {
+                return false;
+            }
         }
-        let inner = async {
-            let (source, copy) = {
-                let a = run.auth.lock().unwrap_or_else(|e| e.into_inner());
-                let a = a.as_ref().expect("set above");
-                (a.source.clone(), a.copy.clone())
-            };
-            let original = fs::read(&source)?;
-            if !chatgpt_login(&original) {
-                return Err(RuntimeError::account_error("auth_required", None));
-            }
-            if let Some(a) = run.auth.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-                a.original = original.clone();
-            }
-            private_write(&copy, &original)?;
-            let user_home = rt.ferb_home.join(CODEX_USER);
-            {
-                use std::os::unix::fs::DirBuilderExt;
-                fs::DirBuilder::new()
-                    .recursive(true)
-                    .mode(0o700)
-                    .create(&user_home)?;
-            }
-            steps.mark("files");
-            let mut env = rt.host.environ.clone();
-            for k in [
-                "OPENAI_API_KEY",
-                "CODEX_API_KEY",
-                "OPENAI_BASE_URL",
-                "CODEX_ACCESS_TOKEN",
-                "CODEX_AUTHAPI_BASE_URL",
-                "CODEX_AGENT_IDENTITY_AUTHAPI_BASE_URL",
-            ] {
-                env.remove(k);
-            }
-            env.insert("HOME".into(), path_str(&user_home));
-            env.insert("CODEX_HOME".into(), path_str(&isolated));
-            env.insert("RUST_LOG".into(), "trace".into());
-            let catalog = locked_catalog(&rt.ferb_home, &rt.host.caches);
-            let argv = command(rt, catalog.as_deref(), token_file.as_deref())?;
-            let mut spec = Spawn::new(argv, env);
-            spec.cwd = Some(workdir.clone());
-            let mut child = rt.host.spawner.spawn(spec)?;
-            *run.proc.lock().unwrap_or_else(|e| e.into_inner()) = Some(child.control.clone());
-            *run.stdin.lock().await = child.stdin.take();
-            if let Some(stderr) = child.stderr.take() {
-                let w = run.clone();
-                *run.watcher.lock().unwrap_or_else(|e| e.into_inner()) =
-                    Some(tokio::spawn(watch_catalog(w, stderr)));
-            } else {
-                run.set_checked();
-            }
-            if let Some(stdout) = child.stdout.take() {
-                let r = run.clone();
-                *run.reader.lock().unwrap_or_else(|e| e.into_inner()) =
-                    Some(tokio::spawn(dispatch(r, stdout)));
-            }
-            steps.mark("spawn");
-            run.rpc(
-                "initialize",
-                json!({"clientInfo": {"name": "ferb", "title": "FERB", "version": "0.27"},
-                    "capabilities": {"experimentalApi": true}}),
-            )
+        if self.proc().is_none_or(|p| p.returncode().is_some()) {
+            return false;
+        }
+        let auth = self.auth.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(auth) = auth.as_ref() else {
+            return false;
+        };
+        fs::read(&auth.source).ok().as_deref() == Some(auth.original.as_slice())
+    }
+
+    /// T-1343: the message's turn ended in Codex (completed, or interrupted and completed), so nothing of it runs on.
+    pub(super) fn turn_ended(&self) -> bool {
+        self.lock().turn_completed
+    }
+
+    /// T-1343: the message's events end quietly (as a plain-mode cancel's do), and a loop waiting for Codex's next
+    /// notification is woken to see it.
+    pub(super) fn end_events(&self) {
+        self.lock().ending = true;
+        let _ = self
+            .notes_tx
+            .send(Ok(json!({"method": "ferb/messageEnded"})));
+    }
+
+    /// T-1343: `thread/unsubscribe` for the message's thread (measured on 0.166.0: the next resume of the same id then
+    /// carries nothing of it); anything but "unsubscribed" is a failure.
+    pub(super) async fn unsubscribe(&self) -> Result<(), RuntimeError> {
+        let Some(thread) = self.lock().thread_id.clone() else {
+            return Err(RuntimeError::protocol("Codex run has no thread"));
+        };
+        let out = self
+            .rpc("thread/unsubscribe", json!({"threadId": thread}))
             .await?;
-            run.write(&json!({"method": "initialized"})).await?;
-            steps.mark("initialize");
-            let mut resumed: Option<String> = None;
-            let mut developer = false;
-            if rt.cache_role.is_some() && rt.mode == Mode::Supervisor {
-                let refused = cache_refusal(rt, task, request);
-                if !refused.is_empty() {
-                    if let Some(note) = &rt.on_cache_skipped {
-                        note(&task.id, &refused);
-                    }
-                }
-                resumed =
-                    resume_cached(&run, request, &isolated, &workdir, refused.is_empty()).await;
-                developer = resumed.is_some() && refused.is_empty();
-            } else if rt.cache_role.is_some() {
-                // a worker-mode run (the checker) resumes its role's template only for the cache key: its whole
-                // context stays in the user turn, never the developer role (RUN-416's rule for any refused turn)
-                resumed = resume_cached(&run, request, &isolated, &workdir, false).await;
+        if out.get("status").and_then(Value::as_str) != Some("unsubscribed") {
+            return Err(RuntimeError::protocol(
+                "Codex did not unsubscribe the message's thread",
+            ));
+        }
+        let mut st = self.lock();
+        st.thread_id = None;
+        st.turn_id = None;
+        Ok(())
+    }
+
+    /// T-1343: the program's token file holds `token` (blank between messages), replaced in one step so its tool
+    /// bridge never reads half a token.
+    pub(super) fn put_token(&self, token: &str) -> std::io::Result<()> {
+        let Some(path) = self.token_file.lock().ok().and_then(|t| t.clone()) else {
+            return Ok(());
+        };
+        let next = path.with_file_name(".run-token.next");
+        private_write(&next, token.as_bytes())?;
+        fs::rename(&next, &path)
+    }
+
+    pub(super) fn context_role_now(&self) -> String {
+        self.context_role()
+    }
+
+    pub(super) fn token_path(&self) -> Option<PathBuf> {
+        self.token_file.lock().ok().and_then(|t| t.clone())
+    }
+
+    pub(super) fn run_id_now(&self) -> String {
+        self.turn_info().run_id.clone()
+    }
+
+    pub(super) fn has_token_file(&self) -> bool {
+        self.token_file.lock().ok().is_some_and(|t| t.is_some())
+    }
+
+    /// T-1343: the program takes its next message: that message's settings and limit, a new run id, and a fresh
+    /// turn state (nothing of the last message's thread, timing, usage or catalog), the token written last. Waits
+    /// (at most 2 s) for the last message's events to have ended.
+    pub(super) async fn arm(
+        &self,
+        rt: &CodexRuntime,
+        task_id: &str,
+        deadline: Option<Instant>,
+        token: &str,
+    ) -> Result<(), RuntimeError> {
+        let Ok(mut rx) = tokio::time::timeout(Duration::from_secs(2), self.notes_rx.lock()).await
+        else {
+            return Err(RuntimeError::protocol(
+                "Codex's previous message did not end",
+            ));
+        };
+        while let Ok(item) = rx.try_recv() {
+            if item.is_err() {
+                return Err(RuntimeError::protocol("Codex run closed"));
             }
-            if let Ok(mut r) = run.context_role.lock() {
-                *r = if developer { "developer" } else { "user" }.into();
+        }
+        drop(rx);
+        {
+            let mut t = self.turn_info();
+            t.rt = Arc::new(rt.clone());
+            t.task_id = task_id.to_string();
+            t.run_id = format!("run-{}", (rt.host.token_hex)(6));
+            t.deadline = deadline;
+        }
+        {
+            let mut st = self.lock();
+            if st.closed || st.cancelled {
+                return Err(RuntimeError::protocol("Codex run is closed"));
             }
-            match &resumed {
-                None => {
-                    let thread = run
-                        .rpc("thread/start", start_params(rt, request, &workdir))
-                        .await?;
-                    let thread = Value::Object(thread);
-                    let fits = isolated_thread(&thread, rt)? && {
-                        let t = get_or_empty(&thread, "thread")?;
-                        get(&t, "ephemeral")?.is_some_and(ferb_py::value::truthy)
-                    };
-                    if !fits {
-                        return Err(RuntimeError::protocol(
-                            "Codex runtime configuration did not match FERB isolation",
-                        ));
-                    }
-                    let id = thread
-                        .get("thread")
-                        .and_then(|t| t.get("id"))
-                        .cloned()
-                        .ok_or_else(|| Raised::key_error("id"))?;
-                    run.lock().thread_id = Some(id);
-                }
-                Some(id) => run.lock().thread_id = Some(json!(id)),
+            st.turn_completed = false;
+            st.seen.clear();
+            st.catalog_observed = false;
+            st.catalog_unreadable = false;
+            st.thread_id = None;
+            st.turn_id = None;
+            st.timer = Some(CallTimer::new(timer_now(rt), "runtime"));
+            st.timings.clear();
+            st.usage_seen.clear();
+            st.context_tokens = Value::Null;
+            st.context_window = Value::Null;
+            st.ending = false;
+            st.turn_trace_start = st.trace_lines;
+            st.turn_calls = 0;
+        }
+        let reads_trace = self.watcher.lock().ok().is_some_and(|w| w.is_some());
+        self.checked.send_replace(!reads_trace);
+        if let Ok(mut r) = self.context_role.lock() {
+            r.clear();
+        }
+        self.put_token(token)?;
+        Ok(())
+    }
+}
+
+/// The program's half of a start: the token file (`token`: the run token, or None when the run gets no tools; a
+/// kept program's file starts blank), the copied sign-in, the app-server and its readers, `initialize`.
+pub(super) async fn program_body(
+    run: &Arc<CodexRun>,
+    rt: &CodexRuntime,
+    token: Option<&str>,
+    steps: &mut Steps,
+) -> Result<(), RuntimeError> {
+    let root = run
+        .root()
+        .ok_or_else(|| RuntimeError::protocol("Codex run is closed"))?;
+    let isolated = root.join("codex");
+    let workdir = root.join("work");
+    let mut token_file = None;
+    if let Some(token) = token {
+        let path = root.join("run-token");
+        private_write(&path, token.as_bytes())?;
+        *run.token_file.lock().unwrap_or_else(|e| e.into_inner()) = Some(path.clone());
+        token_file = Some(path);
+    }
+    let (source, copy) = {
+        let a = run.auth.lock().unwrap_or_else(|e| e.into_inner());
+        let a = a.as_ref().expect("set when the run was made");
+        (a.source.clone(), a.copy.clone())
+    };
+    let original = fs::read(&source)?;
+    if !chatgpt_login(&original) {
+        return Err(RuntimeError::account_error("auth_required", None));
+    }
+    if let Some(a) = run.auth.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        a.original = original.clone();
+    }
+    private_write(&copy, &original)?;
+    let user_home = rt.ferb_home.join(CODEX_USER);
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&user_home)?;
+    }
+    steps.mark("files");
+    let mut env = rt.host.environ.clone();
+    for k in [
+        "OPENAI_API_KEY",
+        "CODEX_API_KEY",
+        "OPENAI_BASE_URL",
+        "CODEX_ACCESS_TOKEN",
+        "CODEX_AUTHAPI_BASE_URL",
+        "CODEX_AGENT_IDENTITY_AUTHAPI_BASE_URL",
+    ] {
+        env.remove(k);
+    }
+    env.insert("HOME".into(), path_str(&user_home));
+    env.insert("CODEX_HOME".into(), path_str(&isolated));
+    env.insert("RUST_LOG".into(), "trace".into());
+    let catalog = locked_catalog(&rt.ferb_home, &rt.host.caches);
+    let argv = command(rt, catalog.as_deref(), token_file.as_deref())?;
+    let mut spec = Spawn::new(argv, env);
+    spec.cwd = Some(workdir.clone());
+    let mut child = rt.host.spawner.spawn(spec)?;
+    *run.proc.lock().unwrap_or_else(|e| e.into_inner()) = Some(child.control.clone());
+    *run.stdin.lock().await = child.stdin.take();
+    if let Some(stderr) = child.stderr.take() {
+        let w = run.clone();
+        *run.watcher.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(tokio::spawn(watch_catalog(w, stderr)));
+    } else {
+        run.set_checked();
+    }
+    if let Some(stdout) = child.stdout.take() {
+        let r = run.clone();
+        *run.reader.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(tokio::spawn(dispatch(r, stdout)));
+    }
+    steps.mark("spawn");
+    run.rpc(
+        "initialize",
+        json!({"clientInfo": {"name": "ferb", "title": "FERB", "version": "0.27"},
+            "capabilities": {"experimentalApi": true}}),
+    )
+    .await?;
+    run.write(&json!({"method": "initialized"})).await?;
+    steps.mark("initialize");
+    Ok(())
+}
+
+/// The message's half of a start: the thread (the role's template resumed for a cached turn, else a new ephemeral
+/// thread) and the turn.
+pub(super) async fn turn_body(
+    run: &Arc<CodexRun>,
+    rt: &CodexRuntime,
+    task: &Task,
+    request: &ModelRequest,
+    steps: &mut Steps,
+) -> Result<(), RuntimeError> {
+    let root = run
+        .root()
+        .ok_or_else(|| RuntimeError::protocol("Codex run is closed"))?;
+    let isolated = root.join("codex");
+    let workdir = root.join("work");
+    let mut resumed: Option<String> = None;
+    let mut developer = false;
+    if rt.cache_role.is_some() && rt.mode == Mode::Supervisor {
+        let refused = cache_refusal(rt, task, request);
+        if !refused.is_empty() {
+            if let Some(note) = &rt.on_cache_skipped {
+                note(&task.id, &refused);
             }
-            steps.mark(if resumed.is_some() {
-                "thread_resume"
-            } else {
-                "thread_start"
-            });
-            if let Some(t) = run.lock().timer.as_mut() {
-                t.begin();
-            }
-            let thread_id = run.lock().thread_id.clone().unwrap_or(Value::Null);
-            let turn = run
-                .rpc(
-                    "turn/start",
-                    turn_params(rt, request, &thread_id, developer),
-                )
+        }
+        resumed = resume_cached(run, request, &isolated, &workdir, refused.is_empty()).await;
+        developer = resumed.is_some() && refused.is_empty();
+    } else if rt.cache_role.is_some() {
+        // a worker-mode run (the checker) resumes its role's template only for the cache key: its whole
+        // context stays in the user turn, never the developer role (RUN-416's rule for any refused turn)
+        resumed = resume_cached(run, request, &isolated, &workdir, false).await;
+    }
+    if let Ok(mut r) = run.context_role.lock() {
+        *r = if developer { "developer" } else { "user" }.into();
+    }
+    match &resumed {
+        None => {
+            let thread = run
+                .rpc("thread/start", start_params(rt, request, &workdir))
                 .await?;
-            let turn_id = turn
-                .get("turn")
-                .ok_or_else(|| Raised::key_error("turn"))?
-                .get("id")
+            let thread = Value::Object(thread);
+            let fits = isolated_thread(&thread, rt)? && {
+                let t = get_or_empty(&thread, "thread")?;
+                get(&t, "ephemeral")?.is_some_and(ferb_py::value::truthy)
+            };
+            if !fits {
+                return Err(RuntimeError::protocol(
+                    "Codex runtime configuration did not match FERB isolation",
+                ));
+            }
+            let id = thread
+                .get("thread")
+                .and_then(|t| t.get("id"))
                 .cloned()
                 .ok_or_else(|| Raised::key_error("id"))?;
-            run.lock().turn_id = Some(turn_id);
-            steps.mark("turn_start");
-            Ok(())
-        };
-        match deadline {
-            Some(d) => match tokio::time::timeout_at(d, inner).await {
-                Ok(r) => r,
-                Err(_) => Err(RuntimeError::Raised(Raised::timeout())),
-            },
-            None => inner.await,
+            run.lock().thread_id = Some(id);
         }
-    };
-    match body.await {
-        Ok(()) => Ok((run, steps.steps.clone())),
-        Err(e) => {
-            run.cancel().await;
-            Err(e)
-        }
+        Some(id) => run.lock().thread_id = Some(json!(id)),
     }
+    steps.mark(if resumed.is_some() {
+        "thread_resume"
+    } else {
+        "thread_start"
+    });
+    if let Some(t) = run.lock().timer.as_mut() {
+        t.begin();
+    }
+    let thread_id = run.lock().thread_id.clone().unwrap_or(Value::Null);
+    let turn = run
+        .rpc(
+            "turn/start",
+            turn_params(rt, request, &thread_id, developer),
+        )
+        .await?;
+    let turn_id = turn
+        .get("turn")
+        .ok_or_else(|| Raised::key_error("turn"))?
+        .get("id")
+        .cloned()
+        .ok_or_else(|| Raised::key_error("id"))?;
+    run.lock().turn_id = Some(turn_id);
+    steps.mark("turn_start");
+    Ok(())
 }
 
 trait PrivateOpen {
@@ -948,7 +1211,8 @@ async fn resume_cached(
     workdir: &Path,
     developer: bool,
 ) -> Option<String> {
-    let rt = &run.rt;
+    let rt = run.rt();
+    let rt = &*rt;
     let role = rt.cache_role.as_deref().unwrap_or_default();
     let thread_id = cache_thread_id(role, &rt.model, &rt.cache_scope);
     // the effort the turn sends (a supervisor run always sends one), none when it sends none
@@ -1000,7 +1264,7 @@ async fn resume_cached(
         }
     };
     if let Some(note) = &rt.on_cache_fallback {
-        note(&run.task_id, &why);
+        note(&run.task_id(), &why);
     }
     None
 }
@@ -1112,6 +1376,12 @@ fn observe(run: &CodexRun, obj: &Value) {
     if st.timer.is_none() || !eq(params.get("threadId"), st.thread_id.as_ref()) {
         return;
     }
+    // T-1343: a kept program's earlier message on the same cached thread id is not this one's
+    if let (Some(turn), Some(ours)) = (params.get("turnId"), st.turn_id.as_ref()) {
+        if !eq(Some(turn), Some(ours)) {
+            return;
+        }
+    }
     let method = match obj.get("method") {
         Some(m) if ferb_py::value::truthy(m) => ferb_py::value::py_str(m),
         _ => String::new(),
@@ -1127,6 +1397,7 @@ fn observe(run: &CodexRun, obj: &Value) {
     if method == "thread/tokenUsage/updated" {
         let t = timer.done();
         st.timings.push_back(t);
+        st.turn_calls += 1;
         let last = params
             .get("tokenUsage")
             .and_then(|u| u.get("last"))
@@ -1195,11 +1466,12 @@ async fn watch_catalog(run: Arc<CodexRun>, stderr: Box<dyn AsyncRead + Send + Un
         run.save_refresh();
         let kill = {
             let mut st = run.lock();
+            st.trace_lines += 1;
             st.seen.extend(seen.iter().cloned());
             if !st.catalog_unreadable {
                 st.catalog_observed = true;
             }
-            let extra: BTreeSet<String> = seen.difference(&run.rt.allowed).cloned().collect();
+            let extra: BTreeSet<String> = seen.difference(&run.rt().allowed).cloned().collect();
             if extra.is_empty() {
                 false
             } else {
@@ -1216,8 +1488,41 @@ async fn watch_catalog(run: Arc<CodexRun>, stderr: Box<dyn AsyncRead + Send + Un
             }
         }
         run.set_checked();
+        run.trace_seen.notify_waiters();
     }
     run.set_checked();
+    run.trace_seen.notify_waiters();
+}
+
+/// T-1343: how long a kept program's turn waits, once Codex said it completed, for the stderr reader to have checked
+/// the request trace of each of the turn's model calls. Codex writes a call's trace before the call goes out, so this
+/// is only the reader catching up; past it the turn ends as today's does (the app-server killed and its stderr read to
+/// the end) and the program is not kept.
+pub const KEPT_TRACE_WAIT_S: f64 = 2.0;
+
+/// T-1343: every model call of the program's current turn had its request trace checked (at least one line, and at
+/// least one per call), with no extra tool found; false past [`KEPT_TRACE_WAIT_S`].
+pub(super) async fn traced(run: &CodexRun) -> bool {
+    let wait = async {
+        loop {
+            let seen = run.trace_seen.notified();
+            tokio::pin!(seen);
+            seen.as_mut().enable();
+            {
+                let st = run.lock();
+                if st.violation.is_some() || st.watcher_crash.is_some() {
+                    return false;
+                }
+                if st.trace_lines - st.turn_trace_start >= st.turn_calls.max(1) {
+                    return true;
+                }
+            }
+            seen.await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs_f64(KEPT_TRACE_WAIT_S), wait)
+        .await
+        .unwrap_or(false)
 }
 
 /// codex_stream.py `_finish_trace`: the app-server reaped and its stderr read to the end before the final result.
@@ -1278,8 +1583,12 @@ fn in_set(v: Option<&Value>, set: &[&str]) -> Result<bool, Raised> {
 }
 
 /// codex_stream.py `events`.
-async fn events_body(run: Arc<CodexRun>, mut y: Yielder) -> Result<(), RuntimeError> {
-    let deadline = run.deadline;
+pub(super) async fn events_body(
+    run: Arc<CodexRun>,
+    lease: Option<Arc<super::kept::CodexLease>>,
+    mut y: Yielder,
+) -> Result<(), RuntimeError> {
+    let deadline = run.deadline();
     let main = event_loop(&run, &mut y);
     let out = match deadline {
         Some(d) => match tokio::time::timeout_at(d, main).await {
@@ -1345,12 +1654,17 @@ async fn events_body(run: Arc<CodexRun>, mut y: Yielder) -> Result<(), RuntimeEr
             }
         }
     };
-    run.cancel().await;
+    match &lease {
+        // T-1343: a kept program's message ends; the program goes back to its keeper when it can take another
+        Some(l) => l.release(false).await,
+        None => run.cancel().await,
+    }
     result
 }
 
 async fn event_loop(run: &Arc<CodexRun>, y: &mut Yielder) -> Result<(), Exit> {
-    let rt = &run.rt;
+    let rt = run.rt();
+    let rt = &*rt;
     let plain = rt.plain();
     let mut phases: HashMap<String, Value> = HashMap::new();
     let mut final_text = String::new();
@@ -1403,7 +1717,15 @@ async fn event_loop(run: &Arc<CodexRun>, y: &mut Yielder) -> Result<(), Exit> {
                 continue;
             }
             run.lock().turn_completed = true;
-            finish_trace(run).await?;
+            // T-1343: a kept program is not killed to read its trace to the end: the turn waits until each of its
+            // model calls' request traces was checked, and falls back to today's end past that wait
+            if run.kept.is_some() && traced(run).await {
+                if let Some(crash) = run.lock().watcher_crash.take() {
+                    return Err(Exit::Fail(RuntimeError::Raised(crash)));
+                }
+            } else {
+                finish_trace(run).await?;
+            }
             check_catalog(run).await?;
             let status = get(&turn, "status")?.cloned();
             let error = get(&turn, "error")?.cloned();
@@ -1508,7 +1830,7 @@ async fn event_loop(run: &Arc<CodexRun>, y: &mut Yielder) -> Result<(), Exit> {
                     if let Some(note) = &rt.on_abandoned {
                         let id = get(&item, "id")?.cloned().unwrap_or(Value::Null);
                         note(
-                            &run.task_id,
+                            &run.task_id(),
                             &format!(
                                 "{}/{}",
                                 ferb_py::value::py_str(thread_id.as_ref().unwrap_or(&Value::Null)),
@@ -1525,7 +1847,7 @@ async fn event_loop(run: &Arc<CodexRun>, y: &mut Yielder) -> Result<(), Exit> {
                     if let Some(note) = &rt.on_abandoned {
                         let id = get(&item, "id")?.cloned().unwrap_or(Value::Null);
                         note(
-                            &run.task_id,
+                            &run.task_id(),
                             &format!(
                                 "{}/{}",
                                 ferb_py::value::py_str(thread_id.as_ref().unwrap_or(&Value::Null)),
@@ -1647,7 +1969,8 @@ impl RunControl for CodexRun {
     /// RUN-477: the calls Codex reported that the run's events never carried (the run stopped first): one record each.
     fn unreported_usage(&self) -> Vec<Map<String, Value>> {
         let left: Vec<Map<String, Value>> = self.lock().usage_seen.drain(..).collect();
-        let today = (self.rt.host.today)();
+        let rt = self.rt();
+        let today = (rt.host.today)();
         left.iter()
             .filter_map(|last| {
                 let mut mapped = Map::new();
@@ -1659,7 +1982,7 @@ impl RunControl for CodexRun {
                 ] {
                     mapped.insert(to.into(), last.get(from).cloned().unwrap_or(json!(0)));
                 }
-                let usage = crate::usage::from_codex(&self.rt.model, &mapped, &today).ok()?;
+                let usage = crate::usage::from_codex(&rt.model, &mapped, &today).ok()?;
                 let mut data = usage.as_dict();
                 data.insert("recorded_at_end".into(), json!(true));
                 Some(data)

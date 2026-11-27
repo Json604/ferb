@@ -303,6 +303,15 @@ impl Client {
         item
     }
 
+    /// T-1343: the program still runs and FERB has not closed it.
+    pub fn alive(&self) -> bool {
+        self.control.returncode().is_none()
+            && !self
+                .receive_closed
+                .load(std::sync::atomic::Ordering::SeqCst)
+            && !*self.shared.closed.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// ClaudeSDKClient.disconnect: the reader and request handlers stopped, stdin closed, then up to 5 s for the
     /// program to end, SIGTERM, 5 s, SIGKILL.
     pub async fn disconnect(&self) {

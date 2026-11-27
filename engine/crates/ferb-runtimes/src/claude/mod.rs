@@ -5,6 +5,7 @@
 //! API key is refused), the run token in a 0600 file, and the tool list the API receives checked through FERB's
 //! tool-list proxy after every turn.
 
+pub mod kept;
 pub mod proxy;
 pub mod steps;
 pub mod tally;
@@ -235,6 +236,10 @@ pub struct ClaudeRuntime {
     pub compaction: Option<crate::compact::Policy>,
     /// FERB's capability names the run was given (a plain-mode tool event names its call's, RUN-480).
     pub tool_names: Vec<String>,
+    /// T-1343: set only on a program the keeper starts ahead of its message: its tool bridge reads the token file at
+    /// each request and holds its `initialize` answer until the message's token is there, waiting at most this long
+    /// (`mcp_bridge::TOKEN_WAIT_ENV`), and Claude Code waits as long for the bridge (MCP_TIMEOUT).
+    pub keep_wait_s: Option<f64>,
 }
 
 impl ClaudeRuntime {
@@ -299,6 +304,7 @@ impl ClaudeRuntime {
             host,
             compaction: None,
             tool_names: tool_names.to_vec(),
+            keep_wait_s: None,
         }
     }
 
@@ -381,11 +387,17 @@ impl ClaudeRuntime {
                     "worker mode needs a run token file",
                 ));
             };
-            mcp = Some(
-                json!({"ferb": {"type": "stdio", "command": shim[0], "args": &shim[1..],
+            let mut server = json!({"ferb": {"type": "stdio", "command": shim[0], "args": &shim[1..],
                 "env": {"FERB_RUN_TOKEN_FILE": token_file.to_string_lossy(),
-                    "FERB_HOME": self.ferb_home.to_string_lossy()}}}),
-            );
+                    "FERB_HOME": self.ferb_home.to_string_lossy()}}});
+            if let Some(wait) = self.keep_wait_s {
+                server["ferb"]["env"][crate::mcp_bridge::TOKEN_WAIT_ENV] = json!(format!("{wait}"));
+                env.insert(
+                    "MCP_TIMEOUT".into(),
+                    format!("{}", (wait * 1000.0).round() as u64),
+                );
+            }
+            mcp = Some(server);
         }
         let allowed: Vec<String> = self
             .allowed
@@ -493,6 +505,37 @@ struct State {
     unreported_steps: steps::Steps,
     /// RUN-480: the run was cancelled; a plain-mode run's events then end quietly.
     cancelled: bool,
+}
+
+impl State {
+    fn new(
+        client: Option<Arc<Client>>,
+        token_file: Option<PathBuf>,
+        timer: CallTimer,
+        typed: String,
+    ) -> State {
+        State {
+            client,
+            checked_auth: false,
+            token_file,
+            timer,
+            typed,
+            closed: false,
+            pending_updates: BTreeSet::new(),
+            emitted: false,
+            structured: None,
+            account: String::new(),
+            blocks: Vec::new(),
+            cost_so_far: 0.0,
+            follow_up: String::new(),
+            restart: false,
+            remembered: false,
+            repaired: false,
+            unreported: tally::Tally::default(),
+            unreported_steps: steps::Steps::default(),
+            cancelled: false,
+        }
+    }
 }
 
 /// One live Claude run.
@@ -636,6 +679,16 @@ fn first_frame(request: &ModelRequest) -> Value {
         "message": {"role": "user", "content": content(request)}})
 }
 
+/// How the run's answer form goes: "stated" (in the instructions), "strict" (the typed format), "" (no form).
+fn typed_now(rt: &ClaudeRuntime) -> String {
+    match &rt.shape {
+        Some(_) if rt.stated_only || rt.refusals.refused(&rt.format_key) => "stated",
+        Some(_) => "strict",
+        None => "",
+    }
+    .to_string()
+}
+
 /// claude_sdk.py `start`.
 pub async fn start(
     rt: &ClaudeRuntime,
@@ -654,12 +707,7 @@ pub async fn start(
     } else {
         None
     };
-    let typed = match &rt.shape {
-        Some(_) if rt.stated_only || rt.refusals.refused(&rt.format_key) => "stated",
-        Some(_) => "strict",
-        None => "",
-    }
-    .to_string();
+    let typed = typed_now(rt);
     let mut client: Option<Arc<Client>> = None;
     let body = async {
         let (cli, options) = rt.options(
@@ -715,27 +763,7 @@ pub async fn start(
         id: run_id.clone(),
         request: request.clone(),
         deadline,
-        st: Mutex::new(State {
-            client,
-            checked_auth: false,
-            token_file,
-            timer,
-            typed,
-            closed: false,
-            pending_updates: BTreeSet::new(),
-            emitted: false,
-            structured: None,
-            account: String::new(),
-            blocks: Vec::new(),
-            cost_so_far: 0.0,
-            follow_up: String::new(),
-            restart: false,
-            remembered: false,
-            repaired: false,
-            unreported: tally::Tally::default(),
-            unreported_steps: steps::Steps::default(),
-            cancelled: false,
-        }),
+        st: Mutex::new(State::new(client, token_file, timer, typed)),
         input_lock: tokio::sync::Mutex::new(()),
     });
     let handle = RunHandle {

@@ -14739,3 +14739,108 @@ the instructions one early (inferred from the code, not run; not this brief's cr
 
 **Unverified.** No real runtime has called the new `chat.dispatch_task`; the description is model-facing text new in
 this build.
+
+## 2026-11-27 · 271 · A ready model program on every runtime, kept 5 idle minutes (built, not wired)
+
+**Why (T-1343, ORCH-726 step 6).** The owner decided one mechanism for every runtime: a program ready before the
+message, an idle one kept 5 minutes (kb/plans/front-door.md, "Keeping the runtime ready"). Built in ferb-runtimes by a
+subagent (Opus); the supervisor/daemon wiring is the coordinator's.
+
+**The open design points, settled from the code first.**
+- *The tool token.* Facts: a run's token is a 0600 file in the run's own 0700 folder (`ferb-codex-run-*`,
+  `ferb-claude-run-*`), only its path is in the tool bridge's environment (`mcp_settings`, codex/mod.rs; claude
+  `options`), the bridge sends it in each request's `auth.hello` (mcp_bridge.rs); the front door's grant is issued per
+  message (`lookup_grant`, ferb-supervisor flow/turn.rs:2192) and revoked at its end (`lookups_end`, :2244). The plan's
+  fixed path with its content rewritten is safe with three rules, all built: (1) the file is blank except while its
+  message runs: the token is written (temp file + rename, so never half read) just before the thread resume / the
+  query, and blanked once the turn ended in Codex, before the program can be taken again; (2) a program runs one message
+  at a time: the keeper hands an idle program to one call only, a call finding none gets a new program (its own folder
+  and file), and a program goes back only after its turn ended in Codex (`turn/completed` for that turn, after an
+  interrupt when cancelled) and its thread was unsubscribed, else it is ended; (3) a kept program's bridge reads the
+  file at each request and holds no token between requests (`mcp_bridge::TOKEN_WAIT_ENV`, set only for kept programs),
+  so even a bridge process Codex kept across a same-id resume (unmeasured) can only send the token of the one message
+  running in that program, and a blank file is refused (`NO_GRANT`) without reaching the daemon. Who can read the file
+  is today's (same folder, same modes; the models have no file tools); the window where the file holds an already
+  revoked token (between the caller's revoke and the blank) is today's close window. Not unsafe, so built.
+- *The sign-in copy.* `save_refresh` publishes a refreshed copy only while FERB's auth.json is still the bytes copied
+  (codex/stream.rs:284); a long-lived program widens the race with another run's refresh, and a program going on with a
+  refresh token another run already used would be refused (inferred: rotating refresh tokens). So a kept program is
+  taken only while FERB's auth.json equals what it copied or last published (`kept_alive`); any change (another run's
+  refresh, a new sign-in, a sign-out) ends it and the call starts a new one with a fresh copy. `save_refresh` runs on
+  each trace line as today, when a message ends, and before each take. Claude: used once; a ready one is ended when
+  FERB's sign-in marker changed.
+- *The cached-thread resume.* Per message, as measured (`r_unsubscribe`): after the message `thread/unsubscribe` (its
+  answer must be "unsubscribed", else the program ends), before the next the template written again (two lines) and
+  `thread/resume` with the same `cache_thread_id(role, model, scope)`. Resuming once and reusing it is ruled out by the
+  measurement (`r1_resume_again` kept earlier turns). Also read from the probes: the first thread on a fresh app-server
+  with FERB's MCP configured took 0.53 s, the second 9 ms (`x6_mid_tools`), and the tool bridge starts once per thread,
+  after the thread's answer; a warm-up thread at prepare time could move that 0.5 s ahead (not built).
+- *The catalog check.* Kept, reading unchanged (`RUST_LOG=trace`; a narrower filter needs a live look at which target
+  logs the request, and a wrong one would fail every turn closed). The stderr reader reads for the program's life and
+  kills it at once on a tool outside FERB's, as today. Today a turn's answer waits for the app-server killed and stderr
+  read to the end (`finish_trace`); a kept turn instead waits until the reader checked at least max(1, the turn's model
+  calls) request-trace lines since its message began (`KEPT_TRACE_WAIT_S` 2 s; probes: 4 such lines a request), then
+  today's `check_catalog`; past the wait it ends as today's and the program is not kept.
+
+**What (ferb-runtimes; ferb-worker unchanged: its call path takes a kept adapter as any other).**
+- `keep.rs`: `Keeper` (injected clock, `IDLE_S` 300 s, switch `set_on`, on when made): one slot per role, at most one
+  idle program beside those in use; `start` takes the idle one when its settings match and it is alive, else prepares
+  one now (a ready one that died before taking the message is replaced once); `prepare(role)` / `prepare_for` start one
+  ahead; `sweep` ends idle ones past 5 minutes and replaces a dead one; `end_idle`; `shut_down`. `Keepable` (settings,
+  prepare, take, once) on each adapter; `Kept` is the adapter the factory hands the worker. A worker-mode run is never
+  kept (today's start).
+- Codex (`codex/kept.rs`; `stream.rs` split into `new_run`, `program_body`, `turn_body`, today's order kept): the
+  app-server kept; `arm` gives the next message its settings, run id, limit and a fresh turn state; `CodexLease` is one
+  message's control (a late cancel after the program moved on does nothing); its usage left unreported is kept per
+  message (RUN-477).
+- Claude (`claude/kept.rs`): started and initialised ahead (run id and relay registration, blank token file, program,
+  `initialize`), its bridge holding `initialize` until the token is there and Claude Code told to wait as long
+  (`MCP_TIMEOUT`); the message writes its token and sends its frame; the run is today's `ClaudeRun`, ended by today's
+  code; the keeper starts the next one ahead.
+- API (`api/kept.rs`): the HTTP client and its open connections kept (`pool_idle_timeout` 5 min); no request ahead.
+
+**Evidence.** `cargo test -p ferb-runtimes -p ferb-worker` through ferb-test-guard: every binary passes (ferb-runtimes
+83 tests, ferb-worker 20; every recorded fixture unchanged). `tests/keep.rs` (18): on a stand-in runtime the second
+call takes the ready program, 5 idle minutes end it (299.5 s keeps it), another model or a call without tools ends it,
+a crash is replaced (found by a sweep or by a call), two calls at once get two programs and two tokens and one stays
+idle, switched off every call is today's start, a run-once program is replaced ahead, a stop ends what is idle, the
+worker's `WorkerRuntime` takes it; on the scripted Codex the protocol is `initialize, initialized, thread/resume,
+turn/start, thread/unsubscribe, thread/resume, turn/start, thread/unsubscribe` on one app-server, the second resume
+reads a two-line template although a line was appended after the first message, the second turn's input and answer are
+its own, the token file holds tok-1 then blank then tok-2; two calls at once: two app-servers and token files; another
+effort and 5 idle minutes end it and its folder goes; a crash while idle is replaced; a changed sign-in is not taken;
+switched off, a Codex call's protocol lines and command line are byte for byte today's (folder name aside) and its
+program ends with it; Claude started ahead takes the message with no new spawn and the next is made ready with its own
+blank token file; the API loop opens one connection for two messages (two switched off); the bridge refuses an
+`initialize` while the file stays blank, then lists and calls with each message's token. Removing the unsubscribe and
+blank, and ignoring the 5 minutes, each fail their tests. clippy `--tests -D warnings`, fmt clean; `cargo check -p
+ferb-daemon -p ferbd --tests` clean.
+
+**Differences from today (only with the keeper on, for a kept role).** A fresh call starts a keepable program (its
+bridge reads the token at each request; it is kept after) rather than today's one-message run; the first message's
+check of input size runs after the program started; a program made for a call has its own start limit (the call's, or
+120 s) beside the call's. Handle state gains `kept` ("new" for a program's first message, "ready" after) and
+`prepare_steps`. A violation found in a trace line read after a kept turn's answer ends the program then (the message
+running in it fails; an idle one is replaced without a journal row).
+
+**Unverified.** No live run. Claude Code's bridge timing (whether it starts the bridge before the first message,
+whether `MCP_TIMEOUT` governs a held `initialize`, whether its first request waits for the bridge): a Claude program
+made ahead may get no tools if not; Codex stopping a thread's bridge on `thread/unsubscribe`; real providers' reuse of
+the API connection; that nothing made ahead contacts a provider. The probes' 4 trace lines a request (the stand-in
+writes one).
+
+**Found, not fixed.** A start the worker's watchdog drops part way (a stall before the start returned) leaves a Codex
+app-server running: its reader and stderr tasks hold the run, so its `Drop` never ends it. Today's start and a kept one
+alike.
+
+## 2026-11-27 · 273 · The keeper wired: Claude Code's front door and planner programs kept ready
+
+**Why (RUN-481, RUN-482).** 271 built the keeper unwired. The owner runs FERB on Claude Code (Sonnet) now.
+
+**What.** ferbd's composition makes one `Keeper` (sweeps every 30 s, ended in GroupB's shutdown) and hands it to the
+runtime factory; the orchestrator role (front door and planner) on a runtime in `KEPT_RUNTIMES` gets the keeper's
+`Kept` adapter. `KEPT_RUNTIMES` is Claude Code only: 271 could not verify that Claude Code waits for a tool bridge that
+holds its `initialize` until the message's token is written (a program made ahead might come up with no tools), so it
+is checked live on the owner's build before he tests; Codex and the API loop join after their own live check. A
+model, effort, tool-list or sign-in change already ends a ready program (271); a runtime switch leaves the old one to
+its 5 idle minutes. Not wired yet: preparing while he types (needs the app's side), `end_idle` on a settings change.

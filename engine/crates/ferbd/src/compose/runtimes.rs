@@ -222,6 +222,30 @@ pub struct RealFactory {
     pub refusals: Arc<Refusals>,
     pub claude_cli: Option<PathBuf>,
     pub proxy: Option<Arc<dyn ferb_runtimes::claude::ToolProxy>>,
+    /// T-1343 (kb/plans/front-door.md, "Keeping the runtime ready"): the daemon's one keeper of ready programs.
+    pub keeper: Option<ferb_runtimes::keep::Keeper>,
+}
+
+/// T-1343: the runtimes whose front door and planner programs are kept ready (5 idle minutes, owner). Claude Code
+/// first: checked live on the owner's build; Codex and the API loop join after their own live check (journal 273).
+pub const KEPT_RUNTIMES: &[&str] = &["claude"];
+
+impl RealFactory {
+    /// The adapter a role's calls go through: the keeper's for the chat's front door and planner ("orchestrator") on a
+    /// kept runtime, else the runtime's own (today's start).
+    fn kept(
+        &self,
+        b: &Build,
+        runtime: &str,
+        rt: Arc<dyn ferb_runtimes::keep::Keepable>,
+    ) -> Arc<dyn ferb_runtimes::run::Adapter> {
+        match &self.keeper {
+            Some(k) if b.role == "orchestrator" && KEPT_RUNTIMES.contains(&runtime) => {
+                Arc::new(ferb_runtimes::keep::Kept::new(k.clone(), &b.role, rt))
+            }
+            _ => rt,
+        }
+    }
 }
 
 /// RUN-468: how a tool loop's earlier screens and large reads are compacted, by the owner's numbers (RUN-471). Claude
@@ -303,7 +327,7 @@ impl Factory for RealFactory {
                 rt.cli = self.claude_cli.clone();
                 rt.compaction = compaction();
                 Ok(Built {
-                    adapter: Arc::new(rt),
+                    adapter: self.kept(b, "claude", Arc::new(rt)),
                     retried: none(),
                 })
             }

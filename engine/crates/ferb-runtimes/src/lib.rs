@@ -22,6 +22,7 @@ pub mod compact;
 pub mod error;
 pub mod forms;
 pub mod gen;
+pub mod keep;
 pub mod mcp_bridge;
 pub mod models;
 pub mod prices;
