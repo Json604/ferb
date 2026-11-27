@@ -53,15 +53,17 @@ final class PlaygroundTemporaryChat {
 
     /// A message into the temporary chat: its ack, then an invented answer; each entry change is published.
     /// `client`: the sending app's id, kept on its message entry as the daemon keeps it.
-    func send(_ text: String, client: String? = nil, pause: (Double) async -> Void,
+    /// `replyTo`: the entry the message quotes, kept on its entry as the daemon keeps it (an unknown one: no quote).
+    func send(_ text: String, client: String? = nil, replyTo: String? = nil, pause: (Double) async -> Void,
               yield: ([String: Any]) -> Void) async throws {
         if chat == nil {
             chat = Chat(id: String(UUID().uuidString.prefix(8)).lowercased(), startedAt: Self.now())
         }
         guard let id = chat?.id else { return }
         let request = "playground-temp-" + UUID().uuidString.prefix(8)
-        let message = add(kind: "message", request: request, client: client,
-                          body: ["text": text, "attachments": [], "hidden": []])
+        var body: [String: Any] = ["text": text, "attachments": [], "hidden": []]
+        if let quoted = replyTo.flatMap(quote) { body["reply_to"] = quoted }
+        let message = add(kind: "message", request: request, client: client, body: body)
         yield(["type": "ack", "request_id": request, "fresh": true, "conversation": "temporary:" + id, "at": Self.now()])
         await pause(1.0)
         try Task.checkCancellation()
@@ -69,6 +71,14 @@ final class PlaygroundTemporaryChat {
         let answer = "This is the playground's temporary chat: I started fresh, nothing real ran, and none of this is kept."
         yield(["type": "reply", "request_id": request, "text": answer, "status": "done", "at": Self.now()])
         add(kind: "answer", request: request, answers: message, body: ["text": answer, "status": "done"])
+    }
+
+    /// The `reply_to` of a quoted entry of this chat: who said it and its first 160 characters.
+    private func quote(_ id: String) -> [String: Any]? {
+        guard let entry = chat?.entries.last(where: { $0["id"] as? String == id }), let kind = entry["kind"] as? String
+        else { return nil }
+        let text = (entry["body"] as? [String: Any])?["text"] as? String ?? ""
+        return ["entry_id": id, "kind": kind, "who": kind == "message" ? "owner" : "ferb", "excerpt": String(text.prefix(160))]
     }
 
     @discardableResult

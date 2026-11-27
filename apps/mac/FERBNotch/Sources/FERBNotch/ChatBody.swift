@@ -174,6 +174,11 @@ struct ChatBodyView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 24) }
             VStack(spacing: 0) {
+                // the message he is replying to (a quote), until he sends, presses Esc or its ✕
+                if let quote = model.shownComposerQuote {
+                    ComposerQuoteLine(quote: quote, model: model)
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
+                }
                 if !model.session.attachments.isEmpty || !model.heldPastes.isEmpty || !model.receivingFiles.isEmpty {
                     attachedContext
                 }
@@ -209,6 +214,10 @@ struct ChatBodyView: View {
                 .padding(.horizontal, 7)
                 .frame(minHeight: 36)
             }
+            // APP-504: in with a small bounce, out critically damped; Reduce Motion cross-fades
+            .animation(reduceMotion ? .easeOut(duration: 0.15)
+                       : .spring(duration: 0.35, bounce: model.shownComposerQuote == nil ? 0 : 0.15),
+                       value: model.shownComposerQuote)
             .ferbGlass(in: RoundedRectangle(cornerRadius: 12))          // APP-785: the even heavy smear
             .overlay {
                 RoundedRectangle(cornerRadius: 12)

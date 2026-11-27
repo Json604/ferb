@@ -488,6 +488,8 @@ final class EntryFoldTests: XCTestCase {
                 out["createdAt"] = nil
                 // which writer keeps the turn on this Mac (APP-917), not what it shows
                 out["sentElsewhere"] = nil
+                // the engine's ids of its message, plan and answer (what a reply names), not what it shows
+                for key in ["entryID", "planEntryID", "answerEntryID"] { out[key] = nil }
                 out["entry"] = "turn"
                 out["answeredBelow"] = answeredBelow
             case let .reply(reply, _):
@@ -497,7 +499,7 @@ final class EntryFoldTests: XCTestCase {
             case let .notice(notice):
                 out = encoded(notice)
                 // `tag` is drawn nowhere since APP-620 (the generic "noticed" label removed, saved notices included)
-                for key in ["entryID", "createdAt", "noticedAt", "afterTurnID", "tag"] { out[key] = nil }
+                for key in ["entryID", "sourceEntryID", "createdAt", "noticedAt", "afterTurnID", "tag"] { out[key] = nil }
                 out["entry"] = "notice"
                 out["after"] = notice.afterTurnID.flatMap { index[$0] } ?? -1
             }

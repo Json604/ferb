@@ -86,6 +86,8 @@ pub struct Arrival {
     pub screen: bool,
     /// SENSE-424: where it was sent from (`words::sent_from`); None when its `chat.send` named no client.
     pub sent_from: Option<String>,
+    /// What the owner quoted with it (`chat::Quoted::kept`); None when he quoted nothing.
+    pub reply_to: Option<Value>,
 }
 
 /// One chat's messages in arrival order (`_ChatLine` with its arrivals and the running turn's state).
@@ -290,7 +292,7 @@ impl Inner {
         input_paths: Vec<String>,
         request_id: String,
         (hidden, sealed): (Vec<String>, Vec<(String, String)>),
-        (screen, sent_from): (bool, Option<String>),
+        (screen, sent_from, reply_to): (bool, Option<String>, Option<Value>),
         emit: &Emit,
     ) -> Flow<()> {
         let (tx, rx) = oneshot::channel();
@@ -307,6 +309,7 @@ impl Inner {
                     sealed,
                     screen,
                     sent_from,
+                    reply_to,
                     ..Arrival::default()
                 },
             );
@@ -613,6 +616,10 @@ impl Inner {
                 "untrusted_parts": m.untrusted.len() + usize::from(!a.paths.is_empty()), "input_paths": a.paths})));
             if *rid != lead {
                 data.insert("read_with".into(), json!(lead));
+            }
+            // what he quoted with it, as it was shown (absent when nothing: the row's bytes as before)
+            if let Some(quoted) = &a.reply_to {
+                data.insert(crate::words::REPLY_TO.into(), quoted.clone());
             }
             a.entry = Some(self.journal("chat.message", Value::Object(data), None));
             a.marked = Some(m);
@@ -2191,6 +2198,7 @@ impl Inner {
         } else {
             None
         };
+        let replying = crate::planner::replying_block(&t.entries, &t.tags);
         let wrap = |text: &str| self.wrap(text);
         let (sourced, first, last) = crate::planner::planner_sourced(PlannerTurn {
             session: &session,
@@ -2218,6 +2226,7 @@ impl Inner {
             payload: &t.payload,
             message_origin: &t.message_origin,
             sent_from: &sent_from,
+            replying,
             last_said: last_said.as_deref(),
             library,
             wrap: &wrap,

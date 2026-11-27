@@ -20,7 +20,7 @@ struct FirstReplyView: View {
             // its row (APP-755)
             let direct = turn.shownDirect, lines = turn.planLines ?? []
             let receipts = CardLayout.remaining(turn.receipts ?? [], turn.receiptCards ?? [])
-            FerbBubble {
+            FerbBubble(reply: reply(direct + receipts + [line] + lines)) {
                 folding {
                     NativeMessageText(MessageTextAttributes.joined(
                         direct.map { MarkdownTextAttributes.make($0, size: 12) }
@@ -31,10 +31,16 @@ struct FirstReplyView: View {
                 }
             }
         } else if let plan = turn.shownPlan {
-            FerbBubble { folding { NativeMessageText(plan) } }  // saved before the plan line was its own field
+            FerbBubble(reply: reply([plan])) { folding { NativeMessageText(plan) } }  // saved before the plan line was its own field
         } else if let streaming = turn.streamingPlan, !streaming.isEmpty {
             FerbBubble { PlanLineBlock(line: streaming, lines: []) }
         }
+    }
+
+    /// The first reply's reply arrow, once its plan entry's id is known: quoting its words.
+    private func reply(_ lines: [String]) -> BubbleReply? {
+        let words = lines.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return model.bubbleReply(entryID: turn.planEntryID, kind: "plan", owner: false, text: words.joined(separator: " "))
     }
 
     /// APP-911 (owner 2026-11-14: "why doesnt it follow the show more logic we have for other things??? IT SHOULD

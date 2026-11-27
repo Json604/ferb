@@ -111,6 +111,35 @@ final class PlaygroundWorkspaceTests: XCTestCase {
         XCTAssertTrue(store.diagnostic?.isUnsent == true)
     }
 
+    /// Reply to a message in the playground (owner 2026-11-27): FERB's sample answer can be quoted, the quote goes with
+    /// the next message and the playground keeps it on that message's entry, as the engine does.
+    func testAReplyToFERBsAnswerTravelsThroughTheSampleEntries() async throws {
+        let services = try make()
+        services.state.setSpeed(100)
+        let workspace = services.daemon.workspace
+        try workspace.prepare()
+        workspace.scenario = .conversation
+        let model = services.notch
+        model.feedback.enabled = false
+        model.connectDaemon()
+        defer { model.disconnectDaemon() }
+        try await eventually { model.conversationID != nil && model.entryWatch.caughtUp }
+        model.send("Help me plan the afternoon")
+        try await eventually { model.conversation.turns.first?.answerEntryID != nil && model.conversation.turns.first?.entryID != nil }
+        let answered = try XCTUnwrap(model.conversation.turns.first)
+        let quote = try XCTUnwrap(model.quote(entryID: answered.answerEntryID, kind: "answer", owner: false,
+                                              text: answered.visibleAnswer))
+        model.reply(to: quote)
+        model.session.draft = "Make the focus block an hour"
+        model.startWork()
+        XCTAssertNil(model.shownComposerQuote)
+        try await eventually { model.conversation.turns.count == 2 && model.conversation.turns[1].entryID != nil }
+        let sent = model.conversation.turns[1]
+        XCTAssertEqual(sent.replyTo?.entryID, answered.answerEntryID)
+        XCTAssertEqual(sent.replyTo?.who, "ferb")
+        XCTAssertTrue(answered.answer.hasPrefix(sent.replyTo?.excerpt ?? "-"), "the entry keeps the answer's opening words")
+    }
+
     private func eventually(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(3))
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }

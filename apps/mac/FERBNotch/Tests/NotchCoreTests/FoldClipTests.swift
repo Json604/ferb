@@ -91,6 +91,9 @@ final class FoldClipTests: XCTestCase {
 
         model.toggleExpanded(ExpansionState.key(turn: long.id, item: "answer"), target: TranscriptTarget.answer(turn: long.id))
         await settle()
+        // the text opened downwards from where it stood (owner 2026-11-27): the next entry is brought into view to look
+        model.requestScroll(TranscriptTarget.entry(next.id), .collapse)
+        await settle()
         let open = try gap()
         XCTAssertFalse(open.folded, "Show all shows all of it")
         XCTAssertLessThanOrEqual(open.answerBottom, open.nextTop, "its row grew with it: the next entry is below it")

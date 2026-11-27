@@ -611,9 +611,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
         panel.collectionBehavior = Self.overlayBehavior
         panel.animationBehavior = .none
-        // APP-889: Esc first makes an enlarged picture small again; APP-1144: then closes a pasted text's editor
+        // APP-889: Esc first makes an enlarged picture small again; APP-1144: then closes a pasted text's editor; then
+        // drops the composer's quote (a reply)
         panel.onEscape = { [weak self] in
-            guard let self, !self.model.closeEnlargedPicture(), !self.model.closeShownPaste() else { return }
+            guard let self, !self.model.closeEnlargedPicture(), !self.model.closeShownPaste(),
+                  !self.model.dropReplyQuote() else { return }
             self.model.collapse(keyboard: true)
         }
         let hosting = TrackingHostingView(rootView: NotchView(model: model, presentation: presentation))

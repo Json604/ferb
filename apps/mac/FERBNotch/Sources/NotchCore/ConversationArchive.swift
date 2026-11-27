@@ -87,6 +87,14 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     /// The personal identifiers FERB kept sealed from this message for any site (the ack's `sealed`, GATE-604): kind
     /// and saved name, never a value; `shown` once the owner let the AI see it (GATE-602).
     public var sealed: [SealedIdentifier]?
+    /// The engine's entry ids of this turn's owner message, of FERB's first reply (its plan) and of the answer it shows
+    /// (ENG-8): what a reply to one of them names (`reply_to`). Nil when the app doesn't know it (an older daemon, a turn
+    /// saved before replies); such a message offers no reply.
+    public var entryID: String?
+    public var planEntryID: String?
+    public var answerEntryID: String?
+    /// The message the owner quoted when he sent this one (its entry's `reply_to`); nil for a message that quotes none.
+    public var replyTo: ReplyQuote?
 
     /// The typing-dots bubble (APP-300): from the acknowledgement until FERB's first words (a streamed plan line or
     /// reply, the plan, the reply).
@@ -163,6 +171,7 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
         case requestID, ack, plan, parts, verified, question, taskGoal, taskName, statusInferred
         case planLine, planLines, direct, receipts, card, note, codeLines, runtimeSwitch, mergedInto
         case cards, receiptCards, hiddenKinds, checklist, sentElsewhere, sealed
+        case entryID, planEntryID, answerEntryID, replyTo
     }
 }
 
@@ -206,6 +215,10 @@ extension ConversationTurn {
         hiddenKinds = try c.decodeIfPresent([String].self, forKey: .hiddenKinds)
         sentElsewhere = try c.decodeIfPresent(Bool.self, forKey: .sentElsewhere)
         sealed = try c.lossyList(SealedIdentifier.self, .sealed)
+        entryID = try c.decodeIfPresent(String.self, forKey: .entryID)
+        planEntryID = try c.decodeIfPresent(String.self, forKey: .planEntryID)
+        answerEntryID = try c.decodeIfPresent(String.self, forKey: .answerEntryID)
+        replyTo = try c.lossy(ReplyQuote.self, .replyTo)
     }
 }
 
@@ -239,7 +252,7 @@ public struct SealedIdentifier: Codable, Equatable {
 }
 
 extension ConversationReply {
-    private enum CodingKeys: String, CodingKey { case id, turnID, createdAt, afterTurnID, part, said }
+    private enum CodingKeys: String, CodingKey { case id, turnID, createdAt, afterTurnID, part, said, entryID }
 
     /// Read tolerantly (APP-801): a part this build doesn't know (a newer build's) reads as none, which shows the answer;
     /// a reply saved before later answers (APP-914) has no words of its own.
@@ -251,6 +264,7 @@ extension ConversationReply {
         afterTurnID = try c.decode(UUID.self, forKey: .afterTurnID)
         part = try c.lossy(ReplyPart.self, .part)
         said = try c.lossy(LaterAnswer.self, .said)
+        entryID = try c.decodeIfPresent(String.self, forKey: .entryID)
     }
 }
 
@@ -266,7 +280,7 @@ extension NoticeQuote {
 
 extension ConversationNotice {
     private enum CodingKeys: String, CodingKey {
-        case id, entryID, createdAt, noticedAt, text, quotes, tag, afterTurnID, proposals, cards
+        case id, entryID, createdAt, noticedAt, text, quotes, tag, afterTurnID, proposals, cards, sourceEntryID
     }
 
     /// Read tolerantly (APP-801): a quote, proposal or card that can't be read is left out, not the notice.
@@ -282,6 +296,7 @@ extension ConversationNotice {
         afterTurnID = try c.decodeIfPresent(UUID.self, forKey: .afterTurnID)
         proposals = try c.lossyList(LearningProposal.self, .proposals)
         cards = try c.lossyList(ResultCard.self, .cards)
+        sourceEntryID = try c.decodeIfPresent(String.self, forKey: .sourceEntryID)
     }
 }
 
@@ -395,6 +410,8 @@ public struct ConversationReply: Identifiable, Codable, Equatable {
     /// the task runs, then the task's end; several replies to one message). Nil: it shows its turn's answer or
     /// question (L6), as every reply saved before this did.
     public var said: LaterAnswer? = nil
+    /// The engine's entry id of a later answer's own words (APP-914), so it can be quoted; nil when unknown.
+    public var entryID: String? = nil
 }
 
 /// What a later answer says (APP-914): an answer's own fields, as a turn holds its one answer.
@@ -497,6 +514,8 @@ public struct ConversationNotice: Codable, Equatable {
     public var cards: [ResultCard]?
     /// Where the engine folded it (MEM-461: "memory-review", the review of what an import brought in): kept, never drawn.
     public var folded: String?
+    /// The engine's entry id of this notice, so it can be quoted; nil when unknown (`entryID` is the app's own).
+    public var sourceEntryID: String? = nil
 }
 
 /// One entry of the chat as shown, top to bottom.
@@ -803,7 +822,7 @@ public struct ConversationArchive: Codable, Equatable {
         let n = notices[index]
         notices[index] = ConversationNotice(id: n.id, entryID: n.entryID, createdAt: n.createdAt, noticedAt: n.noticedAt,
                                             text: text, quotes: n.quotes, tag: n.tag, afterTurnID: n.afterTurnID,
-                                            proposals: n.proposals, cards: n.cards)
+                                            proposals: n.proposals, cards: n.cards, sourceEntryID: n.sourceEntryID)
         return true
     }
 

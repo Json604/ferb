@@ -315,7 +315,8 @@ extension NotchModel {
 
     /// Typed or dictated, a message is sent the same way: FERB replies in text only, never aloud (VOICE-409). Into
     /// either chat: a temporary chat's turn goes with `fresh` (ORCH-699), and each frame is handled on its chat.
-    func submitToDaemon(localID: UUID, text: String, sources: [URL]) {
+    /// `replyTo`: the engine's id of the message this one quotes (`reply_to`).
+    func submitToDaemon(localID: UUID, text: String, sources: [URL], replyTo: String? = nil) {
         let source = self.source(ofTurn: localID)
         submissions[localID] = Task { [weak self] in
             guard let self else { return }
@@ -333,6 +334,7 @@ extension NotchModel {
                 }
                 var params: [String: Any] = ["session_id": self.conversationID!, "text": text]
                 if !sources.isEmpty { params["input_paths"] = sources.map(\.path) }
+                if let replyTo, !replyTo.isEmpty { params["reply_to"] = replyTo }
                 // ENG-14: with the shared conversation, this install's ids, so the one resend below is safe
                 params = self.inChat(source, otherwise: params) { self.entrySendParams(params) }
                 let resendable = params["submission_id"] != nil
@@ -472,6 +474,9 @@ extension NotchModel {
             conversation.acknowledge(id: localID, text: acknowledgement, message: event["message"] as? String,
                                      hidden: event["hidden"] as? [String],
                                      sealed: (event["sealed"] as? [[String: Any]])?.compactMap(SealedIdentifier.init))
+            // the message's entry, so it can be quoted, and its quote as the engine kept it, when the ack says
+            if let entry = event["entry_id"] as? String { conversation.noteMessageEntry(id: localID, entryID: entry) }
+            if event["reply_to"] != nil { conversation.quote(id: localID, ReplyQuote(event["reply_to"])) }
             saveConversation()
         case "plan":
             guard let id = event["task_id"] as? String else { return false }
@@ -958,6 +963,8 @@ extension NotchModel {
             }
             if conversation.addNotice(id: id, text: text, quotes: quotes, noticedAt: LiveProgress.time(row["at"]),
                                       cards: ResultCard.list(row["cards"])) {
+                // its entry, when the watch brought it first, so it can be quoted
+                if let entry = entryWatch.noticeEntries[id] { conversation.noteNoticeEntry(noticeID: id, entryID: entry) }
                 if let card = CardLayout.above(ResultCard.list(row["cards"]) ?? []).first {
                     presentReminder(card: card, text: text)
                 }

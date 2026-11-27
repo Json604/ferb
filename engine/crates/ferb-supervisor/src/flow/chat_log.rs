@@ -1012,6 +1012,8 @@ impl Ctx<'_> {
                 .to_string()
         };
         let mut words: HashMap<String, String> = HashMap::new();
+        // what a message quoted, as its entry's body shows it (the row's `line` and `origin` are the models' only)
+        let mut quoted: HashMap<String, Value> = HashMap::new();
         let mut replies: HashMap<String, Vec<String>> = HashMap::new();
         let mut acks: Vec<(String, String, String)> = Vec::new(); // (request, session, at)
         for (kind, at, d) in &rows {
@@ -1023,6 +1025,14 @@ impl Ctx<'_> {
             match kind.as_str() {
                 "chat.ack" => acks.push((request, s(&m, "session_id"), at.clone())),
                 "chat.message" => {
+                    if let Some(Value::Object(q)) = m.get(crate::words::REPLY_TO) {
+                        let mut shown = q.clone();
+                        shown.remove("line");
+                        shown.remove("origin");
+                        quoted
+                            .entry(request.clone())
+                            .or_insert(Value::Object(shown));
+                    }
                     words.entry(request).or_insert_with(|| {
                         ferb_orchestrator::py::strip(&s(&m, "text")).to_string()
                     });
@@ -1050,8 +1060,11 @@ impl Ctx<'_> {
             } else {
                 session
             };
-            let ack = json!({"type": "ack", "request_id": request,
+            let mut ack = json!({"type": "ack", "request_id": request,
                              "message": words.get(&request).cloned().unwrap_or_default(), "at": at});
+            if let Some(q) = quoted.get(&request) {
+                ack["reply_to"] = q.clone();
+            }
             self.feed(
                 conn,
                 &conversation,

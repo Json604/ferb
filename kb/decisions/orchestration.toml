@@ -2846,3 +2846,12 @@ status = "active"
 rule = "For ORCH-726 step 7. chat.dispatch_task complexity simple: code writes the TaskSpec from goal, quote, name, done_when, identity (owner or ferb, required), profiles, folders, earlier_results and targets (sites, apps, paths, recipients): worker_type default, one part {p1, quote, label name, answer_step worker}, one condition {done_when, check none, layer outcome}, no plan; today's problems() checks it in the call. Complex: the planner writes it (ORCH-743, ORCH-747)."
 why = "A planner call took 11-28 s live for tasks one worker does in one go; the Concierge already decides what the task is."
 paths = ["engine/crates/ferb-supervisor/src/flow/turn/front_door.rs"]
+
+[ORCH-750]
+title = "A reply's quote is stored with the owner's message and read by the models as data beside his words"
+by = "agent"
+date = 2026-11-27
+status = "active"
+rule = "For APP-1146. chat.send takes optional reply_to (an entry id of the same conversation with shown text); an unknown, other-conversation, deleted or textless one is dropped (chat.reply_to_dropped) and the message still goes. The message entry body, the ack and the chat.message row carry {entry_id, kind, who, excerpt: the shown text redacted, 160 characters}. The front door and the planner read a block before Layer 5 naming it ([cN] when tagged) as data, not his new words. Deleting a turn removes later quotes of it."
+why = "The owner points at which message he means; code says so to the models without changing his words or the quote checks."
+paths = ["engine/crates/ferb-supervisor/src/flow/chat.rs", "engine/crates/ferb-core/src/chat_entry.rs", "engine/crates/ferb-supervisor/src/planner.rs"]

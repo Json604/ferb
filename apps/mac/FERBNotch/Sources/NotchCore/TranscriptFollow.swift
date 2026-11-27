@@ -80,6 +80,8 @@ public struct TranscriptScrollRequest: Equatable {
         case answer
         case taskDone
         case needsYou
+        /// The owner asked for the item himself (a quote's line clicked): it comes into view, a pill never stands in.
+        case asked
 
         public static func < (lhs: Reason, rhs: Reason) -> Bool { lhs.rawValue < rhs.rawValue }
     }
@@ -115,7 +117,7 @@ public struct TranscriptPill: Equatable {
         case .needsYou: return count > 1 ? "FERB asks you · \(count)" : "FERB asks you"
         case .taskDone: return "Task done"
         case .answer: return "New answer"
-        case .quietFill, .collapse: return label.isEmpty ? "A part is done" : "\(label) is done"
+        case .quietFill, .collapse, .asked: return label.isEmpty ? "A part is done" : "\(label) is done"
         }
     }
 
@@ -192,6 +194,10 @@ public struct TranscriptFollow: Equatable {
     /// A transcript shown again where the owner had left it (TranscriptResume): it follows the newest only if it did.
     public mutating func resume(following: Bool) { self.following = following }
 
+    /// The owner opened a folded text (Show more, owner 2026-11-27: "dont move me just expand the text"): the view
+    /// stays where he reads and stops following the newest, so the growth below is never followed to the end.
+    public mutating func hold() { following = false }
+
     public func ownerScrolledRecently(at now: Date) -> Bool {
         guard let ownerScrolledAt else { return false }
         return now.timeIntervalSince(ownerScrolledAt) < Self.recentScroll
@@ -212,6 +218,8 @@ public struct TranscriptFollow: Equatable {
             return topVisible ? .none : .pill(pill)
         case .collapse:
             return topVisible ? .none : .scroll(target: request.target, animated: !reduceMotion)
+        case .asked:
+            return topVisible ? .none : .scroll(target: request.target, animated: !reduceMotion && !request.revealing)
         case .answer, .taskDone, .needsYou:
             if request.revealing { return .scroll(target: request.target, animated: false) }
             if ownerScrolledRecently(at: now) { return topVisible ? .none : .pill(pill) }

@@ -12,6 +12,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use ferb_sanitize::origin;
 use ferb_sanitize::untrusted::mark;
 use serde_json::{json, Map, Value};
 use tokio::sync::mpsc;
@@ -34,6 +35,9 @@ pub struct SendParams {
     pub fresh: bool,
     /// ORCH-699: what the owner gives the temporary chat to start from (with `fresh` only; none for now).
     pub extra_context: Option<String>,
+    /// The chat entry the owner quoted (an entry id of the same conversation). One that names no entry FERB can quote
+    /// is dropped: the message goes without it (journaled `chat.reply_to_dropped`), never refused.
+    pub reply_to: Option<String>,
 }
 
 /// The longest `client_id` or `submission_id` (characters).
@@ -104,6 +108,12 @@ impl Supervisor {
             Some(Value::String(s)) => Some(s.clone()),
             Some(_) => return Err(Refused("extra_context must be text".into())),
         };
+        // a quote that is not an entry id is one FERB can't find: the message still goes, without it
+        let reply_to = match params.get("reply_to") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(s)) => Some(s.clone()),
+            Some(_) => Some(String::new()),
+        };
         // ENG-10: a client naming itself and no conversation writes in the current one (the phones send no session);
         // a caller without a client id keeps today's default
         let session_id = match (params.get("session_id"), &client_id) {
@@ -123,6 +133,7 @@ impl Supervisor {
             submission_id,
             fresh,
             extra_context,
+            reply_to,
         })
     }
 }
@@ -260,6 +271,14 @@ impl Inner {
                 .collect();
             ack.insert("sealed".into(), Value::Array(kept));
         }
+        // what the owner quoted, as it was shown: on the ack (so the message entry keeps it) and the chat.message row
+        let quoted = params
+            .reply_to
+            .as_deref()
+            .and_then(|id| self.quoted(&session, &request_id, id));
+        if let Some(q) = &quoted {
+            ack.insert("reply_to".into(), q.shown.clone());
+        }
         // stage 2: the message entry, in ONE transaction with the chat.ack row and the client's submission (ENG-10)
         let sha = ferb_store::chat_entries::text_sha256(&redacted);
         let submission = match (&params.client_id, &params.submission_id) {
@@ -360,6 +379,7 @@ impl Inner {
         // present, not memory): its front window and screenshot reach its planner and workers, and are kept only where
         // any message's capture is (the evidence store, the traces), never in a chat entry
         let screen = params.screen;
+        let reply_to = quoted.map(|q| q.kept);
         let me = self.me();
         let job = tokio::spawn(async move {
             me.turn_stream(
@@ -368,7 +388,7 @@ impl Inner {
                 paths,
                 request_id,
                 (hidden, sealed),
-                (screen, sent_from),
+                (screen, sent_from, reply_to),
                 tx,
             )
             .await;
@@ -386,7 +406,7 @@ impl Inner {
         paths: Vec<String>,
         request_id: String,
         (hidden, sealed): (Vec<String>, Vec<(String, String)>),
-        (screen, sent_from): (bool, Option<String>),
+        (screen, sent_from, reply_to): (bool, Option<String>, Option<Value>),
         out: mpsc::UnboundedSender<Value>,
     ) {
         let (tx, mut rx) = mpsc::unbounded_channel::<Value>();
@@ -438,7 +458,7 @@ impl Inner {
                 paths,
                 request_id.clone(),
                 (hidden, sealed),
-                (screen, sent_from),
+                (screen, sent_from, reply_to),
                 &tx,
             )
             .await
@@ -751,6 +771,9 @@ impl Inner {
         if !said.hidden.is_empty() {
             ack.insert("hidden".into(), json!(said.hidden));
         }
+        if let Some(quoted) = &said.reply_to {
+            ack.insert("reply_to".into(), ferb_core::chat_entry::body(quoted));
+        }
         ack.insert("entry_id".into(), json!(done.entry_id));
         ack.insert("seq".into(), json!(done.seq));
         ack.insert("epoch".into(), json!(epoch));
@@ -812,4 +835,136 @@ pub(crate) fn py_json(p: &ferb_sanitize::Py) -> Value {
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or(Value::Null)
+}
+
+/// What the owner quoted with a message, resolved by code from the entry he named.
+pub(crate) struct Quoted {
+    /// `{entry_id, kind, who, excerpt}`: what the ack and the message entry's body carry (every client reads it).
+    pub shown: Value,
+    /// The same, plus where the models read the quoted words: `line` (the journal row of its conversation line, when
+    /// it has one) and `origin` (that row's origin, else whose words they were). The chat.message row keeps it.
+    pub kept: Value,
+}
+
+/// Why a quote was dropped (`chat.reply_to_dropped`'s `why`).
+const UNKNOWN: &str = "unknown";
+const OTHER_CONVERSATION: &str = "other_conversation";
+const DELETED: &str = "deleted";
+const NOT_SHOWN: &str = "not_shown";
+
+impl Inner {
+    /// The entry `entry_id` as the owner quoted it in `conversation`: an entry of that conversation, not deleted, that
+    /// shows text (a message, answer, question, plan, notice, post or error; never a legacy entry, an alert or a
+    /// folded notice). Anything else is dropped and journaled; the message is sent without it.
+    // decision: ENG-14 — chat.send's optional fields: a bad quote never refuses the message
+    pub(crate) fn quoted(
+        &self,
+        conversation: &str,
+        request_id: &str,
+        entry_id: &str,
+    ) -> Option<Quoted> {
+        use ferb_core::chat_entry::{self as ce, EntryKind};
+        let found = {
+            let db = self.db();
+            if entry_id.is_empty() {
+                None
+            } else {
+                ferb_store::chat_entries::get(db.conn(), entry_id)
+                    .ok()
+                    .flatten()
+            }
+        };
+        let why = match &found {
+            None => Some(UNKNOWN),
+            Some(e) if e.conversation_id != conversation => Some(OTHER_CONVERSATION),
+            Some(e) if e.deleted => Some(DELETED),
+            Some(e)
+                if ce::shown_text(e).is_none()
+                    || ce::is_alert_body(&e.body)
+                    || ce::is_folded_body(&e.body) =>
+            {
+                Some(NOT_SHOWN)
+            }
+            Some(_) => None,
+        };
+        if let Some(why) = why {
+            let mut data = Map::new();
+            data.insert("session_id".into(), json!(conversation));
+            data.insert("request_id".into(), json!(request_id));
+            if !entry_id.trim().is_empty() && entry_id.chars().count() <= CLIENT_ID_MAX {
+                data.insert("entry_id".into(), json!(entry_id));
+            }
+            data.insert("why".into(), json!(why));
+            self.journal("chat.reply_to_dropped", Value::Object(data), None);
+            return None;
+        }
+        let entry = found?;
+        let who = if entry.kind == EntryKind::Message {
+            origin::OWNER
+        } else {
+            origin::FERB
+        };
+        let shown_text = ce::shown_text(&entry).unwrap_or_default();
+        let excerpt = ce::reply_excerpt(&self.redact_text(&shown_text));
+        let quoted = ce::ReplyTo {
+            entry_id: entry.id.clone(),
+            kind: entry.kind.as_str().to_string(),
+            who: who.to_string(),
+            excerpt,
+        };
+        let shown = ce::body(&quoted);
+        let mut kept = shown.clone();
+        let line = self.quoted_line(&entry, &shown_text);
+        if let Some(row) = &line {
+            kept["line"] = json!(row.id);
+        }
+        kept["origin"] = json!(line.map(|r| r.origin).unwrap_or_else(|| who.to_string()));
+        Some(Quoted { shown, kept })
+    }
+
+    /// The journal row a quoted entry's conversation line is made from (`history::timeline` reads these kinds): a
+    /// message's chat.message, a reply's chat.reply (the one with its words when there are several), a clarifying
+    /// question's chat.clarify, a task's end's task.answer, a notice's chat.notice. None for what the conversation does
+    /// not show as a line (a plan, a question card, a post, an error).
+    fn quoted_line(
+        &self,
+        entry: &ferb_core::chat_entry::Entry,
+        shown: &str,
+    ) -> Option<super::store::Entry> {
+        use ferb_core::chat_entry::{AnswerBody, EntryKind};
+        let request = entry.request_id.clone().unwrap_or_default();
+        let last = |kind: &str, field: &str, equals: &str| {
+            if equals.is_empty() {
+                return Vec::new();
+            }
+            self.of_kind(kind, field, equals, None)
+        };
+        let rows = match entry.kind {
+            EntryKind::Message => last("chat.message", "request_id", &request),
+            EntryKind::Answer => {
+                let said: AnswerBody = entry.body_as().unwrap_or_default();
+                match said.from.as_str() {
+                    "reply" => last("chat.reply", "request_id", &request),
+                    "clarify" => last("chat.clarify", "request_id", &request),
+                    "task" => last(
+                        "task.answer",
+                        "task_id",
+                        entry.task_id.as_deref().unwrap_or_default(),
+                    ),
+                    _ => Vec::new(),
+                }
+            }
+            EntryKind::Notice => last(
+                "chat.notice",
+                "id",
+                entry.reference.as_deref().unwrap_or_default(),
+            ),
+            _ => Vec::new(),
+        };
+        let same = |r: &super::store::Entry| {
+            ferb_orchestrator::py::strip(&r.text("text")) == ferb_orchestrator::py::strip(shown)
+        };
+        let at = rows.iter().rposition(same).or(rows.len().checked_sub(1))?;
+        rows.into_iter().nth(at)
+    }
 }

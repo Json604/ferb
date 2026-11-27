@@ -191,7 +191,8 @@ final class ChatWindowController: NSObject, NSWindowDelegate, WindowDragOwner {
         panel.onClose = { [weak self] in self?.onClose?() }
         panel.onEscapeFirst = { [weak model] in
             guard let model else { return false }
-            return model.closeEnlargedPicture() || model.closeShownPaste()     // APP-889, APP-1144
+            // APP-889, APP-1144, then the composer's quote (a reply)
+            return model.closeEnlargedPicture() || model.closeShownPaste() || model.dropReplyQuote()
         }
         controls.close = { [weak self] in self?.onClose?() }
         let hosting = NSHostingView(rootView: ChatWindowView(model: model, controls: controls))
@@ -518,7 +519,7 @@ struct ChatWindowView: View {
         .foregroundStyle(Palette.ink)
         .preferredColorScheme(.dark)
         .onDrop(of: ChatFileDrop.types, delegate: ChatFileDrop(session: model.drops))
-        .onExitCommand { if !model.closeEnlargedPicture() { controls.close() } }   // APP-889
+        .onExitCommand { if !model.closeEnlargedPicture() && !model.dropReplyQuote() { controls.close() } }   // APP-889
         .accessibilityElement(children: .contain)
         .accessibilityLabel("FERB window")
     }

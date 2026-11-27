@@ -341,6 +341,11 @@ final class NotchModel: ObservableObject {
     @Published var stepLive: [String: LiveProgress] = [:]
     /// The collapsed texts the owner opened (APP-719), by (turn, part or answer). Kept until FERB.app quits.
     @Published var expandedText = ExpansionState()
+    /// The message the owner chose to reply to, quoted above the composer until he sends, presses Esc or its ✕
+    /// (ReplyQuotes.swift). Live state only.
+    @Published var composerQuote: ComposerQuote?
+    /// The quoted message lit up briefly after its quote was clicked (its engine entry id). Live state only.
+    @Published var quoteHighlight: String?
     /// The latest item FERB asks the transcript to bring forward (APP-720); the transcript decides scroll or pill.
     /// The newest requests (several may arrive in one update; the transcript reads every one it hasn't applied).
     @Published private(set) var scrollRequests: [TranscriptScrollRequest] = []
@@ -359,12 +364,21 @@ final class NotchModel: ObservableObject {
                                                                      revealing: !bodyVisible)]).suffix(8)
     }
 
-    /// Show more / Show less on a collapsed text; collapsing keeps the item's top in view.
+    /// Show more / Show less on a collapsed text. Opening keeps the text's top exactly where it is on screen and the
+    /// text opens downwards, with no scroll to the end (owner 2026-11-27: "dont move me just expand the text"): the
+    /// transcript is told before the text grows (`textOpening`). Collapsing keeps the item's top in view.
     func toggleExpanded(_ key: String, target: String) {
         let opening = !expandedText.isOpen(key)
+        if opening { textOpening?.hold(target) }
         expandedText.toggle(key)
         if !opening { requestScroll(target, .collapse) }
     }
+    /// The transcript that shows the chat now: what it does before a folded text opens.
+    struct TextOpening {
+        let owner: ObjectIdentifier
+        let hold: (String) -> Void
+    }
+    var textOpening: TextOpening?
     /// Opens a report file the owner asked to view; tests replace it.
     var openReportFile: (URL) -> Void = { HandOff.open($0) }
 
@@ -589,7 +603,7 @@ final class NotchModel: ObservableObject {
     var conversationChromeHeight: CGFloat {
         composerHeight + 58 + (showsWorkRow ? 22 : 0) + (showsInsomniaLine ? 22 : 0)
             + ((showingHistory || !viewingToday) && !inTemporaryChat ? 36 : 0)
-            + (promptError == nil ? 0 : 48) + attachmentStripHeight + (introLine.map { introContentHeight($0, width: bodyWidth - 50, inset: IntroNarrationView.chatInset) + 9 } ?? 0)
+            + (promptError == nil ? 0 : 48) + attachmentStripHeight + replyQuoteHeight + (introLine.map { introContentHeight($0, width: bodyWidth - 50, inset: IntroNarrationView.chatInset) + 9 } ?? 0)
     }
     var chatTranscriptHeight: CGFloat {
         // The window's transcript fills what its body leaves after the chat's own rows (APP-745).
@@ -654,7 +668,7 @@ final class NotchModel: ObservableObject {
         }
         if showingActivity { return 204 }
         switch session.phase {
-        case .ready, .draft: return composerHeight + 26 + 31 + attachmentStripHeight
+        case .ready, .draft: return composerHeight + 26 + 31 + attachmentStripHeight + replyQuoteHeight
         case .listening: return 124
         case .working: return 118
         case .result: return 220
@@ -957,7 +971,7 @@ final class NotchModel: ObservableObject {
         if handleLocalNotchCommand(session.draft) { return }
         // The bubble shows the words without leaked paste markers until the ack brings the daemon's text (APP-713)
         begin(request: PasteMarkers.removed(from: whole.text), outgoing: outgoing, sources: session.attachments,
-              keepComposer: false)
+              keepComposer: false, replyTo: takeComposerQuote())
     }
 
     /// A message of the owner's that isn't the composer's (the suggestion they picked in the tour's Try beat): sent
@@ -1023,15 +1037,18 @@ final class NotchModel: ObservableObject {
     /// A message of the owner's, sent into the chat that shows (the composer's, `composerSource`): while the temporary
     /// chat is on, it goes there and nothing of it to the saved chat; the same turn, session and stream either way.
     @discardableResult
-    private func begin(request: String, outgoing: String, sources: [URL], keepComposer: Bool) -> UUID? {
+    private func begin(request: String, outgoing: String, sources: [URL], keepComposer: Bool,
+                       replyTo: ReplyQuote? = nil) -> UUID? {
         let source = composerSource
         return inChat(source, otherwise: nil) {
-            begin(request: request, outgoing: outgoing, sources: sources, keepComposer: keepComposer, in: source)
+            begin(request: request, outgoing: outgoing, sources: sources, keepComposer: keepComposer, replyTo: replyTo,
+                  in: source)
         }
     }
 
+    /// `replyTo`: the message this one quotes (the composer's quote, taken with its draft).
     private func begin(request: String, outgoing: String, sources given: [URL], keepComposer: Bool,
-                       in source: ChatSource) -> UUID? {
+                       replyTo: ReplyQuote?, in source: ChatSource) -> UUID? {
         // decision: ORCH-717 — FERB's own received files (a pasted picture, a dropped promise) sent in the temporary chat
         // are kept in its own folder, which its end removes; the owner's own files are sent by path, as in the chat
         let sources = source == .temporary ? receivedFiles.sentToTemporary(given) : given
@@ -1051,6 +1068,7 @@ final class NotchModel: ObservableObject {
         // The sent message joins its conversation (kept only for the saved chat); an unsent draft is only ever in
         // memory (L20).
         conversation.begin(id: id, request: session.draft, sources: session.attachments, unredacted: true)
+        conversation.quote(id: id, replyTo)
         session.clearComposer()
         if keepComposer {
             session.draft = held.draft
@@ -1073,7 +1091,7 @@ final class NotchModel: ObservableObject {
             onInteraction?()
             onPresentationChange?(true)
         }
-        submitToDaemon(localID: id, text: outgoing, sources: sources)
+        submitToDaemon(localID: id, text: outgoing, sources: sources, replyTo: replyTo?.entryID)
         return id
     }
 

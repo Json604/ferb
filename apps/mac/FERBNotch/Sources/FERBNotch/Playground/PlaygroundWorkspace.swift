@@ -34,6 +34,8 @@ final class PlaygroundWorkspace {
     var projects: [[String: Any]] = [["folder": "/Users/demo/code/site", "shown": "~/code/site", "since": PlaygroundSamples.time(-86_400),
                                       "destinations": ["https://github.com/demo/site.git"]]]
     var importFinished = false
+    /// The chat's entries, as the engine keeps them (PlaygroundEntries).
+    let entries = PlaygroundEntries()
     /// Settings → Stored data's invented database (STORE-423).
     let storedData = PlaygroundStoredData()
     /// Settings → Phone's invented phones, pairing and relay (T-1205).
@@ -260,6 +262,9 @@ final class PlaygroundWorkspace {
                 tasks[index]["card"] = card
             }
             tasks[index]["artifacts"] = status == "done" ? [artifact.path] : []
+            if let request = tasks[index]["request_id"] as? String {
+                entries.answer(request: request, text: answer, status: status)       // the end as its answer entry
+            }
             emit("task.result", tasks[index])
         }
     }

@@ -4906,3 +4906,23 @@ rule = "Supersedes APP-787. The closed notch still never shows a task's reply wh
 supersedes = ["APP-787"]
 paths = ["apps/mac/FERBNotch/Sources/FERBNotch/DaemonConnection.swift"]
 untestable = "The closed notch's presentation is checked live by the owner (APP-567); the daemon's frames are tested (ORCH-747)."
+
+[APP-1146]
+title = "Reply to any message: a hover arrow or a swipe quotes it above the composer and on the sent bubble"
+by = "owner"
+date = 2026-11-27
+status = "active"
+words = "also gotta at teh quote any ferb's reply message, either slide or an on hover icon maybe. many apps have that - a cool feature"
+words_source = "Owner 2026-11-27; then, asked whether his own messages too: 'yeah my messages too'; the look and strings shown to him: 'ok go'."
+rule = "Hovering any shown message (his or FERB's answer, first reply, later answer or notice) shows a reply arrow at the bubble's bottom outer corner; a two-finger sideways swipe does the same. The quote sits above the composer (\"You: …\" or \"FERB: …\", one line, ✕ and Esc drop it), goes with the message as chat.send reply_to, and shows above his sent bubble; clicking it scrolls to the quoted message and lights it briefly. A message with no entry id shows no arrow."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/ReplyViews.swift", "apps/mac/FERBNotch/Sources/NotchCore/ReplyQuote.swift"]
+
+[APP-1147]
+title = "Show more opens the text where it is; the chat never jumps to its end"
+by = "owner"
+date = 2026-11-27
+status = "active"
+words = "when i press on show more, it opens the end of the chat - i dont want that, i wanna read from teh top or just be there, dont move me just expand the text"
+words_source = "Owner 2026-11-27, on Show more in the notch chat."
+rule = "Refines APP-815 and APP-722 for a text the owner opens: Show more (and Show all) keeps that text's top where it was on screen and the transcript stops following the end while it grows; Show less still keeps the item's top in view."
+paths = ["apps/mac/FERBNotch/Sources/FERBNotch/NotchModel.swift", "apps/mac/FERBNotch/Sources/NotchCore/TranscriptFollow.swift"]

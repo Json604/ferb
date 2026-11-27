@@ -339,6 +339,22 @@ final class TranscriptList: NSObject, NSTableViewDataSource, NSTableViewDelegate
 
     private var reportedKeys = Set<String>()
     private var reportedQueued = false
+    /// A row the owner is opening (Show more, owner 2026-11-27: "dont move me just expand the text"): while it grows its
+    /// top stays where it stands on screen, so the text opens downwards, even at the end of the chat.
+    private var heldRow: (key: String, until: Date)?
+
+    /// The row `key` is about to grow because the owner opened a text in it: its top stays where it is.
+    func holdTop(_ key: String) {
+        heldRow = (key, Date().addingTimeInterval(1.5))
+    }
+
+    /// The place that keeps row `i`'s top where it stands now, while it is held (`holdTop`).
+    private func heldAnchor(_ i: Int) -> Anchor? {
+        guard let held = heldRow, held.key == rows[i].key, Date() < held.until else { return nil }
+        let over = overscroll(clip.bounds.minY)
+        let y = clip.bounds.minY - over
+        return Anchor(key: held.key, offset: table.rect(ofRow: i).minY - y, end: false, over: min(0, over))
+    }
 
     private func remeasureReported(inLayout: Bool = false) {
         let keys = reportedKeys
@@ -347,7 +363,7 @@ final class TranscriptList: NSObject, NSTableViewDataSource, NSTableViewDelegate
         guard width > 0, adjusting == 0 else { return }
         for key in keys {
             guard let i = index[key], hosts[key] != nil else { continue }
-            let anchor = currentAnchor(changing: i)
+            let anchor = heldAnchor(i) ?? currentAnchor(changing: i)
             if measure(i) {
                 noteHeights(IndexSet(integer: i))
                 restore(anchor)

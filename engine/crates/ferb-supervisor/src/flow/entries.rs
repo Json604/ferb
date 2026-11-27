@@ -25,7 +25,7 @@ use std::collections::{BTreeSet, HashMap};
 use ferb_core::chat_entry::{
     body, AnswerBody, Card, CardRow, Change, Checklist, Entry, EntryKind, EntryState, MessageBody,
     NoticeBody, NoticeQuote, Placement, PlanBody, PlanStep, PostBody, QuestionAnswer, QuestionBody,
-    RowQuestion, SealedId,
+    ReplyTo, RowQuestion, SealedId,
 };
 use serde_json::{Map, Value};
 
@@ -140,6 +140,8 @@ struct Turn {
     hidden: Vec<String>,
     sealed: Vec<SealedId>,
     attachments: Vec<String>,
+    /// What the owner quoted with the message (the ack's `reply_to`).
+    reply_to: Option<ReplyTo>,
     task_id: Option<String>,
     status: String,
     answered: bool,
@@ -368,6 +370,7 @@ impl ChatProjector {
                 turn.hidden = m.hidden;
                 turn.sealed = m.sealed;
                 turn.attachments = m.attachments;
+                turn.reply_to = m.reply_to;
                 turn.merged_into = m.merged_into;
                 turn.response_notice = m.notice;
                 if !turn.answered {
@@ -659,6 +662,10 @@ impl ChatProjector {
                 .and_then(|v| serde_json::from_value(v).ok())
                 .unwrap_or_default(),
             attachments: strings(frame, "input_paths").unwrap_or_default(),
+            reply_to: frame
+                .get("reply_to")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok()),
             client_id: words(frame, "client_id"),
             submission_id: words(frame, "submission_id"),
             ..Turn::default()
@@ -1458,6 +1465,7 @@ impl ChatProjector {
             hidden: turn.hidden.clone(),
             sealed: turn.sealed.clone(),
             attachments: turn.attachments.clone(),
+            reply_to: turn.reply_to.clone(),
             merged_into: turn.merged_into.clone(),
             notice: turn
                 .response_notice

@@ -21,6 +21,10 @@ final class EntryWatchState {
     var positions: [String: Int] = [:]
     /// The pos of the answer each watched turn shows (the newest that follows no other), by request.
     var shown: [String: Int] = [:]
+    /// The same for this app's own turns, whose answer entry's id is kept so it can be quoted (`noteOwnEntry`).
+    var ownShown: [String: Int] = [:]
+    /// Each notice's entry id by the notice's id, for a notice that reaches the chat after its entry came.
+    var noticeEntries: [String: String] = [:]
     /// The seq the engine gave each own message this run (its `ack`), while its entry hasn't come by the watch.
     var ackSeq: [UUID: Int] = [:]
     /// Own requests this run fills from entries: a resent message the engine already had (`repeat`), whose stream
@@ -240,6 +244,11 @@ extension NotchModel {
         }
         if entry.kind == "message", let request = entry.requestID { entryWatch.positions[request] = entry.pos }
         entryWatch.newestPos = max(entryWatch.newestPos ?? entry.pos, entry.pos)
+        // A notice's entry id, so it can be quoted (the notice itself comes as today's paths show it)
+        if ["notice", "post"].contains(entry.kind) {
+            if let ref = entry.ref { entryWatch.noticeEntries[ref] = entry.id }   // its notice may come after it
+            return noteOwnEntry(entry)
+        }
         guard let request = entry.requestID else { return false }
         let own = entry.clientID == clientID
         if own && !entryWatch.adopted.contains(request) {
@@ -253,7 +262,7 @@ extension NotchModel {
             } else {
                 entryWatch.unclaimed.removeValue(forKey: request)
             }
-            return false
+            return noteOwnEntry(entry)
         }
         guard ["message", "plan", "answer", "error"].contains(entry.kind) else { return false }
         let changed: UUID?
@@ -276,6 +285,19 @@ extension NotchModel {
             }
         }
         guard changed != nil else { return false }
+        saveConversation()
+        onBackgroundChange?(true)
+        return true
+    }
+
+    /// An entry this app's own paths drew: only its id is kept on what shows it (and a message's quote as the engine
+    /// kept it), so it can be quoted. Saved when that changed; returns whether it did.
+    @discardableResult
+    private func noteOwnEntry(_ entry: ChatEntry) -> Bool {
+        var shown = entryWatch.ownShown
+        let changed = changeConversation { $0.noteOwnEntry(entry, shown: &shown) }
+        entryWatch.ownShown = shown
+        guard changed else { return false }
         saveConversation()
         onBackgroundChange?(true)
         return true
@@ -336,6 +358,12 @@ extension NotchModel {
     /// run then fills that own turn from the entries, those already seen first.
     func receiveOwnAck(_ event: [String: Any], localID: UUID) async {
         if let seq = (event["seq"] as? NSNumber)?.intValue { entryWatch.ackSeq[localID] = seq }
+        // its entries the watch brought before the ack bound the turn: their ids (and the message's quote as the engine
+        // kept it) are kept now
+        if event["repeat"] as? Bool != true, let request = event["request_id"] as? String,
+           conversation.turn(requestID: request)?.id == localID, let early = entryWatch.unclaimed[request] {
+            for entry in early.values.sorted(by: { $0.pos < $1.pos }) { noteOwnEntry(entry) }
+        }
         guard event["repeat"] as? Bool == true, let request = event["request_id"] as? String,
               conversation.turn(requestID: request)?.id == localID else { return }
         entryWatch.adopted.insert(request)

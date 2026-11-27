@@ -39,6 +39,11 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
                     self.workspace.listeners[listenerID] = continuation
                     return
                 }
+                if method == "chat.entries.watch" {
+                    await self.workspace.entries.watch(params) { continuation.yield($0) }
+                    continuation.finish()
+                    return
+                }
                 do {
                     try await self.events(method, params) { continuation.yield($0) }
                     continuation.finish()
@@ -59,7 +64,7 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
     private static let quiet: Set<String> = ["chat.status", "ui.click_through", "about.guide", "memory.learning",
                                              "results.ack", "attention.ack", "runtimes.status", "setup.permissions",
                                              "setup.persona", "setup.browsers", "ping", "chat.attach",
-                                             "insomnia.status", "insomnia.report"]
+                                             "insomnia.status", "insomnia.report", "chat.entries.mark"]
 
     @MainActor
     private func answer(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
@@ -70,10 +75,12 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
         switch method {
         case "ping", "auth.hello":
             return ["pid": 0, "role": "app", "stopped": false]
+        case "chat.entries.mark":
+            return ["ok": true]
         case "chat.attach":
             // Settings → Stored data's fresh conversation (STORE-425) starts another sample conversation
             return ["session_id": params["new"] as? Bool == true ? "playground-fresh" : "playground",
-                    "capabilities": ["input_paths"]]
+                    "capabilities": ["input_paths", "entries"]]
         case "chat.status":
             return withTemporary(method, ["paused": s.paused, "stopped": false, "running": [[String: Any]](),
                                           "results": [[String: Any]](), "notices": [[String: Any]](),
@@ -222,10 +229,15 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
             yield(["type": "done", "preview": true, "request_id": id])
         case "chat.send" where params["fresh"] as? Bool == true:
             // the temporary chat: an invented answer, kept in the playground's memory only
-            try await temporary.send(params["text"] as? String ?? "", client: params["client_id"] as? String, pause: { await self.state.pause($0) }, yield: yield)
+            try await temporary.send(params["text"] as? String ?? "", client: params["client_id"] as? String,
+                                     replyTo: params["reply_to"] as? String, pause: { await self.state.pause($0) },
+                                     yield: yield)
         case "chat.send":
+            // each frame as the engine keeps it: the message's entry, and each thing FERB says to it (PlaygroundEntries)
+            let entries = workspace.entries
+            func said(_ frame: [String: Any]) { yield(entries.frame(frame, params: params)) }
             if workspace.enabled {
-                try await workspace.chat(params["text"] as? String ?? "", yield: yield)
+                try await workspace.chat(params["text"] as? String ?? "", yield: said)
                 return
             }
             // The tour's Try task, its stop practice, or anything typed in the notch: a simulated task whose
@@ -234,28 +246,28 @@ final class PlaygroundDaemon: DaemonRPCTransport, @unchecked Sendable {
             let id = "playground-" + UUID().uuidString.prefix(8)
             let task = "task-" + id
             state.note("daemon ← chat.send (a simulated task; nothing real runs)")
-            yield(["type": "ack", "request_id": id, "at": Self.now()])
+            said(["type": "ack", "request_id": id, "at": Self.now()])
             await state.pause(1.0)
             let plan = Self.plan(for: request)
-            yield(["type": "plan", "request_id": id, "task_id": task, "at": Self.now(), "text": plan.line,
-                   "plan_line": plan.line, "goal": request, "identity": "owner", "total": plan.steps.count])
+            said(["type": "plan", "request_id": id, "task_id": task, "at": Self.now(), "text": plan.line,
+                  "plan_line": plan.line, "goal": request, "identity": "owner", "total": plan.steps.count])
             for (index, label) in plan.steps.enumerated() {
                 let row: [String: Any] = ["type": "part", "request_id": id, "task_id": task, "part": "\(index + 1)",
                                           "step": "\(index + 1)", "kind": "do", "label": label, "at": Self.now()]
-                yield(row.merging(["state": "working"]) { $1 })
+                said(row.merging(["state": "working"]) { $1 })
                 await state.pause(2.0)
                 try Task.checkCancellation()
                 if stopped.contains(task) {
                     let text = "Stopped. This is the intro playground: nothing real ran."
-                    yield(["type": "outcome", "request_id": id, "task_id": task, "status": "stopped",
-                           "answer": text, "at": Self.now()])
+                    said(["type": "outcome", "request_id": id, "task_id": task, "status": "stopped",
+                          "answer": text, "at": Self.now()])
                     return
                 }
-                yield(row.merging(["state": "done"]) { $1 })
+                said(row.merging(["state": "done"]) { $1 })
             }
             let text = "This is the intro playground: I went through the steps, but nothing real ran."
-            yield(["type": "outcome", "request_id": id, "task_id": task, "status": "done", "answer": text,
-                   "at": Self.now()])
+            said(["type": "outcome", "request_id": id, "task_id": task, "status": "done", "answer": text,
+                  "at": Self.now()])
         case "setup.browsers_pairing":
             let fails = state.saved.pairingFails
             let todo: [[String: Any]] = [["browser": "chrome", "folder": "Default", "name": "Personal",

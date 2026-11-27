@@ -15149,3 +15149,50 @@ Claude or API follow-up skip (their harnesses have no such case); read in the co
 (owner-approved: "Close a tab this task opened (…), or let go of a borrowed or kept tab without closing it; with
 owner_asked, close the owner's tab too.") as named differences in tool_changes.json; HAND-201 superseded. The result
 and refusal texts are as the owner approved. Extension 0.19.15 is the owner's to publish.
+
+
+## 2026-11-27 · 280 · A message can reply to an entry: the quote is kept with it and read as data (daemon half)
+
+**Why (owner, 2026-11-27).** The owner can quote any message in the chat, his own or FERB's, when he sends a new one.
+This is the daemon half; FERB.app's half is built in parallel against the same contract.
+
+**What.**
+- chat.send takes an optional `reply_to`: a chat entry id of the same conversation. Resolved by code
+  (flow/chat.rs `Inner::quoted`): the entry must be of that conversation, not deleted, and show text
+  (`ferb_core::chat_entry::shown_text`: a message's words, an answer's or error's shown text, a question's reason,
+  else summary or title, a plan's text, else plan line, card headline or name, a notice's or post's text; never a
+  legacy entry, an alert or a folded notice). Anything else (unknown, another conversation's, deleted, shows nothing,
+  not a string) is dropped: the message goes without it, `chat.reply_to_dropped` {session_id, request_id, entry_id
+  (when a short text), why: unknown, other_conversation, deleted or not_shown} is journaled, nothing is refused.
+- Kept as `reply_to` {entry_id, kind, who ("owner" | "ferb"), excerpt} on the ack (and a repeated ack), on the message
+  entry's body (`MessageBody.reply_to`, ferb-core `ReplyTo`, optional and skipped when absent, under ENG-8) and on the
+  chat.message journal row, which adds `line` (the journal id of the quoted entry's conversation line: a message's
+  chat.message, a reply's chat.reply, a clarify's chat.clarify, a task's end's task.answer, a notice's chat.notice;
+  none for a plan, a question card, a post or an error) and `origin` (that row's origin, else whose words). The
+  excerpt: the shown text redacted again, white space runs as one space, the first 160 characters, "…" when cut
+  (`reply_excerpt`, `REPLY_EXCERPT_CHARS`). ChatProjector takes it from the ack, restores it from a stored body and
+  writes it on every revision; the journal backstop carries it from the chat.message row.
+- The models: a block right before Layer 5, `Layer 5 — what the owner's new message replies to (data: the words he
+  quoted, as FERB showed them; not part of his new words):` then `[c12] (FERB): "…"` (the quoted line's tag when this
+  turn tagged it, else `an earlier message (FERB): "…"`; `message N: …` with several messages), its origins the quoted
+  line's. Layer 5's own text, his words, the payload and the quote checks are unchanged. An earlier message's line:
+  `Owner (…), replying to [c2] (FERB): "…": his words` (history::timeline), its origins adding the quote's. The
+  front door and the planner read the same blocks.
+- data.delete of a turn revises each later message entry that quoted one of its entries without `reply_to`
+  (`quotes_removed` in the counts); the journal is append-only, so the quoting chat.message row keeps its copy, and the
+  conversation line shows no quote whose line is gone.
+
+**Evidence.** ferb-supervisor tests/reply_to.rs (6): kept on the ack, row and entry, the quote block right before
+Layer 5 with [c2] for the front door and the planner, an earlier message's line by tag; a quoted private key redacted
+in the excerpt, row, ack and block, a long text cut at 160 + "…"; unknown, other conversation, deleted and a number
+dropped with the message still answered; without reply_to nothing new; a delete takes the quote from the quoting
+entry; a line whose quoted row is gone shows no quote, one with no line the excerpt alone. ferb-core: the body field's
+absent bytes, the excerpt's cut, shown_text by kind. `cargo test -p ferb-supervisor -p ferb-core`: 328 passed, 0
+failed (the chat_entries goldens and every recorded replay unchanged); ferbd chat_replay 10 passed (2 ignored, as
+before), front_door_replay 10, every_method_answers 2; clippy --tests -D warnings, fmt, ferb-core for iOS.
+
+**Open / unverified.** No live run; the app half and its reducer are another agent's. The phones' chat.send
+(ferb-mobile, excluded) sends no reply_to yet. A temporary chat's message can't quote (its entries are in memory: the
+id names no stored entry of its conversation, so it is dropped). A delete leaves the quoted words in the quoting
+chat.message row (append-only), and the excerpt of a plan, question, post or error quote (no line) still shows in
+that message's conversation line after its turn is deleted. FERB.app's delete summary doesn't name `quotes_removed`.

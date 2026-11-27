@@ -106,6 +106,7 @@ public enum EntryFold {
             case "plan":
                 guard let index = entry.requestID.flatMap({ byRequest[$0] }) else { continue }
                 showPlan(entry.body, on: &archive.turns[index])
+                archive.turns[index].planEntryID = entry.id
             case "answer", "error":
                 let index: Int
                 if let message = entry.answers, let found = turnOf[message] {
@@ -152,7 +153,10 @@ public enum EntryFold {
             default: break      // a question (held apart by the app), or a kind this build doesn't know
             }
         }
-        for (index, entry) in shown { answer(entry.body, on: &archive.turns[index]) }
+        for (index, entry) in shown {
+            answer(entry.body, on: &archive.turns[index])
+            archive.turns[index].answerEntryID = entry.id
+        }
         return archive
     }
 
@@ -172,6 +176,8 @@ public enum EntryFold {
         turn.backendTaskID = entry.taskID
         if let hidden = body["hidden"] as? [String], !hidden.isEmpty { turn.hiddenKinds = hidden }
         turn.sealed = sealed(body)
+        turn.entryID = entry.id
+        turn.replyTo = ReplyQuote(body["reply_to"])
         messageState(entry, on: &turn)
         return turn
     }
@@ -212,7 +218,7 @@ public enum EntryFold {
     /// A later answer (APP-914) as a reply of its own, where it arrived; its id is the entry's, so a revision finds it.
     public static func laterReply(_ entry: ChatEntry, turnID: UUID, afterTurnID: UUID, createdAt: Date) -> ConversationReply {
         ConversationReply(id: uuid(entry.id), turnID: turnID, createdAt: createdAt, afterTurnID: afterTurnID,
-                          part: .answer, said: later(entry.body))
+                          part: .answer, said: later(entry.body), entryID: entry.id)
     }
 
     /// An answer placed below (APP-580): a reply quoting its turn, which shows that turn's answer.
@@ -242,7 +248,7 @@ public enum EntryFold {
         return ConversationNotice(id: entry.ref ?? entry.id, entryID: uuid(entry.id), createdAt: createdAt,
                                   noticedAt: LiveProgress.time(body["at"]), text: body["text"] as? String ?? "",
                                   quotes: quotes, tag: "noticed", afterTurnID: afterTurnID, proposals: nil,
-                                  cards: ResultCard.list(body["cards"]))
+                                  cards: ResultCard.list(body["cards"]), sourceEntryID: entry.id)
     }
 
     /// A reminder as receiveReminder shows it: its card from the banner's, its heading and kind.
@@ -259,7 +265,8 @@ public enum EntryFold {
         shown["timer_id"] = card?.timerID ?? id
         return ConversationNotice(id: entry.ref ?? "reminder:" + id, entryID: uuid(entry.id), createdAt: createdAt,
                                   noticedAt: createdAt, text: text, quotes: [], tag: "noticed",
-                                  afterTurnID: afterTurnID, proposals: nil, cards: ResultCard.list([shown]))
+                                  afterTurnID: afterTurnID, proposals: nil, cards: ResultCard.list([shown]),
+                                  sourceEntryID: entry.id)
     }
 
     /// A plan's fields on its turn (showPlan's, as the engine kept them).
@@ -377,6 +384,8 @@ extension ConversationArchive {
                 }
             }
             if let task = entry.taskID { turn.backendTaskID = task }
+            turn.entryID = entry.id
+            turn.replyTo = ReplyQuote(entry.body["reply_to"])      // as the engine kept the quote
             if turn.answer.isEmpty, ["working", "interrupted", "merged"].contains(turn.status) {
                 EntryFold.messageState(entry, on: &turn)
             }
@@ -424,6 +433,7 @@ extension ConversationArchive {
             }
         }
         if let task = entry.taskID { turn.backendTaskID = task }
+        turn.planEntryID = entry.id
         turn.awaitingReply = false
         turn.streamingPlan = nil
         turn.liveLine = nil
@@ -446,6 +456,7 @@ extension ConversationArchive {
         if EntryFold.follows(entry) {
             if let found = replies.firstIndex(where: { $0.id == replyID }) {
                 replies[found].said = EntryFold.later(entry.body)
+                replies[found].entryID = entry.id
             } else {
                 replies.append(EntryFold.laterReply(entry, turnID: turnID, afterTurnID: newest.id, createdAt: stamp(entry)))
             }
@@ -456,6 +467,7 @@ extension ConversationArchive {
             if entry.pos >= shown[request] ?? Int.min {
                 shown[request] = entry.pos
                 EntryFold.answer(entry.body, on: &turns[index])
+                turns[index].answerEntryID = entry.id
             }
         }
         turns[index].liveLine = nil

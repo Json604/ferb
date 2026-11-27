@@ -155,6 +155,11 @@ struct ConversationTranscript: View {
             .onChange(of: questions) { _, _ in followNewest() }
             .onChange(of: memoryImport == nil) { _, gone in if !gone { followNewest() } }
             .onAppear {
+                // Show more: the text opens downwards from where it is, never followed to the end
+                model.textOpening = NotchModel.TextOpening(owner: ObjectIdentifier(place)) { [place] target in
+                    place.follow.hold()
+                    place.list.holdTop(place.list.holder(of: target) ?? target)
+                }
                 // The chat moved to the other host (APP-745): back where the owner left it.
                 let resume = model.transcriptResume
                 model.transcriptResume = nil
@@ -170,6 +175,7 @@ struct ConversationTranscript: View {
                 consume()
             }
             .onDisappear {
+                if model.textOpening?.owner == ObjectIdentifier(place) { model.textOpening = nil }
                 // Only when the chat moved to the other host; a day, Tasks or history switch keeps today's behaviour.
                 guard model.chatInWindow != inWindow else { return }
                 model.transcriptResume = TranscriptResume(following: place.follow.following,
@@ -313,7 +319,7 @@ private struct TurnView: View {
                 Label("Preview · nothing here is done", systemImage: "eye")
                     .font(.system(size: 10.5, weight: .medium)).foregroundStyle(Palette.secondary)
             }
-            RequestView(turn: turn, show: { model.showIdentifier($0, turnID: turn.id) })
+            RequestView(turn: turn, model: model, show: { model.showIdentifier($0, turnID: turn.id) })
             ferbSide.frame(maxWidth: ChatSide.width, alignment: .leading)
         }
     }
@@ -356,7 +362,7 @@ private struct TurnView: View {
             if answeredBelow {
                 Text("Answered below").font(.system(size: 10)).foregroundStyle(Palette.secondary)
             } else {
-                AnswerView(turn: turn, hidden: hidden, model: model)
+                AnswerView(turn: turn, answerEntry: turn.answerEntryID, hidden: hidden, model: model)
             }
         }
     }
@@ -366,6 +372,7 @@ private struct TurnView: View {
 /// description, shown on FERB's side.
 private struct RequestView: View {
     let turn: ConversationTurn
+    @ObservedObject var model: NotchModel
     /// The owner's "Let the AI see" for an identifier kept sealed from this message (GATE-602).
     var show: ((String) -> Void)? = nil
 
@@ -377,8 +384,11 @@ private struct RequestView: View {
                 .frame(maxWidth: ChatSide.width, alignment: .leading)
         } else {
             HStack {
-                Spacer(minLength: 28)
-                VStack(alignment: .leading, spacing: 5) {
+                Spacer(minLength: 0)
+                // the free space on its left is the message's too, for its reply arrow (QuotableBubble)
+                quotable(VStack(alignment: .leading, spacing: 5) {
+                    // the message it quotes (a reply), above his words
+                    if let quote = turn.replyTo { SentQuoteLine(quote: quote, model: model) }
                     if !turn.request.isEmpty { NativeMessageText(turn.request) }     // files sent without words
                     ForEach(turn.sources, id: \.self) { url in
                         Label(url.lastPathComponent, systemImage: "paperclip").font(.system(size: 10))
@@ -386,8 +396,8 @@ private struct RequestView: View {
                 }
                 .padding(.horizontal, 11).padding(.vertical, 8)
                 .background(Palette.chatBlue, in: RoundedRectangle(cornerRadius: 15))
-                .help(turn.createdAt.formatted(date: .omitted, time: .shortened))
-                .frame(maxWidth: ChatSide.width - 28, alignment: .trailing)     // as wide as at the standard width
+                .help(turn.createdAt.formatted(date: .omitted, time: .shortened)))
+                .frame(maxWidth: ChatSide.width, alignment: .trailing)     // as wide as at the standard width
             }
             // A secret FERB hid in the message (task 11): code's reminder under it
             if let notice = turn.hiddenNotice {
@@ -418,6 +428,17 @@ private struct RequestView: View {
     }
 }
 
+extension RequestView {
+    /// The owner's bubble with the free space on its left, where its reply arrow shows once its entry id is known.
+    @ViewBuilder func quotable<Bubble: View>(_ bubble: Bubble) -> some View {
+        if let reply = model.bubbleReply(entryID: turn.entryID, kind: "message", owner: true, text: turn.request) {
+            bubble.modifier(QuotableBubble(quote: reply.quote, side: .owner, model: model))
+        } else {
+            bubble.padding(.leading, QuotableBubble.gutter)
+        }
+    }
+}
+
 /// A late entry (L6): a one-line quote of its request, then FERB's question or the answer. A later answer said right
 /// under its own turn (APP-914) needs no quote.
 private struct LateReplyView: View {
@@ -438,14 +459,16 @@ private struct LateReplyView: View {
                 .help(turn.taskGoal ?? turn.request)
                 .accessibilityLabel("Reply to: " + (turn.quote.isEmpty ? "a task from earlier" : turn.quote))
             }
+            // a later answer (APP-914) is its own entry; otherwise the reply shows its turn's answer
+            let answerEntry = reply.said != nil ? reply.entryID : turn.answerEntryID
             if reply.part == .question, let question = turn.question {
                 // The question was shown here; the final answer follows it unless it went further below.
                 FerbBubble { MarkdownContent(question).equatable() }
                 if !model.shownArchive.repliesBelow(turn.id).contains(where: { $0.part == .answer }) {
-                    AnswerView(turn: turn, hidden: hidden, model: model)
+                    AnswerView(turn: turn, answerEntry: answerEntry, hidden: hidden, model: model)
                 }
             } else {
-                AnswerView(turn: turn, hidden: hidden, model: model)
+                AnswerView(turn: turn, answerEntry: answerEntry, hidden: hidden, model: model)
             }
         }
     }
@@ -471,7 +494,8 @@ struct NoticeView: View {
     }
 
     private var message: some View {
-        FerbBubble {
+        FerbBubble(reply: model.bubbleReply(entryID: notice.sourceEntryID, kind: "notice", owner: false,
+                                            text: notice.text)) {
             VStack(alignment: .leading, spacing: 6) {
                 NativeMessageText(notice.text)
                 // What FERB learned, each confirmed or turned down here.
@@ -587,6 +611,8 @@ private struct LiveLineView: View {
 
 private struct AnswerView: View {
     let turn: ConversationTurn
+    /// The engine's id of the answer shown (its reply arrow's quote); nil: it offers no reply.
+    var answerEntry: String?
     /// The boxes a later entry draws (APP-769): their cards aren't drawn here; their lines still leave the text.
     var hidden: Set<String> = []
     @ObservedObject var model: NotchModel
@@ -642,7 +668,8 @@ private struct AnswerView: View {
                 let details = turn.displayText != nil && turn.visibleAnswer != turn.answer
                 let shown = CardLayout.bubble(visibleParts.answer, cards, note: split.note, lines: codeLines)
                 if shown != nil || details {
-                    FerbBubble {
+                    FerbBubble(reply: model.bubbleReply(entryID: answerEntry, kind: "answer", owner: false,
+                                                        text: turn.visibleAnswer)) {
                         VStack(alignment: .leading, spacing: 6) {
                             if let shown {
                                 // An answer taller than the chat area shows about half of it, the rest on Show all:
@@ -694,14 +721,21 @@ private struct AnswerView: View {
     }
 }
 
-/// A neutral FERB message on the left.
+/// A neutral FERB message on the left. With `reply` (its entry id is known) it can be replied to: the arrow sits in
+/// the free space on its right.
 struct FerbBubble<Content: View>: View {
+    var reply: BubbleReply? = nil
     @ViewBuilder let content: Content
 
     var body: some View {
-        bubble
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.trailing, 28)
+        Group {
+            if let reply {
+                bubble.modifier(QuotableBubble(quote: reply.quote, side: .ferb, model: reply.model))
+            } else {
+                bubble.padding(.trailing, QuotableBubble.gutter)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     var bubble: some View {

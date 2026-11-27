@@ -168,6 +168,36 @@ pub struct MessageBody {
     /// a value. Added under ENG-8 as an optional field: absent when none, so every body written before reads the same.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sealed: Vec<SealedId>,
+    /// The entry the owner quoted when he sent it (chat.send `reply_to`), as it was shown. Added under ENG-8 as an
+    /// optional field: absent when he quoted nothing, so every body written before reads the same.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<ReplyTo>,
+}
+
+/// What a message replies to: an entry of the same conversation, its kind, whose words it held and the first
+/// [`REPLY_EXCERPT_CHARS`] characters of its shown text (redacted as it was shown; "…" added when cut).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ReplyTo {
+    pub entry_id: String,
+    /// The quoted entry's kind (`message`, `answer`, `question`, `plan`, `notice`, `post`, `error`).
+    pub kind: String,
+    /// `owner` (his own message) or `ferb` (anything FERB showed).
+    pub who: String,
+    pub excerpt: String,
+}
+
+/// How much of a quoted entry's shown text a reply keeps (characters, before the "…").
+pub const REPLY_EXCERPT_CHARS: usize = 160;
+
+/// A quoted entry's excerpt: its shown text with each run of white space as one space, the first
+/// [`REPLY_EXCERPT_CHARS`] characters, and "…" when there was more.
+pub fn reply_excerpt(shown: &str) -> String {
+    let flat = shown.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut out: String = flat.chars().take(REPLY_EXCERPT_CHARS).collect();
+    if flat.chars().count() > REPLY_EXCERPT_CHARS {
+        out.push('…');
+    }
+    out
 }
 
 /// One personal ID kept sealed from a message (GATE-604): its kind ("PAN") and the name it is saved under ("PAN 2").
@@ -366,6 +396,40 @@ pub struct LegacyBody {
     pub body: Value,
 }
 
+/// The text an entry shows the owner, as its body holds it (redacted): a message's words, an answer's or error's shown
+/// text, a question's reason (else its summary or title), a plan's text (else its plan line, card headline or name), a
+/// notice's or post's text. None for a legacy entry (FERB.app's own old JSON), a deleted one, or one that shows none.
+pub fn shown_text(entry: &Entry) -> Option<String> {
+    if entry.deleted {
+        return None;
+    }
+    let first =
+        |options: Vec<Option<String>>| options.into_iter().flatten().find(|t| !t.trim().is_empty());
+    match entry.kind {
+        EntryKind::Message => first(vec![entry.body_as::<MessageBody>().map(|b| b.text)]),
+        EntryKind::Answer | EntryKind::Error => {
+            let b: AnswerBody = entry.body_as()?;
+            first(vec![b.display_text, Some(b.text)])
+        }
+        EntryKind::Question => {
+            let b: QuestionBody = entry.body_as()?;
+            first(vec![Some(b.reason), b.summary, b.title])
+        }
+        EntryKind::Plan => {
+            let b: PlanBody = entry.body_as()?;
+            first(vec![
+                b.text,
+                b.plan_line,
+                b.card.and_then(|c| c.headline),
+                b.name,
+            ])
+        }
+        EntryKind::Notice => first(vec![entry.body_as::<NoticeBody>().map(|b| b.text)]),
+        EntryKind::Post => first(vec![entry.body_as::<PostBody>().map(|b| b.text)]),
+        EntryKind::Legacy => None,
+    }
+}
+
 /// A JSON value as a body (the typed shapes above always serialize).
 pub fn body<T: Serialize>(shape: &T) -> Value {
     serde_json::to_value(shape).unwrap_or(Value::Null)
@@ -461,6 +525,63 @@ mod tests {
         let back: Entry = serde_json::from_str(&text).unwrap();
         assert_eq!(back, entry());
         assert_eq!(back.body_as::<MessageBody>().unwrap().text, "hi");
+    }
+
+    // decision: ENG-8
+    #[test]
+    fn a_reply_is_an_added_body_field_and_its_excerpt_is_cut_at_160_characters() {
+        let mut said = MessageBody {
+            text: "and the bigger one?".into(),
+            ..MessageBody::default()
+        };
+        let before = serde_json::to_string(&said).unwrap();
+        assert!(!before.contains("reply_to"), "absent: the bytes as before");
+        said.reply_to = Some(ReplyTo {
+            entry_id: "e2".into(),
+            kind: "answer".into(),
+            who: "ferb".into(),
+            excerpt: reply_excerpt("Go for\n\n  the 7."),
+        });
+        assert_eq!(
+            serde_json::to_value(&said).unwrap()["reply_to"],
+            serde_json::json!({"entry_id": "e2", "kind": "answer", "who": "ferb", "excerpt": "Go for the 7."})
+        );
+        let old: MessageBody = serde_json::from_str(&before).unwrap();
+        assert_eq!(old.reply_to, None);
+        let long = "é".repeat(REPLY_EXCERPT_CHARS + 5);
+        let cut = reply_excerpt(&long);
+        assert_eq!(cut.chars().count(), REPLY_EXCERPT_CHARS + 1);
+        assert!(cut.ends_with('…'));
+        assert_eq!(
+            reply_excerpt(&"a".repeat(REPLY_EXCERPT_CHARS))
+                .chars()
+                .count(),
+            REPLY_EXCERPT_CHARS
+        );
+    }
+
+    #[test]
+    fn what_an_entry_shows_by_its_kind() {
+        let mut e = entry();
+        assert_eq!(shown_text(&e).as_deref(), Some("hi"));
+        e.kind = EntryKind::Answer;
+        e.body = body(&AnswerBody {
+            text: "raw".into(),
+            display_text: Some("shown".into()),
+            ..AnswerBody::default()
+        });
+        assert_eq!(shown_text(&e).as_deref(), Some("shown"));
+        e.kind = EntryKind::Question;
+        e.body = body(&QuestionBody {
+            reason: "Send it?".into(),
+            ..QuestionBody::default()
+        });
+        assert_eq!(shown_text(&e).as_deref(), Some("Send it?"));
+        e.kind = EntryKind::Legacy;
+        assert_eq!(shown_text(&e), None);
+        e.kind = EntryKind::Message;
+        e.deleted = true;
+        assert_eq!(shown_text(&e), None);
     }
 
     // decision: ENG-8

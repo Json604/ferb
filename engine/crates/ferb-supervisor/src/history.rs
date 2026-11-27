@@ -284,6 +284,14 @@ fn told_in_reply(
     }
 }
 
+/// Whether a message's quote is still shown: it names no line, or its line is still kept.
+fn quote_kept(quoted: &Value, kept: &BTreeSet<&str>) -> bool {
+    match quoted.get("line").and_then(Value::as_str) {
+        Some(line) if !line.is_empty() => kept.contains(line),
+        _ => true,
+    }
+}
+
 /// supervisor.py:3991 `_timeline`: the entries after the running summary, each shown with its `[cN]` tag, and the
 /// tags' times (`ages`, in order).
 pub fn timeline(t: &Timeline<'_>) -> (Vec<Entry>, Vec<(String, Time)>) {
@@ -299,6 +307,10 @@ pub fn timeline(t: &Timeline<'_>) -> (Vec<Entry>, Vec<(String, Time)>) {
         answers.insert(f(&e.data, "task_id"), e.id.clone());
     }
     let mut items: Vec<Entry> = Vec::new();
+    // each row's place among the items (its tag is `c` and the place + 1), for a message that quotes an earlier line
+    let mut placed: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    // the rows still kept: a quote whose line was deleted (the owner's delete of its turn) is not shown
+    let ids: BTreeSet<&str> = t.rows.iter().map(|r| r.id.as_str()).collect();
     for entry in t.rows {
         let data = &entry.data;
         if held_in(data, "request_id", leave_out) || held_in(data, "read_with", leave_out) {
@@ -306,6 +318,7 @@ pub fn timeline(t: &Timeline<'_>) -> (Vec<Entry>, Vec<(String, Time)>) {
         }
         if SELF_POSTS.contains(&entry.kind.as_str()) {
             if let Some(made) = self_post_lines(entry, t.conversation, t.task_ids, t.zone, t.lean) {
+                placed.insert(entry.id.as_str(), items.len());
                 items.push(made);
             }
             continue;
@@ -329,7 +342,28 @@ pub fn timeline(t: &Timeline<'_>) -> (Vec<Entry>, Vec<(String, Time)>) {
             "FERB".to_string()
         };
         let mut said = text(data, "text");
-        let held = origin::split(Some(&entry.origin));
+        let mut held = origin::split(Some(&entry.origin));
+        // what he quoted with it, as data after his name (never in his words): the quoted line's tag when it is an
+        // earlier line of this timeline that a summary did not fold in, else the excerpt alone
+        if entry.kind == "chat.message" {
+            if let Some(Value::Object(quoted)) = data
+                .get(crate::words::REPLY_TO)
+                .filter(|q| quote_kept(q, &ids))
+            {
+                let line = s(quoted, "line").unwrap_or_default();
+                let tag = placed
+                    .get(line.as_str())
+                    .filter(|_| !t.covered.contains(&format!("{ENTRY}{line}")))
+                    .map(|n| format!("c{}", n + 1));
+                let shown = crate::words::quoted_line(
+                    tag.as_deref(),
+                    &s(quoted, "who").unwrap_or_default(),
+                    &s(quoted, "excerpt").unwrap_or_default(),
+                );
+                who = crate::words::replying(&who, &shown);
+                held.extend(origin::split(s(quoted, "origin").as_deref()));
+            }
+        }
         let outside = held.iter().any(|o| origin::is_external(o));
         let mut result = if entry.kind == "task.answer" {
             entry.id.clone()
@@ -462,6 +496,7 @@ pub fn timeline(t: &Timeline<'_>) -> (Vec<Entry>, Vec<(String, Time)>) {
             .filter(|v| !v.is_null())
             .map(py_str)
             .unwrap_or_default();
+        placed.insert(entry.id.as_str(), items.len());
         items.push(Entry {
             at: entry.at,
             text: format!("({}) {who}: {said}", when(&entry.at, t.zone)),

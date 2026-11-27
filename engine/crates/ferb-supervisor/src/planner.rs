@@ -543,6 +543,8 @@ pub struct PlannerTurn<'a> {
     pub message_origin: &'a BTreeSet<String>,
     /// SENSE-424, PRM-362: where the turn's messages were sent from, in order (only those whose client was named).
     pub sent_from: &'a [String],
+    /// What the turn's messages reply to ([`replying_block`]), right before Layer 5; None when they quote nothing.
+    pub replying: Option<Sourced>,
     /// ORCH-730: how long ago the owner's previous message and FERB's last reply were (`words::last_said`), after the
     /// cached part; None in a replay of a Python recording.
     pub last_said: Option<&'a str>,
@@ -701,6 +703,9 @@ pub fn planner_sourced(t: PlannerTurn<'_>) -> (Vec<Sourced>, usize, usize) {
             },
             made,
         ));
+    }
+    if let Some(block) = t.replying {
+        state.push(block);
     }
     let head = if t.entries.len() > 1 {
         with_sent_from(NEW_MESSAGES, t.sent_from)
@@ -1430,5 +1435,58 @@ pub fn since_block(
             )
         },
         held,
+    ))
+}
+
+/// What the turn's messages reply to (chat.send `reply_to`, kept on each chat.message row): one line per message that
+/// quoted something, `[c12] (FERB): "…"` with the quoted line's tag when this turn's conversation tagged it, else the
+/// excerpt alone; with several messages each line says which one (`message 2: …`). Its origins are the quoted words'
+/// (their line's), never the owner's new words'. None when no message quoted anything.
+pub fn replying_block(
+    messages: &[crate::flow::store::Entry],
+    tags: &std::collections::BTreeMap<String, crate::history::Tagged>,
+) -> Option<Sourced> {
+    let mut lines = Vec::new();
+    let mut made = BTreeSet::new();
+    let mut refs = Vec::new();
+    let several = messages.len() > 1;
+    for (n, message) in messages.iter().enumerate() {
+        let Some(Value::Object(quoted)) = message.get(crate::words::REPLY_TO) else {
+            continue;
+        };
+        let text = |k: &str| quoted.get(k).and_then(Value::as_str).unwrap_or_default();
+        let line = text("line");
+        let tag = tags
+            .iter()
+            .find(|(_, tagged)| !line.is_empty() && tagged.id == line)
+            .map(|(tag, _)| tag.as_str());
+        let shown = crate::words::quoted_line(tag, text("who"), text("excerpt"));
+        lines.push(if several {
+            format!("message {}: {shown}", n + 1)
+        } else {
+            shown
+        });
+        made.extend(origin::split(Some(text("origin"))));
+        refs.push(format!("journal:{}", message.id));
+        if !line.is_empty() {
+            refs.push(format!("journal:{line}"));
+        }
+    }
+    if lines.is_empty() {
+        return None;
+    }
+    if made.is_empty() {
+        made.insert(origin::FERB.to_string());
+    }
+    Some(sourced(
+        ContextBlock {
+            protected: true,
+            source_refs: refs,
+            ..ContextBlock::new(
+                format!("{}{}", crate::words::REPLYING_TO, lines.join("\n")),
+                REPLYING_REFERENCE,
+            )
+        },
+        made,
     ))
 }

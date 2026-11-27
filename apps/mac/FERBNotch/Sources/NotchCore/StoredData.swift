@@ -376,14 +376,15 @@ extension ConversationArchive {
         replies = replies.map { reply in
             guard let place = keptBefore[reply.afterTurnID] else { return reply }
             return ConversationReply(id: reply.id, turnID: reply.turnID, createdAt: reply.createdAt,
-                                     afterTurnID: place ?? reply.turnID, part: reply.part, said: reply.said)
+                                     afterTurnID: place ?? reply.turnID, part: reply.part, said: reply.said,
+                                     entryID: reply.entryID)
         }
         notices = notices.map { notice in
             guard let after = notice.afterTurnID, let place = keptBefore[after] else { return notice }
             return ConversationNotice(id: notice.id, entryID: notice.entryID, createdAt: notice.createdAt,
                                       noticedAt: notice.noticedAt, text: notice.text, quotes: notice.quotes,
                                       tag: notice.tag, afterTurnID: place, proposals: notice.proposals,
-                                      cards: notice.cards)
+                                      cards: notice.cards, folded: notice.folded, sourceEntryID: notice.sourceEntryID)
         }
         return before - turns.count - replies.count
     }

@@ -414,6 +414,12 @@ pub fn apply(
         }
     }
     counts.insert("chat_entries".into(), json!(entries.len()));
+    // a later message that quoted one of them shows no copy of its words: its entry's `reply_to` goes (the message
+    // stays). Its chat.message row is append-only and keeps it; the conversation line shows no quote whose line is
+    // gone (history::timeline)
+    let quoting = unquote(conn, &p.entries, at)?;
+    counts.insert("quotes_removed".into(), json!(quoting.len()));
+    entries.extend(quoting);
     let mut history = 0;
     for id in &p.history {
         history += conn.execute("DELETE FROM chat_history WHERE id = ?", [id])?;
@@ -458,6 +464,33 @@ pub fn apply(
         counts.insert("tasks".into(), json!(0));
     }
     Ok(Done { counts, entries })
+}
+
+/// The message entries whose `reply_to` names one of `deleted` (entry ids), revised without it.
+fn unquote(conn: &Connection, deleted: &[String], at: &str) -> ferb_store::Result<Vec<Entry>> {
+    if deleted.is_empty() {
+        return Ok(Vec::new());
+    }
+    let m = marks(deleted.len());
+    let ids = strings(
+        conn,
+        &format!(
+            "SELECT id FROM chat_entries WHERE kind = 'message' AND deleted = 0 \
+             AND json_extract(body_json, '$.reply_to.entry_id') IN ({m})"
+        ),
+        deleted,
+    )?;
+    let mut revised = Vec::new();
+    for id in ids {
+        let Some(mut e) = ferb_store::chat_entries::get(conn, &id)? else {
+            continue;
+        };
+        if let Value::Object(body) = &mut e.body {
+            body.remove(crate::words::REPLY_TO);
+        }
+        revised.push(ferb_store::chat_entries::revise(conn, e, at)?);
+    }
+    Ok(revised)
 }
 
 /// The `context` of each later model call that quotes one of `texts` word for word (as its JSON stores it, once or

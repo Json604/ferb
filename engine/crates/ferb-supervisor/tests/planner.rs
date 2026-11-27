@@ -332,6 +332,7 @@ fn every_planner_call() {
                 message_origin: &message_origin,
                 // a recording's messages name no client (SENSE-424)
                 sent_from: &[],
+                replying: None,
                 // a recording's planner had no such line (ORCH-730 is the bounded planner's)
                 last_said: None,
                 library: None,
