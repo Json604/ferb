@@ -763,3 +763,73 @@ fn a_hand_off_with_an_empty_plan_starts_as_a_simple_task() {
         "the task started as without a plan"
     );
 }
+
+// decision: ORCH-742 (live 2026-11-27: "stop all tasks" with two running; the second stop was refused as a second
+// control)
+#[test]
+fn several_stops_in_one_message_are_each_checked_and_other_controls_stay_one() {
+    let recorded = support_control::scenario("stop_by_chat").1["model_calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["key"] == "supervisor")
+        .find(|c| recorded_answer(c)["control"].is_object())
+        .cloned()
+        .unwrap();
+    let (calls, text) = convert(&recorded_answer(&recorded));
+    let stop = calls
+        .iter()
+        .find(|(n, _)| n == "chat.control_task")
+        .unwrap()
+        .1
+        .clone();
+    let mut stop = stop;
+    stop["control"]["task_id"] = json!("@TREE@");
+    let mut other = stop.clone();
+    other["control"]["task_id"] = json!("INVENTEDOTHERTASK");
+    let mut pause = stop.clone();
+    pause["control"]["action"] = json!("pause");
+    let events = script(
+        &[
+            ("chat.control_task".into(), stop),
+            ("chat.control_task".into(), other),
+            ("chat.control_task".into(), pause),
+        ],
+        &text,
+    );
+    let mut scripts = Vec::new();
+    let n = support_control::scenario("stop_by_chat").1["model_calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["key"] == "supervisor")
+        .count();
+    for c in support_control::scenario("stop_by_chat").1["model_calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["key"] == "supervisor")
+    {
+        if recorded_answer(c)["control"].is_object() {
+            scripts.push(events.clone());
+        } else {
+            let (calls, text) = convert(&recorded_answer(c));
+            scripts.push(script(&calls, &text));
+        }
+    }
+    assert_eq!(scripts.len(), n);
+    let (w, _) = run("stop_by_chat", true, Some(scripts));
+    let got: Vec<_> = results(&w)
+        .into_iter()
+        .filter(|(n, _)| n == "chat.control_task")
+        .collect();
+    assert_eq!(got.len(), 3, "{got:?}");
+    assert!(got[0].1.is_ok(), "{got:?}");
+    let second = got[1].1.clone().unwrap_err();
+    assert!(
+        second.contains("Unknown task_id") && !second.contains("One control"),
+        "a second stop is checked as a stop: {second}"
+    );
+    let third = got[2].1.clone().unwrap_err();
+    assert!(third.contains("One control per message"), "{third}");
+}

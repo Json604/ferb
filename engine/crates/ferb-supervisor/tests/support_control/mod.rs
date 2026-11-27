@@ -1540,6 +1540,25 @@ impl EventSource for ScriptEvents {
                     .unwrap()
                     .clone()
                     .expect("the supervisor");
+                // a test's own script: "@TREE@" in the arguments is the newest task tree (its id depends on the run)
+                let mut ev = ev;
+                if ev["arguments"].to_string().contains("@TREE@") {
+                    let tree: String = self
+                        .daemon
+                        .db
+                        .lock()
+                        .unwrap()
+                        .conn()
+                        .query_row(
+                            "SELECT id FROM tasks WHERE parent_id IS NULL ORDER BY rowid DESC LIMIT 1",
+                            [],
+                            |r| r.get(0),
+                        )
+                        .unwrap_or_default();
+                    ev["arguments"] =
+                        serde_json::from_str(&ev["arguments"].to_string().replace("@TREE@", &tree))
+                            .unwrap();
+                }
                 let said = sup
                     .inner()
                     .front_call(&self.grant_task, &name, &ev["arguments"])

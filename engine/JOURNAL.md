@@ -14655,3 +14655,17 @@ result the chat doesn't show), the model rewrote the whole task form, and the ac
 **Evidence.** ferb-supervisor tests/front_door.rs: the recorded one_step_task with an empty plan is accepted at once
 and starts the same task rows; shown failing with the drop removed. **Open.** The full task form in chat.dispatch_task
 is what makes each try slow: step 7 moves the plan to the task architect.
+
+## 2026-11-27 · 268 · One message can stop several tasks
+
+**Why (ORCH-742).** Live: "ykwhat, stop all tasks" with two tasks running (request 6168034a): the front door called
+chat.control_task for each; the second was refused ("One control per message"), carried over from the planner's form,
+which holds one control (the old planner could stop only one task per message too).
+
+**What.** front_call accepts a further stop when every control of the message is a stop; front_decide stops each
+such task when the run ends, as the app's Stop does. Test support: a script's "@TREE@" in a front call's arguments
+is the newest task tree.
+
+**Evidence.** tests/front_door.rs: on stop_by_chat a second stop is checked as a stop (an unknown task refused by
+name) and a pause after it is refused as a second control; shown failing with the old rule. Not tested: two tasks
+running at once (no recording has them); stop_tree is the app's Stop path.

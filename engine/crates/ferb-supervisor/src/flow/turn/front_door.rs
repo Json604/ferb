@@ -49,6 +49,9 @@ pub struct FrontRun {
     pub parts: Vec<(String, SupervisorOutcome)>,
     /// Where the checks' live line goes (`problems`' walk of a plan's folders).
     pub emit: Emit,
+    /// ORCH-742: the tasks a message stops beyond its first control (every control of it a stop), stopped as the
+    /// app's Stop does when the run ends.
+    pub stops: Vec<String>,
 }
 
 /// The answer form's fields each front tool takes as its arguments (`ack` is the form's `text` for a hand-off, and
@@ -334,14 +337,24 @@ impl Inner {
         }
         // the same control or card answer sent again (a whole call resent after part of it was refused, ORCH-739) is
         // the one already taken, not a second one
-        if part.control.is_some()
-            && accepted
+        // decision: ORCH-742 — several stops in one message ("stop all tasks") each stop their task; any other
+        // control stays one per message
+        let mut extra_stop = None;
+        if let Some(c) = &part.control {
+            let earlier: Vec<&ferb_orchestrator::models::TaskControl> = accepted
                 .iter()
-                .any(|(_, p)| p.control.is_some() && p.control != part.control)
-        {
-            return Err(
-                "One control per message: a task was already controlled for this message.".into(),
-            );
+                .filter_map(|(_, p)| p.control.as_ref())
+                .collect();
+            if earlier.iter().any(|e| *e != c) {
+                if c.action == "stop" && earlier.iter().all(|e| e.action == "stop") {
+                    extra_stop = Some(c.task_id.clone());
+                } else {
+                    return Err(
+                        "One control per message, except stops: a task was already controlled for this message."
+                            .into(),
+                    );
+                }
+            }
         }
         if part.answer_question.is_some()
             && accepted.iter().any(|(_, p)| {
@@ -411,6 +424,10 @@ impl Inner {
         let Some(front) = t.front.as_mut() else {
             return Err("No chat message is being answered for this call.".into());
         };
+        if let Some(task_id) = extra_stop {
+            part.control = None;
+            front.stops.push(task_id);
+        }
         front.parts.push((tool.to_string(), part));
         answer
     }
@@ -531,6 +548,7 @@ impl Inner {
             .collect();
         turn.lock().unwrap().front = Some(FrontRun {
             parts: Vec::new(),
+            stops: Vec::new(),
             emit: emit.clone(),
         });
         let (token, looker) = self.lookup_grant(turn, &span, &offered, true);
@@ -644,12 +662,12 @@ impl Inner {
         };
         clocked.mark("model_call");
         // the run is over: a call still on its way finds no run open
-        let parts = turn
+        let (parts, stops) = turn
             .lock()
             .unwrap()
             .front
             .take()
-            .map(|f| f.parts)
+            .map(|f| (f.parts, f.stops))
             .unwrap_or_default();
         let streamed = streamed.lock().unwrap().clone();
         let timing = |clocked: &ferb_core::timing::Steps| -> Value {
@@ -751,6 +769,15 @@ impl Inner {
             }
         }
         let error = failure.map(|f| format!("{}: {}", f.class(), f.message()));
+        // decision: ORCH-742 — the message's further stops, each as the app's Stop (its end is told in its own task's
+        // answer); the first control goes through `route` as any control does
+        for task_id in &stops {
+            if self.restart_pending(task_id) {
+                self.call_off_restart(task_id, Some(&rid));
+            } else {
+                self.stop_tree(task_id);
+            }
+        }
         let decided = joined(&parts, &text);
         let mut output = Map::new();
         output.insert("text".into(), json!(final_));

@@ -2759,3 +2759,12 @@ status = "active"
 rule = "For ORCH-736. front_call drops a dispatched task's plan when it has no steps, no input paths and no standing sends (it carries nothing), so the task starts as a simple one instead of being refused for \"A plan needs at least one step\". A plan with any of those is checked as today."
 why = "Live 2026-11-27: Codex sent a simple research task with an empty plan; each try was refused and rewritten, and the owner waited 58 s before the task started."
 paths = ["engine/crates/ferb-supervisor/src/flow/turn/front_door.rs"]
+
+[ORCH-742]
+title = "One front-door message can stop several tasks"
+by = "agent"
+date = 2026-11-27
+status = "active"
+rule = "For ORCH-736. A chat.control_task stop after an accepted control in the same message is accepted when every control of the message is a stop: it is checked as any stop, and when the run ends its task is stopped as the app's Stop does (stop_tree; a pending restart is called off). The first control goes through route as before. Any other second control stays refused."
+why = "Live 2026-11-27: \"stop all tasks\" with two tasks running; the model called a stop for each and the second was refused as a second control, so one task kept running."
+paths = ["engine/crates/ferb-supervisor/src/flow/turn/front_door.rs"]
