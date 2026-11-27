@@ -203,10 +203,14 @@ daemon change, recorded in kb/. `swift test` in `apps/mac/FERBNotch` after
 - **What the owner runs:** the release FERB.app in /Applications; its background service is registered by the app
   (SMAppService, DMN-2), data in `~/.ferb`. Never install, restart or stop the owner's daemon,
   browsers or FERB.app without the owner's authorization, and never write to `~/.ferb` from a test.
-- **Release build:** `source scripts/swiftpm-anonymous.sh; SIGN_IDENTITY=release scripts/build-app-rust.sh --arch arm64
-  build/app-arm64` (it needs Command Line Tools / Xcode that can read the current macOS SDK). To install, with the
-  owner's go: quit FERB.app, move the old app to the Trash, `ditto build/app-arm64/FERB.app /Applications/FERB.app`,
-  open it; its launch updates the service. Disk images: `SIGN_IDENTITY=release scripts/build-dmg.sh`.
+- **Release build:** FERB.app is signed with the owner's Developer ID (`devid`, scripts/signing.sh). For his Mac:
+  `source scripts/swiftpm-anonymous.sh; SIGN_IDENTITY=devid FERB_NOTARIZE=0 scripts/build-app-rust.sh --arch arm64
+  build/app-arm64` (it needs Command Line Tools / Xcode that can read the current macOS SDK). Never install a
+  `release`- or ad-hoc-signed build over his: macOS ties the background service to his team and refuses to start the
+  daemon from another signer (launchd "spawn failed", exit 78; 2026-11-27). To install, with the owner's go: quit
+  FERB.app (`osascript -e 'tell application id "com.ferb.FERB" to quit'`), move the old app to the Trash,
+  `ditto build/app-arm64/FERB.app /Applications/FERB.app`, open it; its launch updates the service. Published
+  builds and disk images: `SIGN_IDENTITY=devid` with notarization (`scripts/build-dmg.sh`).
 - **A checkout's daemon:** the Rust `ferb setup --update` installs a development LaunchAgent; it refuses while
   FERB.app's service is registered.
 - **Signing:** the "FERB Release Signing" certificate (SHA-1 in `scripts/release-cert.sha1`) and the Sparkle update
