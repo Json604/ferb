@@ -324,6 +324,7 @@ fn every_planner_call() {
                 questions: Some(questions),
                 repair: repair.as_ref().map(|r| (repair_md.as_str(), r.as_slice())),
                 last_call: None,
+                handoff: None,
                 open: open.as_ref(),
                 entries: &entry_ids,
                 payload: &s(&sup["payload"]),
