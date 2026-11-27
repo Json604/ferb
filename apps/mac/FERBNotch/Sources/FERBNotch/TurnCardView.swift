@@ -99,6 +99,8 @@ struct MergedLabel: View {
                  : "Read together with your message " + (leadIsAbove ? "above" : "below"))
                 .font(.system(size: 10)).foregroundStyle(Palette.secondary)
         }
+        // under the owner's bubble at every chat height: the row takes the whole width, so the label sits right
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
 
