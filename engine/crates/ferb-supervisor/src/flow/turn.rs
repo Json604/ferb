@@ -1020,6 +1020,13 @@ impl Inner {
         let rid = turn.lock().unwrap().request_id.clone();
         if self.deps.daemon.front_door() {
             match self.front_decide(turn, emit, cancel).await {
+                // decision: ORCH-743 — a hand-off carries only its ack and goal; the planner writes its task, with its
+                // answer form and rules, while the owner already reads the ack
+                Ok(out) if out.kind == "task" && out.task.is_none() => {
+                    let planned = self.planner_decide(turn, None, cancel).await;
+                    turn.lock().unwrap().handoff = None;
+                    return Ok(super::turn::front_door::with_task(out, planned?));
+                }
                 // decision: ORCH-740 — a front-door run that failed in its runtime with nothing accepted (a runtime
                 // that refuses the front tools, a provider error) falls back to the planner for this turn, journaled
                 Err(Failure::Worker(e)) => {
@@ -1032,9 +1039,21 @@ impl Inner {
                 other => return other,
             }
         }
+        self.planner_decide(turn, Some(emit), cancel).await
+    }
+
+    /// The planner's turn: its answer form, then code's checks and at most one repair (`emit`: the owner's live
+    /// stream; None when it writes the front door's hand-off, which the owner already read).
+    async fn planner_decide(
+        &self,
+        turn: &Arc<Mutex<Turn>>,
+        emit: Option<&Emit>,
+        cancel: &Cancel,
+    ) -> Flow<SupervisorOutcome> {
+        let rid = turn.lock().unwrap().request_id.clone();
         // ORCH-703: every problem found so far goes with a repair, so a second repair can't bring back the first one
         let mut seen: Vec<String> = Vec::new();
-        let mut out = match self.supervise(turn, None, Some(emit), "", cancel).await {
+        let mut out = match self.supervise(turn, None, emit, "", cancel).await {
             Ok(out) => out,
             Err(Repairable::Not(f)) => return Err(f),
             Err(Repairable::Problems(problems, _)) => {
@@ -1044,13 +1063,13 @@ impl Inner {
                     None,
                 );
                 seen.extend(problems.iter().cloned());
-                self.supervise(turn, Some(&problems), Some(emit), "", cancel)
+                self.supervise(turn, Some(&problems), emit, "", cancel)
                     .await
                     .map_err(Repairable::after_repair)?
             }
         };
         self.join_question(turn, &out);
-        let mut problems = self.problems(turn, &mut out, Some(emit))?;
+        let mut problems = self.problems(turn, &mut out, emit)?;
         problems.extend(self.side_quote_problems(turn, &out).await?);
         if problems.is_empty() {
             return Ok(out);
@@ -1060,7 +1079,7 @@ impl Inner {
             json!({"request_id": rid, "problems": problems}),
             None,
         );
-        if out.kind == "task" {
+        if let (true, Some(emit)) = (out.kind == "task", emit) {
             let _ = emit.send(
                 json!({"type": "plan_abort", "reason": "The provisional plan needs correction."}),
             );
@@ -1074,11 +1093,11 @@ impl Inner {
                 .collect::<Vec<_>>(),
         );
         let mut out = self
-            .supervise(turn, Some(&all), Some(emit), "", cancel)
+            .supervise(turn, Some(&all), emit, "", cancel)
             .await
             .map_err(Repairable::after_repair)?;
         self.join_question(turn, &out);
-        let remaining = self.problems(turn, &mut out, Some(emit))?;
+        let remaining = self.problems(turn, &mut out, emit)?;
         if !remaining.is_empty() {
             self.journal(
                 "chat.failed",
@@ -2119,6 +2138,7 @@ impl Inner {
             questions,
             repair: repair.map(|r| (repair_prompt.as_str(), r)),
             last_call: (!last_call.is_empty()).then_some((last_call, found.as_slice())),
+            handoff: t.handoff.as_deref(),
             open: open.as_ref(),
             entries: &entry_ids,
             payload: &t.payload,

@@ -461,6 +461,10 @@ pub const NEW_MESSAGES: &str =
 together; the last one is the most recent):\n";
 pub const NEW_MESSAGE: &str = "Layer 5 — owner's complete new message:\n";
 pub const PLAN_REPAIR: &str = "Layer 6 — plan repair:\n";
+/// ORCH-743: the planner's note when the front door handed the message off: it writes that task.
+pub const HANDOFF: &str = "Layer 6 — the front door's hand-off:\nThe front door handed this message off as a task, \
+and the owner has already read its first line. Answer with kind \"task\": the whole task for this goal, quoting the \
+owner's own words. The front door's goal: ";
 pub const SNAPSHOT: &str =
     "; original planner snapshot: task.evidence kind=context.source query=planner-context";
 pub const LOOKUP_REFERENCE: &str =

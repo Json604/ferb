@@ -528,6 +528,8 @@ pub struct PlannerTurn<'a> {
     pub repair: Option<(&'a str, &'a [String])>,
     /// ORCH-557/558: (why, what the lookups found: each (origins, text)).
     pub last_call: Option<(&'a str, &'a [Found])>,
+    /// ORCH-743: the front door's hand-off goal: the planner writes that task.
+    pub handoff: Option<&'a str>,
     pub open: Option<&'a OpenAsk>,
     /// The turn's chat.message ids, the lead's first.
     pub entries: &'a [String],
@@ -628,6 +630,12 @@ pub fn planner_sourced(t: PlannerTurn<'_>) -> (Vec<Sourced>, usize, usize) {
                 "plan validation",
             ),
             set(&[origin::FERB]),
+        ));
+    }
+    if let Some(goal) = t.handoff {
+        state.push(sourced(
+            protected(format!("{HANDOFF}{goal}"), "the front door's hand-off"),
+            set(&[origin::FERB, origin::INFERRED]),
         ));
     }
     if let Some((why, found)) = t.last_call {

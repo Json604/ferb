@@ -841,6 +841,8 @@ pub struct Turn {
     /// ORCH-735, ORCH-736: the front door's run of this turn while it runs (the parts its accepted calls made, in call
     /// order); None for the planner's turn and once the run ended.
     pub front: Option<turn::front_door::FrontRun>,
+    /// ORCH-743: the front door's hand-off goal while the planner writes its task (its tail says so); None otherwise.
+    pub handoff: Option<String>,
 }
 
 impl Turn {

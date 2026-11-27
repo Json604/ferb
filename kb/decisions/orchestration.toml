@@ -2755,7 +2755,8 @@ paths = ["engine/crates/ferb-supervisor/src/flow/turn.rs"]
 title = "A front-door hand-off whose plan has no steps, inputs or standing sends is a task with no plan"
 by = "agent"
 date = 2026-11-27
-status = "active"
+status = "superseded"
+superseded_by = "ORCH-743"
 rule = "For ORCH-736. front_call drops a dispatched task's plan when it has no steps, no input paths and no standing sends (it carries nothing), so the task starts as a simple one instead of being refused for \"A plan needs at least one step\". A plan with any of those is checked as today."
 why = "Live 2026-11-27: Codex sent a simple research task with an empty plan; each try was refused and rewritten, and the owner waited 58 s before the task started."
 paths = ["engine/crates/ferb-supervisor/src/flow/turn/front_door.rs"]
@@ -2768,3 +2769,13 @@ status = "active"
 rule = "For ORCH-736. A chat.control_task stop after an accepted control in the same message is accepted when every control of the message is a stop: it is checked as any stop, and when the run ends its task is stopped as the app's Stop does (stop_tree; a pending restart is called off). The first control goes through route as before. Any other second control stays refused."
 why = "Live 2026-11-27: \"stop all tasks\" with two tasks running; the model called a stop for each and the second was refused as a second control, so one task kept running."
 paths = ["engine/crates/ferb-supervisor/src/flow/turn/front_door.rs"]
+
+[ORCH-743]
+title = "A front-door hand-off carries its ack and goal; the planner writes the task"
+by = "agent"
+date = 2026-11-27
+status = "active"
+rule = "Supersedes ORCH-741; step 7 in part. chat.dispatch_task takes ack, goal and answers_question. Its ack shows once accepted and the run ends; then the planner, with its answer form, rules and repair, writes the task, its input saying the front door handed the message off with this goal. The front door's other effects stand and the planner's side entries are dropped; if the planner asks or replies instead, its words stand. A plain reply is one call; a hand-off two."
+why = "Live 2026-11-27: with the whole task form as tool arguments, which no runtime enforces and no prompt explained, Codex guessed fields wrong and was refused up to five times: hand-offs took 36-58 s, the planner's 8-18 s."
+supersedes = ["ORCH-741"]
+paths = ["engine/crates/ferb-supervisor/src/flow/turn/front_door.rs", "engine/crates/ferb-supervisor/src/flow/turn.rs", "engine/crates/ferb-supervisor/src/planner.rs"]

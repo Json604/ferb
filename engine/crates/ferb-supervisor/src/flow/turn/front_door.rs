@@ -49,6 +49,8 @@ pub struct FrontRun {
     pub parts: Vec<(String, SupervisorOutcome)>,
     /// Where the checks' live line goes (`problems`' walk of a plan's folders).
     pub emit: Emit,
+    /// ORCH-743: the accepted hand-off's goal, which the planner then writes as its task.
+    pub handoff: Option<String>,
     /// ORCH-742: the tasks a message stops beyond its first control (every control of it a stop), stopped as the
     /// app's Stop does when the run ends.
     pub stops: Vec<String>,
@@ -58,7 +60,7 @@ pub struct FrontRun {
 /// `question` its `text` for a question).
 pub fn arguments_of(tool: &str) -> Option<&'static [&'static str]> {
     Some(match tool {
-        DISPATCH => &["ack", "task", "answers_question"],
+        DISPATCH => &["ack", "goal", "answers_question"],
         CONTROL => &[
             "control",
             "answer_question",
@@ -114,7 +116,12 @@ pub fn part_of(tool: &str, arguments: &Value) -> Result<SupervisorOutcome, Strin
     };
     let mut form = Map::new();
     let (kind, text) = match tool {
-        DISPATCH => ("task", said("ack")?),
+        // ORCH-743: the form's own check wants a task for kind "task"; the hand-off has none yet (the planner writes
+        // it), so its part is checked as a reply and marked a hand-off after
+        DISPATCH => {
+            said("goal")?;
+            ("reply", said("ack")?)
+        }
         ASK => ("clarify", said("question")?),
         _ => ("reply", String::new()),
     };
@@ -122,23 +129,17 @@ pub fn part_of(tool: &str, arguments: &Value) -> Result<SupervisorOutcome, Strin
     form.insert("text".into(), json!(text));
     form.insert("answers_question".into(), json!(false));
     for (k, v) in &given {
-        if k != "ack" && k != "question" {
+        if k != "ack" && k != "question" && k != "goal" {
             form.insert(k.clone(), v.clone());
         }
     }
     let mut part = supervisor_outcome_validate_json(&Value::Object(form).to_string())
         .map_err(|e| format!("{tool}: {e}"))?;
-    // decision: ORCH-741 — a plan with no steps, inputs or standing sends carries nothing: it is no plan, so a simple
-    // task isn't refused for "a plan needs at least one step"
-    if let Some(task) = part.task.as_mut() {
-        if task.plan.as_ref().is_some_and(|p| {
-            p.steps.is_empty() && p.input_paths.is_empty() && p.standing_sends.is_empty()
-        }) {
-            task.plan = None;
-        }
+    if tool == DISPATCH {
+        part.kind = "task".into();
     }
     let carries = match tool {
-        DISPATCH => part.task.is_some(),
+        DISPATCH => true,
         ASK => true,
         CONTROL => {
             part.control.is_some()
@@ -428,6 +429,9 @@ impl Inner {
             part.control = None;
             front.stops.push(task_id);
         }
+        if tool == DISPATCH {
+            front.handoff = arguments["goal"].as_str().map(str::to_string);
+        }
         front.parts.push((tool.to_string(), part));
         answer
     }
@@ -549,6 +553,7 @@ impl Inner {
         turn.lock().unwrap().front = Some(FrontRun {
             parts: Vec::new(),
             stops: Vec::new(),
+            handoff: None,
             emit: emit.clone(),
         });
         let (token, looker) = self.lookup_grant(turn, &span, &offered, true);
@@ -662,13 +667,15 @@ impl Inner {
         };
         clocked.mark("model_call");
         // the run is over: a call still on its way finds no run open
-        let (parts, stops) = turn
+        let (parts, stops, handoff) = turn
             .lock()
             .unwrap()
             .front
             .take()
-            .map(|f| (f.parts, f.stops))
+            .map(|f| (f.parts, f.stops, f.handoff))
             .unwrap_or_default();
+        // ORCH-743: the planner writes the hand-off's task (decide), its tail naming this goal
+        turn.lock().unwrap().handoff = handoff;
         let streamed = streamed.lock().unwrap().clone();
         let timing = |clocked: &ferb_core::timing::Steps| -> Value {
             let mut t = clocked.facts();
@@ -815,5 +822,26 @@ impl Inner {
             return Err(Failure::PlanRejected(problems));
         }
         Ok(out)
+    }
+}
+
+/// ORCH-743: the front door's answer with the task the planner wrote for its hand-off. The front door's own effects
+/// (side entries, a control, a card answer) and its ack stand; the planner's side entries are dropped (they were the
+/// front door's to make). When the planner asks or replies instead of writing a task, its words stand.
+pub fn with_task(front: SupervisorOutcome, planned: SupervisorOutcome) -> SupervisorOutcome {
+    if planned.kind == "task" && planned.task.is_some() {
+        return SupervisorOutcome {
+            kind: "task".into(),
+            task: planned.task,
+            ..front
+        };
+    }
+    SupervisorOutcome {
+        kind: planned.kind,
+        text: planned.text,
+        task: planned.task,
+        control: front.control.or(planned.control),
+        answer_question: front.answer_question.or(planned.answer_question),
+        ..front
     }
 }

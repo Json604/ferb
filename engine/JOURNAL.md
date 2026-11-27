@@ -14669,3 +14669,22 @@ is the newest task tree.
 **Evidence.** tests/front_door.rs: on stop_by_chat a second stop is checked as a stop (an unknown task refused by
 name) and a pause after it is refused as a second control; shown failing with the old rule. Not tested: two tasks
 running at once (no recording has them); stop_tree is the app's Stop path.
+
+## 2026-11-27 · 269 · A hand-off carries its ack and goal; the planner writes the task
+
+**Why (ORCH-743, supersedes ORCH-741).** Live, the first task hand-offs through the front door took 58 s and 36 s
+(the planner's took 8-18 s): chat.dispatch_task carried the whole task form as tool arguments, which no runtime
+enforces (the planner's answer form is enforced by the provider) and concierge.md doesn't explain; Codex guessed
+(conditions as strings, the plan as a list, a step kind "research") and each refusal cost a rewrite of the form, about
+7 s each (request 38a14573: five tries).
+
+**What.** chat.dispatch_task takes ack, goal, answers_question. An accepted hand-off shows its ack and ends the
+run (ORCH-733); decide then runs the planner (`planner_decide`, today's answer form, rules and one repair, no live
+stream) with a Layer 6 note naming the hand-off and its goal (words::HANDOFF), and `with_task` joins its task to the
+front door's answer: the front door's side entries, control and ack stand; the planner's side entries are dropped; a
+planner that asks or replies instead is heard. ORCH-741's empty-plan rule goes (no plan in the hand-off).
+
+**Evidence.** ferb-supervisor tests/front_door.rs (14): the recorded hand-offs run as the front door's call then the
+recorded planner call; the same task rows as the planner's path; the trace shows the front door's line then the
+planner's. **Open.** ferbd: the tool's schema and description in the catalog, the replay's converter (journal 270).
+The hand-off's description changes ("goal" in place of "task"): model-facing text, told to the owner.

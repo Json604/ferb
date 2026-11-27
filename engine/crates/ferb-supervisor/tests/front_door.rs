@@ -70,9 +70,10 @@ fn convert(answer: &Value) -> (Vec<(String, Value)>, String) {
     let text = answer["text"].as_str().unwrap_or_default().to_string();
     match answer["kind"].as_str() {
         Some("task") => {
+            // ORCH-743: the hand-off carries its ack and goal; the planner writes the task (its recorded call)
             calls.push((
                 "chat.dispatch_task".into(),
-                json!({"ack": text, "task": answer["task"], "answers_question": aq}),
+                json!({"ack": text, "goal": answer["task"]["goal"], "answers_question": aq}),
             ));
             (calls, String::new())
         }
@@ -112,23 +113,63 @@ fn recorded_answer(call: &Value) -> Value {
 /// The recorded scenario through the old planner (`front` false) or through the front door, each planner call's
 /// recorded answer converted to its calls (or replaced by `scripts`, one per planner call, when given).
 fn run(name: &str, front: bool, scripts: Option<Vec<Value>>) -> (World, Report) {
-    let mut w = world_with(name, |calls| {
+    let handing: std::sync::Arc<std::sync::Mutex<Vec<bool>>> = Default::default();
+    let flags = handing.clone();
+    let mut w = world_with(name, move |calls| {
         if !front {
             return;
         }
         let mut given = scripts.clone().map(|s| s.into_iter());
-        for c in calls.iter_mut().filter(|c| c["key"] == "supervisor") {
-            c["events"] = match given.as_mut() {
+        let mut out = Vec::new();
+        for c in calls.drain(..) {
+            if c["key"] != "supervisor" {
+                out.push(c);
+                continue;
+            }
+            let answer = recorded_answer(&c);
+            let mut front = c.clone();
+            front["events"] = match given.as_mut() {
                 Some(g) => g.next().expect("a script for each planner call"),
                 None => {
-                    let (calls, text) = convert(&recorded_answer(c));
+                    let (calls, text) = convert(&answer);
                     script(&calls, &text)
                 }
             };
+            let hands_off = front["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["name"] == "chat.dispatch_task");
+            out.push(front);
+            flags.lock().unwrap().push(hands_off);
+            // ORCH-743: an accepted hand-off's task is written by the planner: the recorded call answers it
+            if hands_off {
+                out.push(c);
+            }
         }
+        *calls = out;
     });
     w.daemon.bounded.store(true, Ordering::SeqCst);
     w.daemon.front.store(front, Ordering::SeqCst);
+    if front {
+        // ORCH-743: a hand-off's turn makes two planner calls (the front door's, then the planner writing its task):
+        // each reads the turn's recorded live facts
+        let handing = handing.lock().unwrap().clone();
+        let mut q = w.daemon.supervise.lock().unwrap();
+        // the recorded queue has one entry per recorded planner call; a hand-off's gets a copy for its second call
+        let mut at = 0;
+        for hands_off in handing {
+            if at >= q.len() {
+                break;
+            }
+            if hands_off {
+                let rec = q[at].clone();
+                q.insert(at + 1, rec);
+                at += 1;
+            }
+            at += 1;
+        }
+    }
     let report = run_with(&mut w, name, |_| {});
     (w, report)
 }
@@ -287,7 +328,7 @@ fn a_lookup_shows_the_turns_live_line_while_it_runs() {
     assert!(at("progress") < at("reply_delta"));
 }
 
-// decision: ORCH-735, ORCH-736
+// decision: ORCH-735, ORCH-736, ORCH-743
 #[test]
 fn a_hand_off_starts_the_task_as_the_planners_answer_did() {
     let (old, _) = run("one_step_task", false, None);
@@ -326,8 +367,7 @@ fn a_refused_hand_off_is_repaired_in_the_run_and_the_owner_never_sees_the_refusa
     let (calls, _) = convert(&recorded_answer(&recorded));
     let good = calls[0].1.clone();
     let mut bad = good.clone();
-    bad["task"]["parts"] = json!([{"id": "p1", "quote": "buy me a boat", "label": "Boat",
-                                   "answer_step": "worker"}]);
+    bad["goal"] = json!(" ");
     let events = script(
         &[
             ("chat.dispatch_task".into(), bad),
@@ -341,7 +381,7 @@ fn a_refused_hand_off_is_repaired_in_the_run_and_the_owner_never_sees_the_refusa
     assert_eq!(got.len(), 2, "{got:?}");
     let refusal = got[0].1.clone().unwrap_err();
     assert!(
-        refusal.contains("its quote must be the owner's own words"),
+        refusal.contains("goal must be a non-empty string"),
         "{refusal}"
     );
     assert!(got[1].1.is_ok(), "{got:?}");
@@ -350,10 +390,7 @@ fn a_refused_hand_off_is_repaired_in_the_run_and_the_owner_never_sees_the_refusa
         effects(&w)["tasks"],
         "the task started"
     );
-    // the refusal is journaled for the trace, never shown
-    let repairs = journal(&w, "task.repair");
-    assert_eq!(repairs.len(), 1);
-    assert_eq!(repairs[0]["tool"], "chat.dispatch_task");
+    // the refusal is the call's own record (its tool.call span), never shown
     let frames = frames(&report);
     let shown = serde_json::to_string(&frames).unwrap();
     assert!(
@@ -527,7 +564,10 @@ fn a_hand_off_reads_in_the_trace_as_the_task_it_started() {
     let (a, b) = (planner_lines(&old), planner_lines(&w));
     assert!(!b.is_empty(), "an episode with its Planner line");
     assert!(b.iter().all(|l| l.starts_with("task — ")), "{b:?}");
-    assert_eq!(a, b, "the same line as the planner's");
+    // ORCH-743: the front door's call (its ack), then the planner's call that wrote the task, as the planner's line
+    assert_eq!(b.len(), a.len() + 1, "{b:?}");
+    assert_eq!(b[0], "task — On it.", "{b:?}");
+    assert_eq!(b[1..], a[..], "the planner's line for the task it wrote");
     // the span keeps the run's own answer and its calls beside what it decided
     let out = rows(
         &w,
@@ -729,38 +769,6 @@ fn a_front_door_run_that_fails_in_its_runtime_falls_back_to_the_planner() {
         effects(&w),
         effects(&old),
         "the planner's turn ran as without the front door"
-    );
-}
-
-// decision: ORCH-741 (live 2026-11-27: the model sent a simple task with a plan of no steps, and was refused for
-// "A plan needs at least one step" on each try)
-#[test]
-fn a_hand_off_with_an_empty_plan_starts_as_a_simple_task() {
-    let recorded = support_control::scenario("one_step_task").1["model_calls"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|c| c["key"] == "supervisor")
-        .cloned()
-        .unwrap();
-    let (calls, _) = convert(&recorded_answer(&recorded));
-    let mut args = calls[0].1.clone();
-    assert!(
-        args["task"]["plan"].is_null(),
-        "the recorded task has no plan"
-    );
-    args["task"]["plan"] = json!({"steps": [], "input_paths": [], "big_job": false,
-                                  "time_estimate": "", "cost_estimate": "", "standing_sends": []});
-    let events = script(&[("chat.dispatch_task".into(), args)], "");
-    let (old, _) = run("one_step_task", false, None);
-    let (w, _) = run("one_step_task", true, Some(vec![events]));
-    let got = results(&w);
-    assert_eq!(got.len(), 1, "{got:?}");
-    assert!(got[0].1.is_ok(), "accepted at once: {got:?}");
-    assert_eq!(
-        effects(&old)["tasks"],
-        effects(&w)["tasks"],
-        "the task started as without a plan"
     );
 }
 
