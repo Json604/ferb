@@ -129,6 +129,32 @@ pub struct Client {
     receive_closed: std::sync::atomic::AtomicBool,
 }
 
+/// T-1349: a client dropped without a disconnect (a start the worker's watchdog dropped part way, while
+/// `initialize` waited) still ends its program: the reader holds the program's stdout and stdin, so nothing else
+/// would.
+impl Drop for Client {
+    fn drop(&mut self) {
+        if *self.disconnected.get_mut() {
+            return;
+        }
+        *self.shared.closed.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        for h in self
+            .handlers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+        {
+            h.abort();
+        }
+        if let Some(r) = self.reader.get_mut().ok().and_then(Option::take) {
+            r.abort();
+        }
+        if self.control.returncode().is_none() {
+            self.control.kill();
+        }
+    }
+}
+
 impl Client {
     /// ClaudeSDKClient.connect: the `-v` probe, the program, the reader, the `initialize` request. A failure after
     /// the program started disconnects it first.

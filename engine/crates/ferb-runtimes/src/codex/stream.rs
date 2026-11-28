@@ -668,6 +668,9 @@ async fn start_stream(
         context_role: Mutex::new(String::new()),
         turn_end: tokio::sync::Notify::new(),
     });
+    // T-1349: a start dropped part way (the worker's watchdog gave up before it returned) still ends its program:
+    // the reader and stderr tasks hold the run, so its `Drop` alone would never come
+    let mut abandoned = Abandoned(Some(run.clone()));
     let body = async {
         let mut token_file = None;
         if rt.mode == Mode::Worker || !run_token.is_empty() {
@@ -818,11 +821,36 @@ async fn start_stream(
             None => inner.await,
         }
     };
-    match body.await {
+    let result = body.await;
+    abandoned.0 = None;
+    match result {
         Ok(()) => Ok((run, steps.steps.clone())),
         Err(e) => {
             run.cancel().await;
             Err(e)
+        }
+    }
+}
+
+/// T-1349: the run of a start that never finished, ended when the start's future is dropped: the reader and stderr
+/// tasks stopped (they hold the run) and the program killed; the run's own `Drop` then removes its folder.
+struct Abandoned(Option<Arc<CodexRun>>);
+
+impl Drop for Abandoned {
+    fn drop(&mut self) {
+        let Some(run) = self.0.take() else { return };
+        {
+            let mut st = run.lock();
+            st.closed = true;
+            st.cancelled = true;
+        }
+        for task in [&run.reader, &run.watcher] {
+            if let Some(t) = task.lock().ok().and_then(|mut t| t.take()) {
+                t.abort();
+            }
+        }
+        if let Some(p) = run.proc() {
+            p.kill();
         }
     }
 }

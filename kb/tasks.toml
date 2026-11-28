@@ -857,11 +857,3 @@ kind = "build"
 status = "open"
 why = "Owner 2026-11-27: \"when ferb has its own profile then things htat need a signin or account creation then ferb can do it in that after asking\". To discuss with him first: what code enforces vs the worker's instructions. After the front door. Today: APP-1."
 decisions = ["APP-1"]
-
-[T-1349]
-title = "A Codex app-server is left running when the worker's watchdog drops its start part way"
-area = "runtimes"
-kind = "bug"
-status = "open"
-why = "Found by journal 271's agent (read in the code, not reproduced live): its reader and stderr tasks hold the run, so the run's Drop never ends the program. Today's start and a kept one alike."
-decisions = ["RUN-472"]

@@ -469,6 +469,22 @@ pub fn write_token_file(temp_root: &Path, run_token: &str) -> std::io::Result<Pa
     Ok(path)
 }
 
+/// T-1349: what a start that never finished registered, undone when its future is dropped.
+struct Abandoned {
+    proxy: Option<Arc<dyn ToolProxy>>,
+    run_id: String,
+    token: Option<PathBuf>,
+}
+
+impl Drop for Abandoned {
+    fn drop(&mut self) {
+        if let Some(proxy) = self.proxy.take() {
+            proxy.forget(&self.run_id);
+            remove_token(self.token.as_ref());
+        }
+    }
+}
+
 fn remove_token(path: Option<&PathBuf>) {
     if let Some(p) = path.and_then(|p| p.parent()) {
         let _ = fs::remove_dir_all(p);
@@ -661,6 +677,13 @@ pub async fn start(
     } else {
         None
     };
+    // T-1349: a start dropped part way leaves no run token or relay registration behind (its program goes with the
+    // dropped `Client`)
+    let mut abandoned = Abandoned {
+        proxy: Some(rt.proxy.clone()),
+        run_id: run_id.clone(),
+        token: token_file.clone(),
+    };
     let typed = match &rt.shape {
         Some(_) if rt.stated_only || rt.refusals.refused(&rt.format_key) => "stated",
         Some(_) => "strict",
@@ -703,7 +726,9 @@ pub async fn start(
             None => inner.await,
         }
     };
-    if let Err(e) = body.await {
+    let result = body.await;
+    abandoned.proxy = None;
+    if let Err(e) = result {
         if let Some(c) = &client {
             c.disconnect().await;
         }

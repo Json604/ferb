@@ -15934,3 +15934,29 @@ owner-facing text (the stats and trace lines are the developer's).
 Codex workers keep Codex's own default (`NO_AUTO_COMPACT` is set only for supervisor runs, codex/mod.rs:369) and Claude
 Code its own; setting it changes FERB.app's runs today, so it waits for the coordinator. The plan's numbers cross for a
 smaller window: 60% (the net) is below 70% (the fresh run), so on such a model the net would fire first.
+
+## 2026-11-28 · 292 · A start dropped part way ends its model program (T-1349)
+
+**Why.** Found by journal 271's agent in the code: when the worker's silence watchdog gives up before a run's start
+returned (ferb-worker worker.rs, the `select!` over `rt.start` drops the start: Python's `start.cancel()`), nothing
+ended what the start had begun. Codex: the reader and stderr tasks hold the `CodexRun`, so its `Drop` never came and
+the app-server ran on with its folder. Claude Code (found here, the same shape): the reader holds the program's stdout
+and a stdin clone, so the program waited on; its run token folder and relay registration stayed too.
+
+**What.** ferb-runtimes `codex/stream.rs`: `start_stream` holds an `Abandoned` guard over the run, disarmed once the
+start's body returns (its error path still cancels as before); dropped armed, it marks the run closed, aborts the
+reader and stderr tasks and kills the app-server, after which the run's own `Drop` removes its folder.
+`claude/transport.rs`: `Client` gains a `Drop` that, for a client never disconnected, aborts its handlers and reader
+and kills the program. `claude/mod.rs` `start`: an `Abandoned` guard forgets the run in the relay and removes the run
+token's folder when the start is dropped. No path that finishes changes: each guard is disarmed or sees `disconnect`.
+
+**Evidence.** ferb-runtimes tests/start_dropped.rs (new, 2): a scripted Codex app-server and Claude Code that never
+answer `initialize`, the start dropped after 300 ms: the program is killed (-9), the temporary folder is empty, the
+relay forgot the run once. Both fail with the guards disabled (the program still running). `cargo test -p
+ferb-runtimes` all pass; clippy `-D warnings --tests` and fmt clean.
+
+**Also (T-1329, not fixed).** follow_up_grid's ignored `a_correction_while_a_pause_settles_resumes_the_task` ran 5
+times by hand here (20 runs of the race): every run resumed. The task stays open; the race showed on 2026-11-25 under
+the full suite's load, not alone.
+
+**Unverified.** No live run: a real watchdog stall at start on the owner's Mac.
