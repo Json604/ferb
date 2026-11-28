@@ -468,6 +468,8 @@ pub struct TestDaemon {
     /// always on (`identity_pending`), the memory a worker is pushed (`memory_push`), and each episode captured.
     pub profile: Mutex<String>,
     pub newly_on: Mutex<String>,
+    /// ORCH-758: a test's standing rules for a worker's and a checker's instructions (None: the profile, as Python's).
+    pub rules: Mutex<Option<String>>,
     pub memory: Mutex<Vec<ContextBlock>>,
     pub episodes: Mutex<Vec<String>>,
     /// ORCH-699: a test's owner state (schedules, reminders and timers: added to the live facts read with
@@ -1001,6 +1003,13 @@ impl Daemon for TestDaemon {
                     profile
                 }
             },
+            standing_rules: self.rules.lock().unwrap().clone().map(|r| {
+                if fresh {
+                    String::new()
+                } else {
+                    r
+                }
+            }),
             skills_line: ferb_supervisor::prompts::catalog_line(&catalog(&i["skills_catalog"])),
             abilities_line: ferb_supervisor::prompts::catalog_line(&catalog(
                 &i["abilities_catalog"],
@@ -2206,6 +2215,7 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         looks: AtomicUsize::new(0),
         profile: Mutex::default(),
         newly_on: Mutex::default(),
+        rules: Mutex::default(),
         memory: Mutex::default(),
         episodes: Mutex::default(),
         owner_state: Mutex::default(),

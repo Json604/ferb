@@ -26,6 +26,9 @@ pub struct Host {
     /// ORCH-757: a check's live facts, read with its instructions and held until its context is handed over, where
     /// they go last (by the check's task id).
     pub live_held: std::sync::Mutex<std::collections::HashMap<String, String>>,
+    /// ORCH-758: the runs whose instructions hold the owner's standing rules in place of the card (by task id): their
+    /// context gets no "newly always on" block (the rules already hold every line, newly joined or not).
+    pub rules_held: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
 impl Host {
@@ -237,27 +240,45 @@ impl WorkerHost for Host {
     fn system(&self, task: &Task, prompt: &str, roles: &[String]) -> String {
         let roles: Vec<&str> = roles.iter().map(String::as_str).collect();
         let sup = self.sup();
-        if task.role == ferb_core::types::TaskRole::Verifier
+        let inputs = sup
+            .deps
+            .daemon
+            .system_inputs(true, sup.fresh_for(&task.request_id).is_some());
+        // decision: ORCH-758 — a worker's and a checker's instructions hold his standing rules, not the card
+        if inputs.standing_rules.is_some() && crate::prompts::WORKER_PROMPTS.contains(&prompt) {
+            self.rules_held
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(task.id.clone());
+        }
+        let live = if task.role == ferb_core::types::TaskRole::Verifier
             && sup.deps.daemon.lean_check()
             && sup.deps.daemon.check_middle_path()
         {
             // decision: ORCH-757 — the owner's check reads the facts that change by the minute at the end of its
             // context, so its instructions stay the same from one check to the next; a replay keeps Python's
-            let inputs = sup
-                .deps
-                .daemon
-                .system_inputs(true, sup.fresh_for(&task.request_id).is_some());
             self.live_held
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(task.id.clone(), inputs.live_facts.clone());
-            return crate::prompts::system(&sup.deps.prompts, Some(prompt), false, &roles, &inputs)
-                .unwrap_or_else(|e| panic!("the prompt package: {e}"));
-        }
-        sup.system_for_request(prompt, true, &roles, &task.request_id)
+            false
+        } else {
+            true
+        };
+        crate::prompts::system(&sup.deps.prompts, Some(prompt), live, &roles, &inputs)
+            .unwrap_or_else(|e| panic!("the prompt package: {e}"))
     }
     fn with_newly_always_on(&self, task: &Task, ctx: Vec<ContextBlock>) -> Vec<ContextBlock> {
-        let mut ctx = self.sup().context_final(&task.request_id, ctx);
+        let rules = self
+            .rules_held
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&task.id);
+        let mut ctx = if rules {
+            self.sup().context_final_with(&task.request_id, ctx, "")
+        } else {
+            self.sup().context_final(&task.request_id, ctx)
+        };
         let held = self
             .live_held
             .lock()
@@ -354,13 +375,28 @@ impl Inner {
     /// and the temporary chat's fact with the owner's `extra_context` first; any other turn: what just became always
     /// on (MEM-429), as before.
     pub fn context_final(&self, request_id: &str, ctx: Vec<ContextBlock>) -> Vec<ContextBlock> {
+        if self.fresh_for(request_id).is_some() {
+            return self.context_final_with(request_id, ctx, "");
+        }
+        let pending = self.deps.daemon.identity_pending();
+        self.context_final_with(request_id, ctx, &pending)
+    }
+
+    /// [`Self::context_final`] with the newly always-on block given (ORCH-758: none for a run whose instructions hold
+    /// the standing rules).
+    pub fn context_final_with(
+        &self,
+        request_id: &str,
+        ctx: Vec<ContextBlock>,
+        pending: &str,
+    ) -> Vec<ContextBlock> {
         match self.fresh_for(request_id) {
             Some(fresh) => {
                 let mut out = vec![self.fresh_block(&fresh)];
                 out.extend(ctx);
                 out
             }
-            None => crate::planner::with_newly_always_on(ctx, &self.deps.daemon.identity_pending()),
+            None => crate::planner::with_newly_always_on(ctx, pending),
         }
     }
 

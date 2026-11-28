@@ -76,7 +76,16 @@ fn text_of(v: &Value, key: &str) -> String {
 /// `{text, reference, origin, source_refs}` (`ranked_memory_blocks`' input).
 pub fn learning_candidates(st: &State, words: &str, limits: Limits, focus: &str) -> Vec<Value> {
     let (vector, embed) = query_vector(st, words);
-    let always: Vec<String> = st.profile.ids().unwrap_or_default().into_iter().collect();
+    // decision: ORCH-758 — a worker's instructions hold only the owner's standing rules, so the rest of the card is
+    // searched for its task like any memory (a Python recording's replay, card off, leaves the whole profile out)
+    let always: Vec<String> = if limits == ferb_memory::search::WORKER && st.profile.card.get() {
+        st.profile.rule_ids()
+    } else {
+        st.profile.ids()
+    }
+    .unwrap_or_default()
+    .into_iter()
+    .collect();
     let pool = limits.memory_items * 3;
     let conn = st.db().conn();
     let clock = Now(st);

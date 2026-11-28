@@ -40,6 +40,14 @@ async fn the_prompts_memory_is_pythons() {
         }
     }
     d.sql(statements).await;
+    // the recording's workers read the whole profile, so their search left all of it out: the card off (ORCH-758's
+    // named difference; the card's own test is below)
+    d.on(|st| {
+        Box::pin(async move {
+            st.profile.card.set(false);
+        })
+    })
+    .await;
     let cases = f["cases"].as_array().unwrap().clone();
     let mut diffs = Vec::new();
     for case in &cases {
@@ -168,4 +176,93 @@ async fn a_model_set_later_ranks_the_prompts_memory_by_meaning() {
     assert!(after.contains(&"id-000001".to_string()), "{after:?}");
     assert!(!after.contains(&"id-000002".to_string()), "{after:?}");
     assert!(pushed > 0);
+}
+
+// decision: ORCH-758
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workers_search_leaves_out_only_the_rules_its_instructions_hold() {
+    let tmp = tempfile::tempdir().unwrap();
+    let now = ferb_clock::py::parse("2026-01-10T09:00:00+00:00");
+    let d = Daemon::start(tmp.path(), "01", "id", FakeClock::new(now), Seq::new("id")).await;
+    let item = |id: &str, kind: &str, key: &str, content: &str| {
+        (
+            "INSERT INTO memory_items (id, kind, subject, key, content, origin, status, confidence, observed_at, \
+             valid_from, created_at) VALUES (?, ?, 'owner', ?, ?, 'owner_stated', 'active', 1.0, \
+             '2026-01-01T09:00:00+00:00', '2026-01-01T09:00:00+00:00', '2026-01-01T09:00:00+00:00')"
+                .to_string(),
+            vec![
+                Value::from(id),
+                Value::from(kind),
+                Value::from(key),
+                Value::from(content),
+            ],
+        )
+    };
+    let profile = |id: &str, n: i64| {
+        (
+            "INSERT INTO memory_profile (item_id, section, position, added_by, added_at) VALUES (?, 'About you', ?, \
+             'code', '2026-01-01T09:00:00+00:00')"
+                .to_string(),
+            vec![Value::from(id), Value::from(n)],
+        )
+    };
+    d.sql(vec![
+        item(
+            "rule-1",
+            "preference",
+            "garden_rule",
+            "INVENTED never water the garden beans at noon",
+        ),
+        item(
+            "fact-1",
+            "fact",
+            "garden_place",
+            "INVENTED the garden beans grow behind the shed",
+        ),
+        profile("rule-1", 0),
+        profile("fact-1", 1),
+    ])
+    .await;
+    let (worker, attention, rules) = d
+        .on(|st| {
+            Box::pin(async move {
+                let ids = |found: Vec<Value>| -> Vec<String> {
+                    found
+                        .iter()
+                        .map(|c| c["reference"].as_str().unwrap_or("").to_string())
+                        .collect()
+                };
+                (
+                    ids(ferb_daemon::areas_a::candidates::learning_candidates(
+                        &st,
+                        "garden beans",
+                        ferb_memory::search::WORKER,
+                        "",
+                    )),
+                    ids(ferb_daemon::areas_a::candidates::learning_candidates(
+                        &st,
+                        "garden beans",
+                        ferb_memory::search::ATTENTION,
+                        "",
+                    )),
+                    ferb_daemon::areas_a::memory::standing_rules_text(&st).unwrap_or_default(),
+                )
+            })
+        })
+        .await;
+    // the fact is the planner's card line; the worker's task finds it by its search
+    assert!(
+        worker.contains(&"memory.read item_id=fact-1".to_string()),
+        "{worker:?}"
+    );
+    assert!(
+        !worker.contains(&"memory.read item_id=rule-1".to_string()),
+        "{worker:?}"
+    );
+    assert!(
+        rules.contains("INVENTED never water the garden beans at noon"),
+        "{rules}"
+    );
+    // the attention check reads the whole card in its instructions: neither is searched
+    assert!(attention.iter().all(|r| !r.contains("-1")), "{attention:?}");
 }

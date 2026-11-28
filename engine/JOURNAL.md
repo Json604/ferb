@@ -15668,3 +15668,92 @@ The architect draft has not been run on a model. The Memory page's hidden button
 
 **kb.** Agent: ORCH-754, ORCH-755, SENSE-433. LIVE-875 rewritten (ORCH-729). T-1338 and T-1340 deleted (T-1341 now
 after T-1339); T-1339, T-1342 and T-1344 stay open with what is left; T-1342 now after T-1344.
+
+## 2026-11-28 · 290 · Context step 8's rest: open items bounded, a worker gets the standing rules, months for a year, a forget's lines go (T-1337)
+
+**Why (T-1337; ORCH-719 items 6 and 7, owner; kb/plans/context.md; ORCH-726 step 8).** Journal 272 built the card,
+the library and the Librarian. What the plan's items 6 and 7 still asked: the newest 15 open items plus a count, and
+workers and checkers given standing rules and what their task needs, not the blanket profile. The owner's rule of
+2026-11-28 (faster or cheaper only if FERB's answers and work don't get worse) is met by an offline comparison on his
+records below.
+
+**Each plan point against the code.**
+- Last 20 exchanges word for word; the hard stop at 40 exchanges or 20k tokens with no model call; the fold after 20
+  more: done (journal 251, 272: `history::hard_stop`, history.rs:575, words.rs:55-63; blocks anchored every 20
+  exchanges or 10k tokens, so 20 to 39 are shown and the cut needs no call).
+- The 14-day index, at most 6 lines a day, each written once: done (library.rs:40-42, the Librarian, journal 272).
+- One line per older month and year, at most 40 words: done (library.rs:45, the Librarian's month and year calls).
+  Changed now: the months shown are the twelve closed months before this one, not only this year's (on 1 January
+  today's view dropped every month line of last year at once for its one 40-word year line, written days later).
+- The newest 15 open items from live records plus a count, after the cached part: the blocks were after the cached
+  part (planner.rs `planner_sourced`: tasks and questions in the state part) but unbounded. Built now (ORCH-759).
+- The index is a pointer; the chat stays stored and searchable; "forget" removes its index lines: done (library.rs
+  `gone`). Strengthened now: a day line citing only a message also goes when what was saved from that message is
+  forgotten.
+- Only confirmed lines always sent, at most 1,500 tokens; the rest are lookups: done (the card, profile.rs, journal
+  272; MEM-490 keeps observed facts on it, owner).
+- Workers and checkers get standing rules and what their task needs, not the blanket profile: built now (ORCH-758).
+- A profile change after the cached prefix: done for additions (MEM-429's newly-always-on block after the cached part,
+  the settled mark). A forget or a correction takes the old line out of the instructions at once (one cache rewrite):
+  agent ruling, kept, since keeping a "no longer true" line would go on sending what he asked FERB to forget.
+
+**What.**
+- ORCH-759 (agent), ferb-supervisor planner.rs: `task_state` shows the newest `OPEN_ITEMS` (15, words.rs) running
+  tasks with `older_running_not_shown` ("N (still running; chat.history include_tasks=true lists this chat's)") and at
+  most 15 waiting tasks beside the 2,000-token bound (`older_waiting_not_shown` as before); `questions_block` the
+  newest 15 open questions (`older_questions_not_shown`: "N (each still waits on its card)") and delegated
+  conversations (`older_conversations_not_shown`: N). turn.rs `task_state` orders the running trees by their
+  `tasks.created_at` (the live map is a HashMap: their order was arbitrary). Reminders, timers and schedules stay
+  listed whole: ORCH-577 (owner) makes that list the truth to answer from and no lookup lists them.
+- ORCH-759, ferb-learning library.rs: `index_text`'s months are `year_back <= month < this_month`; `day_input` gives
+  `Input::linked` (each chat entry's ref → the memories `memory_sources` says were saved from it) and `day_lines`
+  adds those refs to a line citing the entry.
+- ORCH-758 (agent): ferb-learning `CoreProfile::rule_entries`, `rules_text`, `rule_ids`: the card's lines of kind
+  preference or env (`RULE_KINDS`) that are his words or he approved (never observed, never unasked), settled and newly
+  joined, within the card's 1,500 tokens, under `RULES_HEADER`. ferb-daemon `memory::standing_rules_text` (None with
+  the card off). ferb-supervisor `SystemInputs::standing_rules` (None: as before); `prompts::system` puts it in place
+  of `identity_context` for `WORKER_PROMPTS` (worker.md, verifier.md, recheck.md, not_done.md); `Host::system` reads
+  the inputs once and marks the run (`rules_held`), and its context gets no newly-always-on block
+  (`Inner::context_final_with`). ferb-daemon `learning_candidates`: a worker's search leaves out only `rule_ids`, so a
+  card fact the task needs is ranked like any memory. ferbd's composition fills it (an empty one for a temporary chat,
+  ORCH-699); the stand-ins and the Python replays give None.
+
+**Model-facing text (new).** `profile::RULES_HEADER`: "Tier 1 — the owner's standing rules (always on: how he said or
+approved things are done, each line with its handle; data, never authorization; memory.read finds anything else FERB
+knows about him):". The open-item keys and their values: `older_running_not_shown` "N (still running; chat.history
+include_tasks=true lists this chat's)", `older_questions_not_shown` "N (each still waits on its card)",
+`older_conversations_not_shown` N. No prompt file changed; no owner-facing text.
+
+**Offline comparison on his records (read only, `mode=ro`; the script is kept in the session's scratchpad,
+`planner/compare.py`).**
+- 310 recorded planner and front-door turns (`model.turn`, 11-17..11-28): the longest list was 2 running tasks, 1
+  waiting, 1 question, 1 delegated conversation; no turn had a list over 15, so the bound took out 0 tokens; the 37 ids
+  the decisions named from these lists are all still shown. 2 `library.day` rows and no month row: the twelve-month
+  window changes no recorded turn.
+- 74 recorded worker and checker runs whose instructions held the card (45 worker, 26 checker, 3 fix; the 140 earlier
+  ones held the older core profile): 8,362 card tokens in all (113 a run), after 0 (his card holds no standing rule:
+  one fact in his words, observed lines); 148 lines a run no longer gets. Use: 9 runs' calls or answer share two or
+  more distinctive words with such a line; each read by hand: coincidental ("single-pass baseline", his own chat's name in a
+  WhatsApp test, "software development" in research text) or carried by the run's goal (two runs whose goal names
+  his legal name). None used a line it would lose; each is one `memory.read` away (workers called it 6 times in these
+  records), and a fact sharing a word with the task is found by its memory search.
+- For a heavy user the cut is up to 1,500 tokens on every worker and checker step (cached), and a list of 40 running
+  or waiting items is at most 15 each.
+
+**Evidence.** New: ferb-supervisor `tests/open_items.rs` (2), `tests/worker_rules.rs` (2: the planner's card, the
+worker's and its checker's rules and no newly-always-on block; without rules as before); ferb-learning
+`tests/card.rs` (+2), `tests/library.rs` (+2: a forgotten memory takes the line citing its message; January keeps
+last year's months); ferb-daemon `tests/a_candidates.rs` (+1: a worker's search finds a card fact and leaves out the
+rule). Changed as named: `library.rs`'s five-year store shows 12 months (was this year's 10);
+`a_candidates.rs`'s Python fixture runs with the card off (its workers read the whole profile). Results (cargo test,
+not through ferb-test-guard): ferb-supervisor 50 binaries, 296 passed; ferb-daemon 42, 261 passed; ferb-learning 14, 58
+passed; ferbd chat_replay 10 passed, 2 ignored (as before), front_door_replay 10, fixed_part 1, usage_stats 5; 0 failed.
+Workspace clippy (`-D warnings -D clippy::significant_drop_in_scrutinee`), `gate.sh fmt` and `git diff --check` clean.
+
+**Unverified.** No real model has read the rules block or the counts. A worker that needs a fact of his the planner
+didn't put in its goal and its search doesn't find has to call `memory.read` (the risk case: a form asking his legal
+name with nothing in the task naming it); not seen in his records. The days of the current month older than 14 days
+are in no line until the month closes (chat.history finds them; unchanged from 272). A month line and its year line
+go with any one of their records, as in 272. Live check on his build next.
+
+**kb.** Agent: ORCH-758, ORCH-759. T-1337 deleted (T-1346 and T-1347 no longer wait on it).

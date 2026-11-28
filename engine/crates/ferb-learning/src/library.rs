@@ -274,6 +274,9 @@ pub struct Input {
     pub origins: BTreeSet<String>,
     /// A month's or a year's: the refs of the lines it was written from.
     pub refs: Vec<String>,
+    /// A day's: each chat entry's ref ("journal:<id>") → the memories saved from it ("memory:<id>"), which a line
+    /// citing the entry keeps too, so forgetting what was saved takes the line out (ORCH-759).
+    pub linked: BTreeMap<String, Vec<String>>,
 }
 
 fn in_day(at: &str, day: &str, day_of: &DayOf<'_>) -> bool {
@@ -456,10 +459,23 @@ pub fn day_input(
     }
     let skip = chat.len().saturating_sub(DAY_ENTRIES);
     let mut lines = Vec::new();
+    let mut linked: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (i, (id, line)) in chat.iter().enumerate().skip(skip) {
         let tag = format!("e{}", i + 1);
         tags.insert(tag.clone(), format!("journal:{id}"));
         lines.push(format!("[{tag}] {line}"));
+        // decision: ORCH-759 — what was saved from this entry: a line citing the entry goes when that is forgotten
+        let saved: Vec<String> = rows(
+            conn,
+            "SELECT DISTINCT item_id FROM memory_sources WHERE kind = 'journal' AND source_id = ? ORDER BY item_id",
+            &[SqlV::Text(id.clone())],
+        )?
+        .iter()
+        .map(|r| format!("memory:{}", sv(&r[0])))
+        .collect();
+        if !saved.is_empty() {
+            linked.insert(format!("journal:{id}"), saved);
+        }
     }
     let mut text = format!(
         "Day: {} (the owner's local time)\n\nWhat FERB recorded that day (code's list):\n",
@@ -482,6 +498,7 @@ pub fn day_input(
         tags,
         origins,
         refs: Vec::new(),
+        linked,
     }))
 }
 
@@ -525,6 +542,7 @@ pub fn month_input(conn: &Connection, month: &str) -> Result<Option<Input>> {
         tags: BTreeMap::new(),
         origins,
         refs: refs.into_iter().collect(),
+        linked: BTreeMap::new(),
     }))
 }
 
@@ -560,6 +578,7 @@ pub fn year_input(conn: &Connection, year: &str) -> Result<Option<Input>> {
         tags: BTreeMap::new(),
         origins,
         refs: refs.into_iter().collect(),
+        linked: BTreeMap::new(),
     }))
 }
 
@@ -603,8 +622,10 @@ pub fn day_lines(answer: &Value, input: &Input) -> Vec<Value> {
                 .unwrap_or("")
                 .trim_matches(|c| c == '[' || c == ']');
             if let Some(r) = input.tags.get(tag) {
-                if !refs.contains(r) {
-                    refs.push(r.clone());
+                for r in std::iter::once(r).chain(input.linked.get(r).into_iter().flatten()) {
+                    if !refs.contains(r) {
+                        refs.push(r.clone());
+                    }
                 }
             }
         }
@@ -676,8 +697,8 @@ fn gone(conn: &Connection, refs: &BTreeSet<String>) -> Result<BTreeSet<String>> 
 }
 
 /// The index and the contents as one block's text, and the origins of what it shows; "" when there is nothing.
-/// `today` is the local day now: the days shown are the [`INDEX_DAYS`] before it; the months each closed month of
-/// this year; the years each closed year. The same bytes all day unless the Librarian writes or a record goes.
+/// `today` is the local day now: the days shown are the [`INDEX_DAYS`] before it; the months the twelve closed months
+/// before this one; the years each closed year. The same bytes all day unless the Librarian writes or a record goes.
 pub fn index_text(
     conn: &Connection,
     today: &str,
@@ -696,11 +717,18 @@ pub fn index_text(
             day >= first.as_str() && day < today
         })
         .collect();
+    // decision: ORCH-759 — the twelve closed months before this one, so a new year doesn't fold last year's months
+    // into its one line at once
+    let year_back = format!(
+        "{:04}{}",
+        this_year.parse::<i64>().unwrap_or(0) - 1,
+        this_month.get(4..).unwrap_or("")
+    );
     let shown_months: Vec<&(Value, String)> = months
         .iter()
         .filter(|(d, _)| {
             let m = s(d, "month");
-            m.starts_with(&format!("{this_year}-")) && m < this_month.as_str()
+            m >= year_back.as_str() && m < this_month.as_str()
         })
         .collect();
     let shown_years: Vec<&(Value, String)> = years

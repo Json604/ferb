@@ -279,6 +279,19 @@ impl Reads for RealReads {
                     })
                     .unwrap_or_default()
             },
+            // decision: ORCH-758 — a worker's and a checker's part of it: the owner's standing rules (none for a
+            // temporary chat)
+            standing_rules: if fresh {
+                Some(String::new())
+            } else {
+                self.seams.a.get().and_then(|a| {
+                    a.call_blocking(|st| async move {
+                        ferb_daemon::areas_a::memory::standing_rules_text(&st)
+                    })
+                    .ok()
+                    .flatten()
+                })
+            },
             skills_line: ferb_supervisor::prompts::catalog_line(&skills),
             abilities_line: ferb_supervisor::prompts::catalog_line(&abilities),
         }

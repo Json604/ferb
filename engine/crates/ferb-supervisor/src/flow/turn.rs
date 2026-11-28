@@ -2379,6 +2379,44 @@ impl Inner {
             }
             seen
         };
+        // decision: ORCH-759 — oldest first by when each started (the live map keeps no order), so the newest are the
+        // ones kept
+        let trees = {
+            let ids: Vec<rusqlite::types::Value> = trees
+                .iter()
+                .map(|t| rusqlite::types::Value::Text(t.id.clone()))
+                .collect();
+            let started: HashMap<String, String> = if ids.is_empty() {
+                HashMap::new()
+            } else {
+                let db = self.db();
+                ferb_orchestrator::sql::rows(
+                    db.conn(),
+                    &format!(
+                        "SELECT id, created_at FROM tasks WHERE id IN ({})",
+                        vec!["?"; ids.len()].join(",")
+                    ),
+                    &ids,
+                )
+                .unwrap_or_default()
+                .iter()
+                .map(|r| {
+                    (
+                        ferb_orchestrator::sql::col(r, "id"),
+                        ferb_orchestrator::sql::col(r, "created_at"),
+                    )
+                })
+                .collect()
+            };
+            let mut trees = trees;
+            trees.sort_by_key(|t| {
+                (
+                    started.get(&t.id).cloned().unwrap_or_default(),
+                    t.id.clone(),
+                )
+            });
+            trees
+        };
         let open_cards = self.deps.daemon.approvals();
         let zone = self.deps.clock.zone();
         let mut views = Vec::new();

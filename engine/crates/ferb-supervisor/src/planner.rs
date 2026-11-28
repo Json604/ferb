@@ -119,6 +119,11 @@ pub fn questions_block(
     ferb_checks: &[&str],
     wrap: &dyn Fn(&str) -> String,
 ) -> Sourced {
+    // decision: ORCH-759 — the newest OPEN_ITEMS questions and conversations, with a count of the rest
+    let older_questions = pending.len().saturating_sub(OPEN_ITEMS);
+    let pending = &pending[older_questions..];
+    let older_conversations = conversations.len().saturating_sub(OPEN_ITEMS);
+    let conversations = &conversations[older_conversations..];
     let mut questions: Vec<Value> = Vec::new();
     for a in pending
         .iter()
@@ -166,10 +171,22 @@ pub fn questions_block(
     }
     let mut facts = Map::new();
     facts.insert("questions".into(), Value::Array(questions));
+    if older_questions > 0 {
+        facts.insert(
+            "older_questions_not_shown".into(),
+            Value::String(format!("{older_questions} (each still waits on its card)")),
+        );
+    }
     facts.insert(
         "delegated_conversations".into(),
         Value::Array(conversations.to_vec()),
     );
+    if older_conversations > 0 {
+        facts.insert(
+            "older_conversations_not_shown".into(),
+            Value::from(older_conversations),
+        );
+    }
     sourced(
         protected(
             QUESTIONS_HEADER.to_string() + &wrap(&ferb_py::json::dumps(&Value::Object(facts))),
@@ -899,7 +916,8 @@ fn first_line(text: &str) -> String {
 }
 
 /// supervisor.py:2099 `_task_state`: every running task of any chat or schedule, then this chat's ended tasks
-/// waiting on the owner (the newest that fit WAITING_TOKENS); None when there are neither.
+/// waiting on the owner (the newest that fit WAITING_TOKENS); None when there are neither. ORCH-759: of each list the
+/// newest [`OPEN_ITEMS`] (`trees` oldest first, `waiting_tasks` newest first) and a count of the rest.
 pub fn task_state(
     trees: &[TreeView],
     waiting_tasks: &[WaitingTask],
@@ -910,7 +928,9 @@ pub fn task_state(
     let mut refs = Vec::new();
     let mut running = Vec::new();
     let stuck = ["blocked", "needs_user", "failed"];
-    for t in trees {
+    // decision: ORCH-759 — the newest OPEN_ITEMS running tasks (`trees` oldest first), with a count of the rest
+    let older_running = trees.len().saturating_sub(OPEN_ITEMS);
+    for t in &trees[older_running..] {
         let last_status = t
             .last_report
             .as_ref()
@@ -1039,7 +1059,7 @@ pub fn task_state(
         }
         let row = Value::Object(row);
         let cost = tokens.count(&ferb_py::json::dumps(&row));
-        if !waiting.is_empty() && used + cost > WAITING_TOKENS {
+        if waiting.len() == OPEN_ITEMS || (!waiting.is_empty() && used + cost > WAITING_TOKENS) {
             omitted = waiting_tasks.len() - n;
             break;
         }
@@ -1053,6 +1073,14 @@ pub fn task_state(
     }
     let mut facts = Map::new();
     facts.insert("running".into(), Value::Array(running));
+    if older_running > 0 {
+        facts.insert(
+            "older_running_not_shown".into(),
+            Value::String(format!(
+                "{older_running} (still running; chat.history include_tasks=true lists this chat's)"
+            )),
+        );
+    }
     facts.insert(
         "waiting_on_the_owner_in_this_chat".into(),
         Value::Array(waiting),

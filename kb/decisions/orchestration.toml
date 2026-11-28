@@ -2916,3 +2916,21 @@ rule = "For ORCH-719 item 5; replaces ORCH-694's every call in full once on (off
 why = "Offline on the owner's 95 recorded checks (read only): evidence tokens -36%, whole context -31%; 120 of 139 verdict references in full, 19 one read away, none lost. Shared prefix of consecutive checks of a task: 9.6% to 49.2% (17 pairs; journal 251: 4.2%)."
 evidence = "ferb-orchestrator tests/check_evidence.rs (5, invented spans through the real span store); ferb-supervisor tests/lean_check.rs (the check's order, its instructions without the live facts); the measurement harness in journal 288."
 paths = ["engine/crates/ferb-orchestrator/src/check_evidence.rs", "engine/crates/ferb-supervisor/src/flow/attempt.rs", "engine/crates/ferb-supervisor/src/flow/host.rs", "engine/crates/ferb-supervisor/src/worker_context.rs"]
+[ORCH-758]
+title = "A worker and a checker get the owner's standing rules, not the whole card"
+by = "agent"
+date = 2026-11-28
+status = "active"
+rule = "For ORCH-719 item 7 and MEM-490. The planner, the front door, FERB's questions and the attention check keep the card. worker.md, verifier.md, recheck.md and not_done.md get in its place the card's lines of kind preference or env that are his words or he approved (never observed), settled and new alike, within 1,500 tokens, under their own heading; no newly-always-on block. A worker's memory search leaves out only those lines, so a card fact its task needs is found like any memory. None for a temporary chat. A Python replay (card off) keeps the whole profile."
+why = "The planner knows the owner and writes what a task needs into it. Offline on his 74 recorded worker and checker runs that held the card: 8,362 card tokens, 148 lines a run no longer gets, none used by a call or answer (journal 290)."
+evidence = "ferb-learning tests/card.rs; ferb-supervisor tests/worker_rules.rs; ferb-daemon tests/a_candidates.rs (a worker's search finds a card fact, leaves out the rule); the comparison in journal 290."
+paths = ["engine/crates/ferb-learning/src/profile.rs", "engine/crates/ferb-supervisor/src/prompts.rs", "engine/crates/ferb-supervisor/src/flow/host.rs", "engine/crates/ferb-daemon/src/areas_a/candidates.rs", "engine/crates/ferb-daemon/src/areas_a/memory.rs", "engine/crates/ferbd/src/compose/supervisor.rs"]
+[ORCH-759]
+title = "Open items: the newest 15 of each list; months for the last twelve; a forget takes its lines"
+by = "agent"
+date = 2026-11-28
+status = "active"
+rule = "For ORCH-719 item 6. The open items the planner and the front door read after the cached part (running tasks, oldest first by start; this chat's tasks waiting on him; open questions and cards; delegated conversations) each show their newest 15 and a count of the rest. Reminders, timers and schedules stay whole (ORCH-577). The library shows the month lines of the twelve closed months before this one, beside each closed year's line. A day line also keeps as refs the memories saved from each chat entry it cites, so forgetting them takes the line out."
+why = "Each list grew with use; on 1 January this year's months alone dropped last year's month lines at once. Offline on his 310 recorded turns: longest list 2, none over 15, the 37 ids decisions named all still shown (journal 290)."
+evidence = "ferb-supervisor tests/open_items.rs; ferb-learning tests/library.rs (12 months on the five-year store, January, a forgotten memory takes the line citing its message)."
+paths = ["engine/crates/ferb-supervisor/src/planner.rs", "engine/crates/ferb-supervisor/src/flow/turn.rs", "engine/crates/ferb-supervisor/src/words.rs", "engine/crates/ferb-learning/src/library.rs"]

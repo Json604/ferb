@@ -898,6 +898,7 @@ impl Reads for ScriptReads {
             live_facts: s(&i["live_facts"]),
             capabilities: s(&i["capabilities"]),
             identity_context: s(&i["identity_context"]),
+            standing_rules: None,
             skills_line: s(&i["skills_line"]),
             abilities_line: s(&i["abilities_line"]),
         }

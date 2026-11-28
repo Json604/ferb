@@ -783,6 +783,15 @@ pub fn core_profile_text(st: &State) -> String {
     st.profile.prompt_text().unwrap_or_default()
 }
 
+/// What a worker's and a checker's instructions hold of the profile (ORCH-758): the owner's standing rules; None when
+/// the card is off (a Python recording's replay: every role reads the whole profile, as Python's did).
+pub fn standing_rules_text(st: &State) -> Option<String> {
+    st.profile
+        .card
+        .get()
+        .then(|| st.profile.rules_text().unwrap_or_default())
+}
+
 pub fn core_profile_pending(st: &State) -> String {
     st.profile.pending_text().unwrap_or_default()
 }

@@ -963,6 +963,7 @@ impl Daemon for TestDaemon {
             live_facts: s(&i["live_facts"]),
             capabilities: s(&i["capabilities"]),
             identity_context: s(&i["identity_context"]),
+            standing_rules: None,
             skills_line: ferb_supervisor::prompts::catalog_line(&catalog(&i["skills_catalog"])),
             abilities_line: ferb_supervisor::prompts::catalog_line(&catalog(
                 &i["abilities_catalog"],

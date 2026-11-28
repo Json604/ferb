@@ -38,6 +38,11 @@ bug in FERB, not something you asked wrong.";
 pub const HEARTBEAT_POLL_S: f64 = 5.0;
 pub const FRONT_WINDOW_WAIT_S: f64 = 10.0;
 pub const WAITING_TOKENS: usize = 2000;
+/// ORCH-719 item 6 (owner, 2026-11-25): each list of open items from live records the planner and the front door read
+/// (running tasks, tasks waiting on the owner, open questions and cards, delegated conversations) shows its newest
+/// this many, with a count of the rest (ORCH-759).
+// decision: ORCH-719
+pub const OPEN_ITEMS: usize = 15;
 /// The planner's lookups and scopes, one list with the runtime check's; the planner is offered each lookup that is
 /// installed.
 pub use ferb_orchestrator::lookups::{FRONT_SCOPES, FRONT_TOOLS, PLANNER_SCOPES, PLANNER_TOOLS};

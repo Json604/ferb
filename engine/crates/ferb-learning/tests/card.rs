@@ -6,7 +6,9 @@
 
 mod support;
 
-use ferb_learning::profile::{from_handle, handle, CARD_HEADER, CARD_TOKENS, CHARS_PER_TOKEN};
+use ferb_learning::profile::{
+    from_handle, handle, CARD_HEADER, CARD_TOKENS, CHARS_PER_TOKEN, RULES_HEADER,
+};
 use ferb_learning::sql;
 use support::*;
 
@@ -162,4 +164,133 @@ fn the_card_stays_within_its_1500_tokens() {
         text.contains("left out to stay within its budget; memory.read finds them"),
         "{text}"
     );
+}
+
+// decision: ORCH-758
+#[test]
+fn a_worker_gets_his_standing_rules_from_the_card_and_nothing_else() {
+    let env = Env::new("card-rules", None);
+    env.profile.card.set(true);
+    let rule = save(
+        &env,
+        "preference",
+        "browser_rule",
+        "INVENTED-RULE never use the invented work profile",
+        "owner_stated",
+    );
+    let setup = save(
+        &env,
+        "env",
+        "mail_account",
+        "INVENTED-SETUP sends from the invented personal account",
+        "inferred",
+    );
+    let fact = save(
+        &env,
+        "fact",
+        "legal_name",
+        "INVENTED-FACT my name is Sam",
+        "owner_stated",
+    );
+    let person = save(
+        &env,
+        "person",
+        "brother",
+        "INVENTED-PERSON his brother is Alex",
+        "owner_stated",
+    );
+    // FERB's observation of his Mac: on the card (MEM-480), not a rule of his
+    let observed = "0123456789abcdef0123456789obsrvd".to_owned();
+    env.store
+        .exec(
+            "INSERT INTO memory_items (id, kind, subject, key, content, origin, status, confidence, observed_at, \
+             valid_from, created_at) VALUES (?, 'preference', 'owner', 'browser', 'INVENTED-OBSERVED uses an \
+             invented browser', 'observed', 'active', 1.0, '2026-10-20T09:00:00+00:00', \
+             '2026-10-20T09:00:00+00:00', '2026-10-20T09:00:00+00:00')",
+            sql![observed],
+        )
+        .unwrap();
+    // FERB's own understanding without his Yes: not on the card, so not a rule either
+    let unasked = save(
+        &env,
+        "preference",
+        "coffee",
+        "INVENTED-UNASKED prefers coffee",
+        "inferred",
+    );
+    row(&env, &rule, "code", 0);
+    row(&env, &setup, "owner", 1);
+    row(&env, &fact, "code", 2);
+    row(&env, &person, "code", 3);
+    row(&env, &observed, "code", 4);
+    row(&env, &unasked, "code", 5);
+    let rules = env.profile.rules_text().unwrap();
+    assert!(rules.starts_with(RULES_HEADER), "{rules}");
+    assert!(
+        rules.contains(&format!(
+            "- INVENTED-RULE never use the invented work profile (his words) [{}]",
+            handle(&rule)
+        )),
+        "{rules}"
+    );
+    assert!(
+        rules.contains(&format!(
+            "- INVENTED-SETUP sends from the invented personal account (approved) [{}]",
+            handle(&setup)
+        )),
+        "{rules}"
+    );
+    for not in [
+        "INVENTED-FACT",
+        "INVENTED-PERSON",
+        "INVENTED-OBSERVED",
+        "INVENTED-UNASKED",
+    ] {
+        assert!(!rules.contains(not), "{not}: {rules}");
+    }
+    let ids = env.profile.rule_ids().unwrap();
+    assert_eq!(ids, [rule.clone(), setup.clone()].into_iter().collect());
+    // the planner's card still holds his facts
+    let card = env.profile.prompt_text().unwrap();
+    assert!(
+        card.contains("INVENTED-FACT") && card.contains("INVENTED-PERSON"),
+        "{card}"
+    );
+    // a rule joined after the card was settled is in the rules at once (they hold settled and new lines alike)
+    env.profile.settle("test").unwrap();
+    let later = save(
+        &env,
+        "preference",
+        "later_rule",
+        "INVENTED-LATER always ask before booking",
+        "owner_stated",
+    );
+    row(&env, &later, "code", 6);
+    assert!(env
+        .profile
+        .rules_text()
+        .unwrap()
+        .contains("INVENTED-LATER always ask before booking"));
+    assert!(!env
+        .profile
+        .prompt_text()
+        .unwrap()
+        .contains("INVENTED-LATER"));
+}
+
+// decision: ORCH-758
+#[test]
+fn no_rules_no_block() {
+    let env = Env::new("card-no-rules", None);
+    env.profile.card.set(true);
+    let fact = save(
+        &env,
+        "fact",
+        "city",
+        "INVENTED-FACT lives in a city",
+        "owner_stated",
+    );
+    row(&env, &fact, "code", 0);
+    assert_eq!(env.profile.rules_text().unwrap(), "");
+    assert!(env.profile.rule_ids().unwrap().is_empty());
 }

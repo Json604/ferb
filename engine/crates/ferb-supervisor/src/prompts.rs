@@ -36,6 +36,10 @@ post); account: the account it posts, sends or pays from, or whose security it c
 and currency: its currency as the page shows it (₹, $, INR); item: what a delete removes. FERB checks these against \
 the owner's words and any standing permission; they never grant permission.";
 
+/// The prompts of the roles that do or check a task (ORCH-758): they get the owner's standing rules, never the whole
+/// card the planner and the front door read.
+pub const WORKER_PROMPTS: [&str; 4] = ["worker.md", "verifier.md", "recheck.md", "not_done.md"];
+
 /// supervisor.py:1226 `_approach`: the one folder the prompts are read from.
 pub const APPROACH: &str = "orchestrator/prompts";
 
@@ -50,6 +54,10 @@ pub struct SystemInputs {
     pub capabilities: String,
     /// `self.identity_context()`: Tier 1, the owner's core profile.
     pub identity_context: String,
+    /// ORCH-758: what a worker's and a checker's instructions ([`WORKER_PROMPTS`]) hold in place of
+    /// `identity_context`: the owner's standing rules. None: the whole profile for every role (a Python recording's
+    /// replay, as Python's did).
+    pub standing_rules: Option<String>,
     /// `json.dumps(self.skills_catalog())`: see [`catalog_line`].
     pub skills_line: String,
     /// `json.dumps(self.abilities_catalog())`.
@@ -102,9 +110,15 @@ pub fn system(
     if !facts.is_empty() {
         text.push_str(&format!("\n\nFacts about this FERB:\n{facts}\n"));
     }
-    if !inputs.identity_context.is_empty() {
+    // decision: ORCH-758 — a worker and a checker get his standing rules and what their task needs (its memory
+    // search), not the whole card
+    let profile = match (&inputs.standing_rules, name) {
+        (Some(rules), Some(n)) if WORKER_PROMPTS.contains(&n) => rules,
+        _ => &inputs.identity_context,
+    };
+    if !profile.is_empty() {
         text.push_str("\n\n");
-        text.push_str(&inputs.identity_context);
+        text.push_str(profile);
     }
     if !name.is_some_and(|n| NO_CATALOG_ROLES.contains(&n)) {
         text.push_str(

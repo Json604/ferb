@@ -1217,6 +1217,7 @@ impl Supervisor {
             policy: inner.deps.policy.clone(),
             activity: inner.activity.clone(),
             live_held: Default::default(),
+            rules_held: Default::default(),
         });
         let config = ferb_worker::WorkerConfig {
             heartbeat_poll_s: inner.deps.heartbeat_poll_s,

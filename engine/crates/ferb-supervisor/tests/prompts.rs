@@ -32,6 +32,7 @@ fn prompt_static_systems_byte_for_byte() {
             live_facts: s(&i["live_facts"]),
             capabilities: s(&i["capabilities"]),
             identity_context: s(&i["identity_context"]),
+            standing_rules: None,
             skills_line: s(&lines["skills_line"]),
             abilities_line: s(&lines["abilities_line"]),
         };
@@ -110,6 +111,7 @@ fn every_recorded_system_text() {
                 live_facts: s(&i["live_facts"]),
                 capabilities: s(&i["capabilities"]),
                 identity_context: s(&i["identity_context"]),
+                standing_rules: None,
                 skills_line: catalog_line(&catalog(&i["skills_catalog"])),
                 abilities_line: catalog_line(&catalog(&i["abilities_catalog"])),
             };
@@ -187,6 +189,7 @@ fn the_deliberate_prompt_changes_are_the_only_ones() {
             live_facts: s(&i["live_facts"]),
             capabilities: s(&i["capabilities"]),
             identity_context: s(&i["identity_context"]),
+            standing_rules: None,
             skills_line: s(&lines["skills_line"]),
             abilities_line: s(&lines["abilities_line"]),
         };

@@ -1,6 +1,6 @@
 //! Front door step 8 (kb/plans/front-door.md "The card and the library"; ORCH-719 item 6, ORCH-727): the library's
 //! index and contents as one block, on an invented five-year store: its size stays bounded at any age (14 days of at
-//! most 6 lines, one line per closed month of this year and per closed year, 8 names a kind), it is the same bytes
+//! most 6 lines, one line per closed month of the last twelve and per closed year, 8 names a kind), it is the same bytes
 //! all day (an item saved today joins tomorrow), and a forget takes out the lines written from what it forgot. The
 //! Librarian's input never shows outside content and never names an imported line. Temporary folders, invented data.
 
@@ -154,7 +154,7 @@ fn the_index_stays_bounded_on_a_five_year_store() {
     let chars = text.chars().count();
     let tokens = chars.div_ceil(4);
     eprintln!("the library block on a five-year store: {chars} characters, about {tokens} tokens");
-    // 14 days of 6 lines, 10 closed months of this year, 5 closed years, five kinds of names
+    // 14 days of 6 lines, 12 closed months, 5 closed years, five kinds of names
     let day_heads = text.lines().filter(|l| l.ends_with(" 2026:")).count();
     assert_eq!(day_heads, 14, "{text}");
     assert_eq!(
@@ -163,9 +163,14 @@ fn the_index_stays_bounded_on_a_five_year_store() {
     );
     let months = text
         .lines()
-        .filter(|l| l.starts_with("- ") && l.contains(" 2026: m0"))
+        .filter(|l| l.starts_with("- ") && l.contains(": m0"))
         .count();
-    assert_eq!(months, 10, "January to October");
+    // ORCH-759: the twelve closed months before this one
+    assert_eq!(months, 12, "November 2025 to October 2026");
+    assert!(
+        text.contains("- Nov 2025: m0") && !text.contains("- Oct 2025: m0"),
+        "{text}"
+    );
     let years = text.lines().filter(|l| l.contains(": y0")).count();
     assert_eq!(years, 5, "2021 to 2025");
     for kind in [
@@ -389,4 +394,100 @@ fn the_librarian_reads_no_outside_content_and_names_no_imported_line() {
     let lines = library::day_lines(&answer, &input);
     assert_eq!(lines.len(), DAY_LINES);
     assert_eq!(lines[0]["refs"], json!(["journal:m1", input.tags["m1"]]));
+}
+
+// decision: ORCH-759
+#[test]
+fn a_line_citing_a_message_goes_when_what_was_saved_from_it_is_forgotten() {
+    let (_tmp, db) = store();
+    let day = library::shift_day(TODAY, -1);
+    journal(
+        &db,
+        "said",
+        &format!("{day}T09:00:00+00:00"),
+        "chat.message",
+        json!({"session_id": "s1", "text": "INVENTED my office moved"}),
+        "owner",
+    );
+    item(
+        &db,
+        "office",
+        "fact",
+        "owner",
+        "office_place",
+        "owner_stated",
+        "2026-10-01T08:00:00+00:00",
+    );
+    db.conn()
+        .execute(
+            "INSERT INTO memory_sources (item_id, kind, source_id) VALUES ('office', 'journal', 'said')",
+            [],
+        )
+        .unwrap();
+    let input = library::day_input(db.conn(), &day, &day_of, &clock_of)
+        .unwrap()
+        .expect("a day with a message");
+    let tag = input
+        .tags
+        .iter()
+        .find(|(_, r)| r.as_str() == "journal:said")
+        .map(|(t, _)| t.clone())
+        .unwrap();
+    // the Librarian cites only the message; the line keeps what was saved from it too
+    let lines = library::day_lines(
+        &json!({"lines": [{"text": "INVENTED-LINE talked about the office", "tags": [tag]}]}),
+        &input,
+    );
+    assert_eq!(lines[0]["refs"], json!(["journal:said", "memory:office"]));
+    journal(
+        &db,
+        "day-row",
+        &format!("{TODAY}T01:00:00+00:00"),
+        DAY_KIND,
+        json!({"day": day, "lines": lines}),
+        "owner",
+    );
+    let (before, _) = library::index_text(db.conn(), TODAY, &day_of).unwrap();
+    assert!(before.contains("INVENTED-LINE"), "{before}");
+    db.conn()
+        .execute("DELETE FROM memory_items WHERE id = 'office'", [])
+        .unwrap();
+    let (after, _) = library::index_text(db.conn(), TODAY, &day_of).unwrap();
+    assert!(!after.contains("INVENTED-LINE"), "{after}");
+}
+
+// decision: ORCH-759
+#[test]
+fn in_january_last_years_months_stay_beside_its_year_line() {
+    let (_tmp, db) = store();
+    for (m, text) in [
+        ("2026-12", "INVENTED-DEC"),
+        ("2026-01", "INVENTED-JAN"),
+        ("2025-12", "INVENTED-OLD"),
+    ] {
+        journal(
+            &db,
+            &format!("month-{m}"),
+            "2027-01-02T01:00:00+00:00",
+            MONTH_KIND,
+            json!({"month": m, "text": text, "refs": []}),
+            "inferred",
+        );
+    }
+    journal(
+        &db,
+        "year-2026",
+        "2027-01-03T01:00:00+00:00",
+        YEAR_KIND,
+        json!({"year": "2026", "text": "INVENTED-YEAR", "refs": []}),
+        "inferred",
+    );
+    let (text, _) = library::index_text(db.conn(), "2027-01-10", &day_of).unwrap();
+    assert!(text.contains("- Dec 2026: INVENTED-DEC"), "{text}");
+    assert!(text.contains("- Jan 2026: INVENTED-JAN"), "{text}");
+    assert!(
+        !text.contains("INVENTED-OLD"),
+        "thirteen months back: {text}"
+    );
+    assert!(text.contains("- 2026: INVENTED-YEAR"), "{text}");
 }
