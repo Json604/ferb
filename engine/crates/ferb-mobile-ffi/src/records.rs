@@ -414,11 +414,26 @@ mirror! {
         #[serde(skip_serializing)]
         #[uniffi(default = [])]
         hidden: Vec<String>,
+        /// What the owner's message quotes, as the engine kept it (APP-1146): drawn above his bubble. Not serialised.
+        #[serde(skip_serializing)]
+        #[uniffi(default = None)]
+        reply_to: Option<ReplyQuote>,
+        /// What a reply to each bubble quotes (APP-1146): the owner's message, FERB's first reply, the answer drawn
+        /// here (none when answered below: the reply item has it). None: that bubble offers no reply. Not serialised.
+        #[serde(skip_serializing)]
+        #[uniffi(default = None)]
+        message_quote: Option<ReplyQuote>,
+        #[serde(skip_serializing)]
+        #[uniffi(default = None)]
+        first_reply_quote: Option<ReplyQuote>,
+        #[serde(skip_serializing)]
+        #[uniffi(default = None)]
+        answer_quote: Option<ReplyQuote>,
     }
 }
 
 mirror! {
-    /// An answer drawn below, quoting the turn it answers.
+    /// An answer drawn below, quoting the turn it answers (`quote`: the answer it shows, for a reply to it).
     ReplyItem from ff::ReplyItem {
         entry: String,
         /// When the entry was made, seconds since 2001-01-01 (Foundation's reference date); not serialised (kb PHN-627).
@@ -434,6 +449,11 @@ mirror! {
         #[serde(skip_serializing)]
         #[uniffi(default = [])]
         hidden: Vec<String>,
+        /// What a reply to it quotes (APP-1146): the engine entry it shows, its kind, whose words, their opening;
+        /// none when it offers no reply. Not serialised.
+        #[serde(skip_serializing)]
+        #[uniffi(default = None)]
+        quote: Option<ReplyQuote>,
     }
 }
 
@@ -455,6 +475,11 @@ mirror! {
         #[serde(skip_serializing)]
         #[uniffi(default = [])]
         hidden: Vec<String>,
+        /// What a reply to it quotes (APP-1146): the engine entry it shows, its kind, whose words, their opening;
+        /// none when it offers no reply. Not serialised.
+        #[serde(skip_serializing)]
+        #[uniffi(default = None)]
+        quote: Option<ReplyQuote>,
     }
 }
 
@@ -635,6 +660,21 @@ mirror! {
         reason: Option<String>,
         tried: bool,
         attachments: Vec<Attachment>,
+        /// The message it quotes (APP-1146), drawn above its bubble.
+        #[uniffi(default = None)]
+        reply_to: Option<ReplyQuote>,
+    }
+}
+
+mirror! {
+    /// A quote of one message of the chat (APP-1146): the engine's entry id of the quoted message, its kind (`message`,
+    /// `plan`, `answer`, `error`, `notice`, `post`), whether the words were the owner's (else FERB's), and their opening
+    /// on one line without Markdown's marks (what the quote line shows; at most 160 characters for one made here).
+    ReplyQuote from ferb_mobile::reply::ReplyQuote {
+        entry_id: String,
+        kind: String,
+        by_owner: bool,
+        excerpt: String,
     }
 }
 

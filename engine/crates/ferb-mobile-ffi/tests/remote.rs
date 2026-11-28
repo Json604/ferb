@@ -174,6 +174,7 @@ fn files_both_ways_through_the_bindings() {
                 upload_id: up.upload_id.clone(),
                 name: "photo.jpg".into(),
             }],
+            None,
         )
         .unwrap();
     assert_eq!(item.attachments[0].upload_id, up.upload_id);

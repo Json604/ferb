@@ -17,9 +17,10 @@ use serde_json::Value;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::entry::ChatEntry;
+use crate::reply::ReplyQuote;
 
 /// The schema's migrations, in order: `MIGRATIONS[n]` takes a file from version n to n + 1.
-pub const MIGRATIONS: [&str; 3] = [
+pub const MIGRATIONS: [&str; 4] = [
     // v1: what was fetched, where to read from, the outbox
     "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
      CREATE TABLE conversations (
@@ -62,6 +63,8 @@ pub const MIGRATIONS: [&str; 3] = [
      ALTER TABLE conversations ADD COLUMN read_mark_sent INTEGER;",
     // v3: a message's attachments (this phone's finished uploads on the Mac, by id and name: JSON)
     "ALTER TABLE outbox ADD COLUMN attachments TEXT;",
+    // v4: the message a message quotes (APP-1146: the engine's `reply_to` {entry_id, kind, who, excerpt}, JSON)
+    "ALTER TABLE outbox ADD COLUMN reply_to TEXT;",
 ];
 
 /// The schema version this build writes.
@@ -135,6 +138,8 @@ pub struct OutboxRow {
     pub entry_id: Option<String>,
     /// Files that ride with the message: this phone's finished uploads on the Mac (PHN-127).
     pub attachments: Vec<Attachment>,
+    /// The message it quotes (APP-1146), as it was shown when the owner replied.
+    pub reply_to: Option<ReplyQuote>,
 }
 
 /// One of this phone's finished uploads on the Mac, sent with a message by its id.
@@ -472,15 +477,28 @@ impl Store {
         created_at: &str,
         attachments: &[Attachment],
     ) -> StoreResult<OutboxRow> {
+        self.outbox_add_reply(id, text, created_at, attachments, None)
+    }
+
+    /// A message with its files and the message it quotes (APP-1146).
+    pub fn outbox_add_reply(
+        &self,
+        id: &str,
+        text: &str,
+        created_at: &str,
+        attachments: &[Attachment],
+        reply_to: Option<&ReplyQuote>,
+    ) -> StoreResult<OutboxRow> {
         let conn = self.conn()?;
         let n: i64 = conn.query_row("SELECT coalesce(max(n), 0) + 1 FROM outbox", [], |r| {
             r.get(0)
         })?;
         let files = (!attachments.is_empty())
             .then(|| serde_json::to_string(attachments).unwrap_or_default());
+        let quoted = reply_to.map(|q| q.wire().to_string());
         conn.execute(
-            "INSERT INTO outbox (id, n, text, created_at, state, attachments) VALUES (?1, ?2, ?3, ?4, 'waiting', ?5)",
-            params![id, n, text, created_at, files],
+            "INSERT INTO outbox (id, n, text, created_at, state, attachments, reply_to) VALUES (?1, ?2, ?3, ?4, 'waiting', ?5, ?6)",
+            params![id, n, text, created_at, files, quoted],
         )?;
         self.outbox_get(id)?
             .ok_or_else(|| StoreError::Sql("the outbox row was not written".into()))
@@ -489,7 +507,7 @@ impl Store {
     pub fn outbox(&self) -> StoreResult<Vec<OutboxRow>> {
         let conn = self.conn()?;
         let mut st = conn.prepare(
-            "SELECT id, n, text, created_at, state, attempts, reason, request_id, entry_id, attachments FROM outbox ORDER BY n",
+            "SELECT id, n, text, created_at, state, attempts, reason, request_id, entry_id, attachments, reply_to FROM outbox ORDER BY n",
         )?;
         let rows = st.query_map([], |r| {
             Ok(OutboxRow {
@@ -506,6 +524,10 @@ impl Store {
                     .get::<_, Option<String>>(9)?
                     .and_then(|t| serde_json::from_str(&t).ok())
                     .unwrap_or_default(),
+                reply_to: r
+                    .get::<_, Option<String>>(10)?
+                    .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+                    .and_then(|v| ReplyQuote::kept(&v)),
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)

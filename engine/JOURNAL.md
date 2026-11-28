@@ -15355,3 +15355,39 @@ repeated looks counted as more than half changed), and 457 of 783 looks were a p
   compaction, before the worker read that event, would still be a diff (not seen in tests, not measured).
 - The phone crates' clippy (gate.sh lint's first three) wasn't run; they don't use `ToolResult`.
 - The `look_view.rs` path in ORCH-753 fails `kb check` until the file is tracked.
+
+## 2026-11-28 · 284 · The phone library quotes a message: reply_to out, the quote on every quotable item (APP-1146, phone half)
+
+**Why (owner, 2026-11-28).** "the swipe to quote feature isnt in my phone": APP-1146/1147 (reply to any message) was
+built only in FERB.app (journal 280's daemon half, commits a9bcdfe6 and 94069030). The phone chat mirrors the Mac's.
+
+**What.**
+- ferb-mobile `reply` (`ReplyQuote`: entry id, kind, who, excerpt). The excerpt is one line, Markdown marks removed
+  (the Mac's `oneLine`), at most 160 characters.
+- `Mobile::send_reply` sends `chat.send` `reply_to` as the entry id; `send_with` sends none.
+- The outbox keeps a queued message's quote across a restart: store schema v4, `outbox.reply_to`. A v3 store upgrades,
+  and its waiting rows keep no quote.
+- The fold gives every item the Mac lets the owner quote its own quote, the same items the Mac offers:
+  - the owner's message;
+  - FERB's first reply, as the Mac's `FirstReplyView` quotes it;
+  - the answer;
+  - a later answer, or an answer placed below;
+  - a notice or reminder.
+- The owner's message shows its `reply_to`. `fold::quoted_item` finds the item showing an entry, for the tap that
+  scrolls to it.
+- Carried (legacy) rows and the temporary chat offer no quote. The engine looks a quoted id up in the stored
+  `chat_entries`, and temporary entries are memory only.
+- FFI: `Mobile.sendWith(text, attachments = [], replyTo: ReplyQuote? = null)`, record `ReplyQuote`, `quotedItem`, and
+  `replyTo` / `messageQuote` / `firstReplyQuote` / `answerQuote` / `quote` on the items. All of them are skipped when
+  null, so the goldens are byte-identical.
+
+**Checked.**
+- ferb-mobile `tests/reply.rs` (7 tests) and ferb-mobile-ffi `tests/reply.rs` (end to end through the FFI). Both
+  crates' suites and goldens pass, with their clippy and fmt.
+- The iOS build and API check pass.
+
+**Unverified.**
+- The apps' swipe and quote views are the next change.
+- Nothing ran against the real engine: the fake Mac imitates its `reply_to`.
+- Excerpts are cut by Unicode character, where Swift's `prefix` counts graphemes.
+- FERB.app offers quotes in the temporary chat, where the engine drops them: a mismatch, left for the owner.

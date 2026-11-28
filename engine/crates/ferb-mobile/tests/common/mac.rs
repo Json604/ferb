@@ -822,12 +822,20 @@ impl Transport for FakeMac {
                     st.next_pos += 1;
                     let request = format!("r-phone-{n}");
                     let entry = format!("pm-{n}");
+                    let mut body = json!({"text": p["text"], "attachments": [], "hidden": []});
+                    // the engine's quote (chat.rs `quoted`): an entry of this conversation, as it was shown; an id it
+                    // can't find is dropped, never refused
+                    if let Some(q) = p["reply_to"].as_str().and_then(|id| st.entries.get(id)) {
+                        let who = if q.kind == "message" { "owner" } else { "ferb" };
+                        body["reply_to"] = json!({"entry_id": q.id, "kind": q.kind, "who": who,
+                                                  "excerpt": q.body.get("text").cloned().unwrap_or_default()});
+                    }
                     let e = ChatEntry::read(&json!({
                         "id": entry, "conversation_id": st.conversation, "pos": pos, "seq": 0, "rev": 1,
                         "kind": "message", "state": "working", "open": true, "request_id": request,
                         "client_id": p["client_id"], "submission_id": sub,
                         "created_at": "2026-01-02T10:00:00+00:00", "updated_at": "2026-01-02T10:00:00+00:00",
-                        "day": "2026-01-02", "body": {"text": p["text"], "attachments": [], "hidden": []},
+                        "day": "2026-01-02", "body": body,
                         "deleted": false}))
                     .unwrap();
                     Some((sub, request, entry, e))

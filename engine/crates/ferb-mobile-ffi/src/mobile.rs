@@ -15,8 +15,8 @@ use crate::records::{
     Attachment, CameraFrame, Cancelled, Conv, ConversationInfo, DeviceReport, Fetched, Folder,
     FoundFiles, GroupStarted, Insomnia, InsomniaEnded, InsomniaStarted, LinkState, LocationFix,
     MacInfo, MacLocked, MemoryReview, OlderState, OutboxItem, PhoneStatus, PreviewFrame,
-    RecentFiles, ScreenUse, ScreenUseEnd, SettingValue, TaskPage, TemporaryChat, TranscriptView,
-    Tree, Uploaded,
+    RecentFiles, ReplyQuote, ScreenUse, ScreenUseEnd, SettingValue, TaskPage, TemporaryChat,
+    TranscriptView, Tree, Uploaded,
 };
 
 fn signer_of(s: Arc<dyn Signer>) -> Arc<dyn ferb_mobile::Signer> {
@@ -785,16 +785,25 @@ impl Mobile {
     }
 
     /// A message with files: this phone's finished uploads on the Mac (`upload`'s ids), kept in the outbox like any
-    /// message. Network when online: not on the UI thread.
+    /// message. `reply_to` (APP-1146): the quote of the bubble the owner replied to (a transcript item's
+    /// `message_quote`, `first_reply_quote`, `answer_quote` or `quote`), sent as `chat.send`'s `reply_to` and kept with
+    /// the outbox item across a restart; one without an entry id is none, one the Mac can't quote is dropped there and
+    /// the message goes without it. Network when online: not on the UI thread.
+    #[uniffi::method(default(attachments = [], reply_to = None))]
     pub fn send_with(
         &self,
         text: String,
         attachments: Vec<Attachment>,
+        reply_to: Option<ReplyQuote>,
     ) -> Result<OutboxItem, FerbError> {
         guard(|| {
             let files: Vec<ferb_mobile::store::Attachment> =
                 attachments.into_iter().map(Into::into).collect();
-            Ok(self.core()?.send_with(&text, &files)?.conv())
+            let quote: Option<ferb_mobile::ReplyQuote> = reply_to.map(Conv::conv);
+            Ok(self
+                .core()?
+                .send_reply(&text, &files, quote.as_ref())?
+                .conv())
         })
     }
 

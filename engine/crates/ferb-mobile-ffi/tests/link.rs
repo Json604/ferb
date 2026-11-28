@@ -457,6 +457,7 @@ fn files_the_preview_the_status_and_the_lock_through_the_real_link() {
             upload_id: up.upload_id.clone(),
             name: "photo.jpg".into(),
         }],
+        None,
     )
     .unwrap();
     assert!(

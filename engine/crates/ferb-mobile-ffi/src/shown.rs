@@ -279,3 +279,22 @@ pub fn question_words(shown: crate::records::QuestionShown) -> crate::records::N
     let core: ferb_mobile::question::QuestionShown = shown.conv();
     ferb_mobile::notify::question(&core).conv()
 }
+
+/// The item that shows the engine entry `entry_id` (FERB.app's `shownTarget(ofEntry:)`, APP-1146): where a tap on a
+/// quote of it goes, as that item's `entry`; none when these items don't hold it (the quoted message is older than the
+/// pages fetched, or gone). Pure: the items the app draws (`TranscriptView.items`).
+#[uniffi::export]
+pub fn quoted_item(items: Vec<crate::records::Item>, entry_id: String) -> Option<String> {
+    use crate::records::{Item, ReplyQuote};
+    let is = |q: &Option<ReplyQuote>| q.as_ref().is_some_and(|q| q.entry_id == entry_id);
+    items.into_iter().find_map(|i| match i {
+        Item::Turn { turn } => {
+            (is(&turn.message_quote) || is(&turn.first_reply_quote) || is(&turn.answer_quote))
+                .then_some(turn.entry)
+        }
+        Item::Reply { reply } => is(&reply.quote).then_some(reply.entry),
+        Item::Notice { notice } | Item::Reminder { notice } => {
+            is(&notice.quote).then_some(notice.entry)
+        }
+    })
+}

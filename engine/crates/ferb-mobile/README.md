@@ -19,6 +19,7 @@ fetched until "Forget this Mac" (PHN-408). FERB.app's own fold is the golden for
 | `door` | `DoorTransport`: the real link through ferb-link's JSON door (`LinkClient::command`/`poll`), without depending on ferb-link. |
 | `api` | `Mobile`, the object the apps use. |
 | `notify` | What a phone notification says, in FERB.app's words: a task's end as the Mac's banner (its short name, the answer as the chat draws it), a question as the Mac's banner (kb PHN-795, PHN-796). |
+| `reply` | Reply to a message (APP-1146, FERB.app's `ReplyQuote.swift`): `ReplyQuote {entry_id, kind, by_owner, excerpt}`. The fold gives each bubble drawn from an engine entry its quote (`TurnItem` `message_quote`, `first_reply_quote`, `answer_quote`; `ReplyItem`/`NoticeItem` `quote`) and the owner's message what it quotes (`TurnItem.reply_to`, from his entry); none for FERB.app's carried rows or in the temporary chat; `fold::quoted_item` finds the item showing an entry. None of it is in the golden's bytes. |
 | `device` | The phone's own record for FERB and the Mac's request for one precise fix (T-1214); recent files and the name search (T-1211). |
 
 ## The API (for S8)
@@ -48,6 +49,7 @@ m.stop_everything()?;                    // stop.engage, works locked
 m.status()?; m.last_status()?;           // chat.status as the gate shapes it; also pushed by the bridge (`status` event)
 m.mark_read_latest(conversation)?;       // the read mark at the newest entry held
 m.send_with(text, &attachments)?;        // a message with this phone's uploads, by id, through the outbox
+m.send_reply(text, &attachments, Some(&quote))?;  // APP-1146: quoting a bubble (an item's quote), as `reply_to`
 m.files(path, signer)?; m.tree(path, signer)?;                     // a key place signs its path (PHN-121)
 m.fetch(id, path, save_to, offset, signer, sink)?; m.upload(id, local, name, resume, group, rel, sink)?;
 m.put_group(name)?; m.cancel_transfer(id)?;                        // a cancel is `Cancelled` to the waiting call
@@ -63,7 +65,7 @@ m.recent_files(limit)?; m.search_files(query, path)?; m.fetch_task_file(id, task
 Files, folders and the preview are refused before anything is asked when the link's path carries no bulk
 (`NeedsBetterPath`, PHN-444). The `Transport` trait has `get`, `put` and `cancel` with defaults that refuse
 (`unsupported`), so a transport that carries calls only still works; `door` routes their `progress`, `accepted` and
-outcome. The store is at schema v3 (an outbox row's `attachments`).
+outcome. The store is at schema v4 (an outbox row's `attachments`, v3; the message it quotes, `reply_to`, v4).
 
 The app's seams (`Env`): `Clock::now_iso`, `Ids::new_id` (a message's submission id: a random UUID), `Spawner::spawn`
 (`ThreadSpawner` spawns a thread), `Listener::changed(Change)` (`Transcript`, `Live`, `Conversations`, `Outbox`,
@@ -165,6 +167,8 @@ otherwise, and the link fails on `___chkstk_darwin`).
 - `incremental.rs`: every scenario reached entry by entry (shuffled, in pages newest first, with duplicates, older
   revisions late, tombstones last; a seeded generator) equals the whole list's fold; a late tombstone; a cut entry.
 - `live.rs`: every recorded timeline's live frames through the reducer; EntryWatchTests' phone turn; reset.
+- `reply.rs`: each bubble's quote and the owner's kept one, a reply sent as `reply_to`, a queued reply across a
+  reopen, the v3 store upgraded, none in the temporary chat (APP-1146).
 - `sync.rs`, `outbox.rs`: the core against a fake Mac built from the fixtures (`tests/common/mac.rs`).
 - `store.rs`: encryption, the wrong key, the v1 upgrade, a newer schema refused, forget.
 - `door.rs`: the JSON door adapter.

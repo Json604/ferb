@@ -18,6 +18,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::entry::ChatEntry;
+use crate::reply::ReplyQuote;
 use crate::time;
 use model::*;
 use text::*;
@@ -61,6 +62,12 @@ pub struct Turn {
     pub sealed: Option<Vec<Sealed>>,
     /// When its plan was stored (seconds since 2001): where the work row's time counts from (kb PHN-720..).
     pub plan_at: Option<f64>,
+    /// The engine's entry of its plan (FERB's first reply) and of the answer it shows (FERB.app's `planEntryID`,
+    /// `answerEntryID`): what a reply to them quotes (APP-1146).
+    pub plan_entry: Option<String>,
+    pub answer_entry: Option<String>,
+    /// What the owner's message quotes, as the engine kept it (`reply_to` on its entry).
+    pub reply_to: Option<ReplyQuote>,
 }
 
 impl Turn {
@@ -321,6 +328,7 @@ fn message_turn(e: &ChatEntry, created_at: f64) -> Turn {
         t.hidden_kinds = Some(h);
     }
     t.sealed = Sealed::list(body);
+    t.reply_to = body.get("reply_to").and_then(ReplyQuote::read);
     match e.state.as_str() {
         "merged" => {
             t.status = "merged".into();
@@ -529,6 +537,10 @@ fn saved_turn(m: &Map<String, Value>) -> Got<Turn> {
         },
         sealed: lossy_list(m, "sealed", Sealed::saved)?,
         plan_at: None,
+        // FERB.app's own saved form: no engine entry, nothing the engine can quote
+        plan_entry: None,
+        answer_entry: None,
+        reply_to: None,
     })
 }
 
@@ -636,6 +648,7 @@ pub fn archive(newest: &[&ChatEntry]) -> Archive {
             "plan" => {
                 if let Some(&i) = e.request_id.as_ref().and_then(|r| by_request.get(r)) {
                     show_plan(&e.body, &mut a.turns[i]);
+                    a.turns[i].plan_entry = Some(e.id.clone());
                     if a.turns[i].plan_at.is_none() {
                         a.turns[i].plan_at = Some(time::date(&e.created_at));
                     }
@@ -711,6 +724,7 @@ pub fn archive(newest: &[&ChatEntry]) -> Archive {
     }
     for (i, e) in shown {
         show_answer(&e.body, &mut a.turns[i]);
+        a.turns[i].answer_entry = Some(e.id.clone());
     }
     a
 }
@@ -831,6 +845,20 @@ pub struct TurnItem {
     /// The boxes (timers, reminders, schedules) a later item draws (`shown::boxes`, APP-769).
     #[serde(skip_serializing)]
     pub hidden: Vec<String>,
+    /// What the owner's message quotes, as the engine kept it (APP-1146): drawn above his bubble. Left out when
+    /// serialised.
+    #[serde(skip_serializing)]
+    pub reply_to: Option<ReplyQuote>,
+    /// What a reply to each of its bubbles quotes (APP-1146): the owner's message, FERB's first reply (its plan), and
+    /// the answer drawn here (none when it is answered below: the reply item below has it). Each carries the engine's
+    /// entry id; none when the bubble has no words or no engine entry (FERB.app's saved form). Left out when
+    /// serialised.
+    #[serde(skip_serializing)]
+    pub message_quote: Option<ReplyQuote>,
+    #[serde(skip_serializing)]
+    pub first_reply_quote: Option<ReplyQuote>,
+    #[serde(skip_serializing)]
+    pub answer_quote: Option<ReplyQuote>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -850,6 +878,10 @@ pub struct ReplyItem {
     /// The boxes a later item draws (`shown::boxes`, APP-769). Left out when serialised.
     #[serde(skip_serializing)]
     pub hidden: Vec<String>,
+    /// What a reply to it quotes (APP-1146): the answer it shows: its engine entry id, kind, whose words and their opening; none when the
+    /// bubble has no words or no engine entry (FERB.app's saved form, a box that says it). Left out when serialised.
+    #[serde(skip_serializing)]
+    pub quote: Option<ReplyQuote>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -870,6 +902,10 @@ pub struct NoticeItem {
     /// The boxes a later item draws (`shown::boxes`, APP-769). Left out when serialised.
     #[serde(skip_serializing)]
     pub hidden: Vec<String>,
+    /// What a reply to it quotes (APP-1146): its engine entry id, kind, whose words and their opening; none when the
+    /// bubble has no words or no engine entry (FERB.app's saved form, a box that says it). Left out when serialised.
+    #[serde(skip_serializing)]
+    pub quote: Option<ReplyQuote>,
 }
 
 /// One item of the chat, top to bottom. (Owned values handed to the app once per read: a turn is larger than the
@@ -893,6 +929,36 @@ impl Item {
             Item::Notice(n) | Item::Reminder(n) => &n.entry,
         }
     }
+
+    /// Its bubbles' quotes taken away (APP-1146): where the engine can't quote what it shows (the temporary chat's
+    /// entries live only in the Mac's memory, which `chat.send`'s `reply_to` doesn't read), no bubble offers a reply.
+    pub fn without_reply_offers(&mut self) {
+        match self {
+            Item::Turn(t) => {
+                t.message_quote = None;
+                t.first_reply_quote = None;
+                t.answer_quote = None;
+            }
+            Item::Reply(r) => r.quote = None,
+            Item::Notice(n) | Item::Reminder(n) => n.quote = None,
+        }
+    }
+}
+
+/// The item that shows the entry `entry_id` (FERB.app's `shownTarget(ofEntry:)`): where tapping a quote of it goes,
+/// by the item's `entry`; none when the chat shown doesn't hold it.
+pub fn quoted_item<'a>(items: &'a [Item], entry_id: &str) -> Option<&'a str> {
+    let is = |q: &Option<ReplyQuote>| q.as_ref().is_some_and(|q| q.entry_id == entry_id);
+    items
+        .iter()
+        .find(|i| match i {
+            Item::Turn(t) => {
+                is(&t.message_quote) || is(&t.first_reply_quote) || is(&t.answer_quote)
+            }
+            Item::Reply(r) => is(&r.quote),
+            Item::Notice(n) | Item::Reminder(n) => is(&n.quote),
+        })
+        .map(Item::entry)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -1020,6 +1086,35 @@ fn first_reply(t: &Turn) -> Option<FirstReply> {
     })
 }
 
+/// `ConversationTurn.visibleAnswer`: the words FERB shortened it to, else the answer.
+fn visible(display_text: Option<&str>, answer: &str) -> String {
+    display_text
+        .filter(|d| !d.is_empty())
+        .unwrap_or(answer)
+        .to_string()
+}
+
+/// The words FERB's first bubble says, as FERB.app quotes them (`FirstReplyView`): the direct answers, the receipts
+/// no card stands for, the plan line and its lines, else the plan; none when the bubble isn't drawn.
+fn first_reply_words(f: &FirstReply) -> Option<String> {
+    if !f.says {
+        return None;
+    }
+    let Some(line) = &f.plan_line else {
+        return f.plan.clone();
+    };
+    let words: Vec<&str> = f
+        .direct
+        .iter()
+        .chain(&f.receipts_shown)
+        .chain(std::iter::once(line))
+        .chain(&f.plan_lines)
+        .map(|w| w.trim())
+        .filter(|w| !w.is_empty())
+        .collect();
+    Some(words.join(" "))
+}
+
 /// The conversation's transcript from its entries (any revisions, any order): `utc_offset_s` is the phone's zone,
 /// which decides whether a later answer was said on its turn's day.
 pub fn transcript(entries: &[ChatEntry], utc_offset_s: i32) -> Transcript {
@@ -1050,6 +1145,25 @@ pub fn transcript_of(newest: &[&ChatEntry], utc_offset_s: i32) -> Transcript {
             .unwrap_or_else(|| id.to_string())
     };
     let is_legacy = |id: &str| made.get(id).is_some_and(|e| e.kind == "legacy");
+    // decision: APP-1146 — a bubble quotes the engine entry that made it (never FERB.app's saved form, which the
+    // engine can't quote), with the words FERB.app's own bubble quotes
+    let quote = |id: &str, kind: &str, by_owner: bool, text: &str| {
+        if is_legacy(id) {
+            return None;
+        }
+        let kind = made.get(id).map(|e| e.kind.as_str()).unwrap_or(kind);
+        ReplyQuote::of(id, kind, by_owner, text)
+    };
+    let answer_quote = |t: &Turn| {
+        t.answer_entry.as_deref().and_then(|id| {
+            quote(
+                id,
+                "answer",
+                false,
+                &visible(t.display_text.as_deref(), &t.answer),
+            )
+        })
+    };
     let items = a
         .transcript()
         .into_iter()
@@ -1062,6 +1176,13 @@ pub fn transcript_of(newest: &[&ChatEntry], utc_offset_s: i32) -> Transcript {
                     hidden: t.hidden_kinds.clone().unwrap_or_default(),
                     sealed: t.sealed.clone().unwrap_or_default(),
                     hidden_notice: t.hidden_notice(),
+                });
+                let first = first_reply(t);
+                let first_reply_quote = t.plan_entry.as_deref().and_then(|id| {
+                    first
+                        .as_ref()
+                        .and_then(first_reply_words)
+                        .and_then(|w| quote(id, "plan", false, &w))
                 });
                 Item::Turn(TurnItem {
                     entry: r(&t.id),
@@ -1086,7 +1207,7 @@ pub fn transcript_of(newest: &[&ChatEntry], utc_offset_s: i32) -> Transcript {
                         .as_ref()
                         .map(|c| card_view(c, live, t.cards.as_deref().unwrap_or(&[]))),
                     checklist: t.checklist.as_ref().map(|c| checklist_view(c, live)),
-                    first_reply: first_reply(t),
+                    first_reply: first,
                     parts: t.parts.clone().unwrap_or_default(),
                     goal: t
                         .is_recovered()
@@ -1099,6 +1220,14 @@ pub fn transcript_of(newest: &[&ChatEntry], utc_offset_s: i32) -> Transcript {
                         None
                     },
                     hidden: Vec::new(),
+                    reply_to: t.reply_to.clone(),
+                    message_quote: if t.is_recovered() {
+                        None
+                    } else {
+                        quote(&t.id, "message", true, &t.request)
+                    },
+                    first_reply_quote,
+                    answer_quote: if below { None } else { answer_quote(t) },
                 })
             }
             Shown::Reply(rep) => Item::Reply(ReplyItem {
@@ -1111,6 +1240,25 @@ pub fn transcript_of(newest: &[&ChatEntry], utc_offset_s: i32) -> Transcript {
                 quotes_request: !a.follows_its_turn(rep, utc_offset_s),
                 said: rep.said.as_ref().map(said_view),
                 hidden: Vec::new(),
+                // a later answer is its own entry; an answer placed below shows its turn's (a question shown here
+                // shows the answer under it unless another reply below shows that)
+                quote: match &rep.said {
+                    Some(l) => quote(
+                        &rep.id,
+                        "answer",
+                        false,
+                        &visible(l.display_text.as_deref(), &l.answer),
+                    ),
+                    None => a
+                        .turn(&rep.turn_id)
+                        .filter(|_| {
+                            rep.part != Some(ReplyPart::Question)
+                                || !a.replies.iter().any(|o| {
+                                    o.turn_id == rep.turn_id && o.part == Some(ReplyPart::Answer)
+                                })
+                        })
+                        .and_then(answer_quote),
+                },
             }),
             Shown::Notice(n) => {
                 let view = NoticeItem {
@@ -1123,6 +1271,18 @@ pub fn transcript_of(newest: &[&ChatEntry], utc_offset_s: i32) -> Transcript {
                     quotes: n.quotes.clone(),
                     cards: n.cards.clone(),
                     hidden: Vec::new(),
+                    // a reminder whose one box says it has no bubble to reply to
+                    quote: if crate::shown::notice_box(
+                        &n.text,
+                        n.quotes.len(),
+                        n.cards.as_deref().unwrap_or(&[]),
+                    )
+                    .0
+                    {
+                        None
+                    } else {
+                        quote(&n.entry_id, "notice", false, &n.text)
+                    },
                 };
                 if made.get(&n.entry_id).is_some_and(|e| e.kind == "post") {
                     Item::Reminder(view)

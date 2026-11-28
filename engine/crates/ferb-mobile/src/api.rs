@@ -22,6 +22,7 @@ use crate::entries::{Applied, EntrySet};
 use crate::entry::ChatEntry;
 use crate::fold::{Item, QuestionItem};
 use crate::live::{LiveState, LiveView};
+use crate::reply::ReplyQuote;
 use crate::status::PhoneStatus;
 use crate::store::{Attachment, Cursor, Older, OutboxRow, Store, StoreError};
 use crate::transport::{codes, FailureKind, LinkFailure, Transport, WatchHandle, WatchSink};
@@ -335,6 +336,8 @@ pub struct OutboxItem {
     /// A try's outcome was unknown (the link dropped after sending): the Mac may already have it. Sending again is
     /// safe (the engine dedupes by its id); cancelling then may leave the Mac's copy, which the chat then shows.
     pub tried: bool,
+    /// The message it quotes (APP-1146), drawn above its bubble as when the owner replied.
+    pub reply_to: Option<ReplyQuote>,
 }
 
 /// What cancelling did.
@@ -778,6 +781,20 @@ impl Mobile {
     /// A message with files: this phone's finished uploads on the Mac, by their ids (PHN-127); the Mac turns them
     /// into the message's files (`input_paths`). Kept in the outbox like any message.
     pub fn send_with(&self, text: &str, attachments: &[Attachment]) -> MobileResult<OutboxItem> {
+        self.send_reply(text, attachments, None)
+    }
+
+    /// A message that quotes one of the chat (APP-1146): `reply_to` is the quote of the bubble the owner replied to
+    /// (an item's `message_quote`, `first_reply_quote`, `answer_quote` or `quote`). It goes as `chat.send`'s
+    /// `reply_to` (the entry id); the outbox keeps the quote, so a queued message shows it across a restart. A quote
+    /// without an entry id is none; one the Mac can't quote is dropped there and the message goes without it.
+    pub fn send_reply(
+        &self,
+        text: &str,
+        attachments: &[Attachment],
+        reply_to: Option<&ReplyQuote>,
+    ) -> MobileResult<OutboxItem> {
+        let reply_to = reply_to.and_then(ReplyQuote::normalized);
         // the app's id and clock are asked before the state is locked (they are the app's code)
         let (id, at) = (
             self.shared.env.ids.new_id(),
@@ -786,7 +803,7 @@ impl Mobile {
         let item = {
             let st = self.shared.open_state()?;
             let store = st.store.as_ref().ok_or_else(MobileError::closed)?;
-            let row = store.outbox_add_with(&id, text, &at, attachments)?;
+            let row = store.outbox_add_reply(&id, text, &at, attachments, reply_to.as_ref())?;
             outbox_item(&row)
         };
         self.shared.notify(Change::Outbox);
@@ -994,6 +1011,7 @@ fn outbox_item(row: &OutboxRow) -> OutboxItem {
         reason: row.reason.clone(),
         tried: row.attempts > 0,
         attachments: row.attachments.clone(),
+        reply_to: row.reply_to.clone(),
     }
 }
 
@@ -1872,6 +1890,10 @@ impl Shared {
                     .iter()
                     .map(|a| a.upload_id.clone())
                     .collect::<Vec<_>>());
+            }
+            // decision: APP-1146 — the quoted entry, by the engine's id
+            if let Some(q) = &row.reply_to {
+                params["reply_to"] = json!(q.entry_id);
             }
             let result = t.send(&params.to_string());
             match result {

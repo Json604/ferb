@@ -43,7 +43,9 @@ m.stop(taskIds: List<String>); m.loadOlder(conversation: String): OlderState; m.
 m.linkState(): LinkState; m.forgetThisMac(); m.shutdown(); m.isClosed(): Boolean; m.storePath(): String
 // T-1221 (journal 116)
 m.lock(): Boolean; m.unlocked(); m.stopEverything(); m.status(): PhoneStatus; m.lastStatus(): PhoneStatus?
-m.markReadLatest(conversation); m.sendWith(text, attachments: List<Attachment>): OutboxItem
+m.markReadLatest(conversation); m.sendWith(text, attachments: List<Attachment> = [], replyTo: ReplyQuote? = null): OutboxItem
+// reply to a message (APP-1146): the bubble's quote from the transcript goes as chat.send's reply_to, kept in the outbox
+quotedItem(items: List<Item>, entryId: String): String?   // the item (its `entry`) showing that entry: a tap on a quote
 m.files(path: String?, signer: Signer?, after: String? = null): Folder; m.tree(path, signer?): Tree; m.putGroup(name): String
 m.fetch(id, path, saveTo, offset: ULong, signer?, listener: TransferListener): Fetched
 m.upload(id, localPath, name, resume?, group?, rel?, listener): Uploaded; m.cancelTransfer(id)  // -> FerbException.Cancelled
@@ -91,6 +93,18 @@ fields of `engine/fixtures/chat-entries/README.md`, "The phone's transcript", in
 card's `type`, `PlanStep.repeats` its `loop`, `NoticeItem.reference` its `ref`, `TurnItem.words` the owner's words
 that the golden flattens into the turn). `QuestionItem.bodyJson` is the one JSON text: a question's body has no fixed
 shape. Each conversion destructures the core's type completely, so a field added there fails the build here.
+Reply to a message (APP-1146, FERB.app's `ReplyQuote.swift`): `ReplyQuote {entryId, kind, byOwner, excerpt}` is
+one message of the chat by the engine's entry id, its kind (`message`, `plan`, `answer`, `error`, `notice`, `post`),
+whether the words were the owner's, and their opening on one line without Markdown's marks (what the quote line
+shows; at most 160 characters for one made on the phone; "You"/"FERB" is the app's wording). The bubbles that offer a
+reply carry theirs: `TurnItem.messageQuote` (the owner's message), `firstReplyQuote` (FERB's first reply, its plan
+entry), `answerQuote` (the answer drawn at the turn; none when `answeredBelow`), `ReplyItem.quote` (a later answer's
+own entry, or the answer drawn below), `NoticeItem.quote` (a notice or reminder that draws a bubble). Each is null
+when the bubble has no words or no engine entry (FERB.app's carried rows: `legacy`), and in the temporary chat (the
+Mac's `reply_to` reads only the kept conversation). `TurnItem.replyTo` is what the owner's message quotes, as the
+engine kept it on his entry; `OutboxItem.replyTo` what a waiting message quotes (kept across a restart). Pass the
+bubble's quote to `sendWith(text, replyTo = quote)`: a quote without an entry id is none, one the Mac can't quote is
+dropped there and the message goes without it. All of these default to null and are left out of the golden's JSON.
 `Change` (with `LocationWanted(requestId)`), `OlderState`, `RelayStatus` sealed; `DeviceReport`, `DevicePlace`,
 `LocationFix`, `FoundFile`, `RecentFiles`, `FoundFiles`, `ScreenUse`, `ScreenUseEnd`, `GroupStarted`, `UploadFolder`
 records; `LinkPath`, `LinkPhase` enums; `AnswerInput` sealed (`Approve(granted, choice)`, `UntilBack` (GATE-615: the

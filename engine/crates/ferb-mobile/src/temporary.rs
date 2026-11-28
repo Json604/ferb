@@ -20,6 +20,7 @@ use serde_json::{json, Value};
 use crate::api::{lock, Change, Mobile, MobileResult, OlderState, Shared, TranscriptView};
 use crate::entries::{Applied, EntrySet};
 use crate::entry::ChatEntry;
+use crate::fold::Item;
 use crate::live::LiveState;
 use crate::store::{Attachment, Cursor};
 
@@ -96,7 +97,9 @@ impl TemporaryChat {
             e.cut = false;
             e
         });
-        let t = EntrySet::from_entries(entries).transcript(utc_offset_s);
+        let mut t = EntrySet::from_entries(entries).transcript(utc_offset_s);
+        // decision: APP-1146 — the Mac can't quote what only its memory holds: no bubble here offers a reply
+        t.items.iter_mut().for_each(Item::without_reply_offers);
         // decision: APP-1126 — what the chat draws live over its turns with no frame yet (the typing dots of a turn that
         // is working, its card's and checklist's rows): the same view as the normal chat's (`Mobile::transcript`), from
         // a live state that no watch feeds here, so nothing streams in it
@@ -126,7 +129,8 @@ impl Shared {
         let conversation = format!("{SESSION_PREFIX}{}", held.id);
         let mut st = self.state.lock();
         let conv = st.conv(&conversation).ok()?;
-        let t = conv.set.transcript(self.config.utc_offset_s);
+        let mut t = conv.set.transcript(self.config.utc_offset_s);
+        t.items.iter_mut().for_each(Item::without_reply_offers);
         let live = conv.live.view(&t);
         Some(TemporaryChat {
             on: true,
