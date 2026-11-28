@@ -2934,3 +2934,12 @@ rule = "For ORCH-719 item 6. The open items the planner and the front door read 
 why = "Each list grew with use; on 1 January this year's months alone dropped last year's month lines at once. Offline on his 310 recorded turns: longest list 2, none over 15, the 37 ids decisions named all still shown (journal 290)."
 evidence = "ferb-supervisor tests/open_items.rs; ferb-learning tests/library.rs (12 months on the five-year store, January, a forgotten memory takes the line citing its message)."
 paths = ["engine/crates/ferb-supervisor/src/planner.rs", "engine/crates/ferb-supervisor/src/flow/turn.rs", "engine/crates/ferb-supervisor/src/words.rs", "engine/crates/ferb-learning/src/library.rs"]
+[ORCH-756]
+title = "A run's tools: a core fixed at its first listing, the rest by line, tools.find, a weekly guard"
+by = "agent"
+date = 2026-11-28
+status = "active"
+rule = "Off in FERB.app until a real replay. For ORCH-719 item 3, ORCH-752. Gateway::run_listing gives every runtime one listing. A worker grant gets, at its first listing, tools.find plus 24 (checker 9): what similar tasks used (task_context targets sharing an app, site or person; most tasks first), then tool_core.rs's measured order, then registry order; kept to forget_calls, recorded as tool_core on the run's span. Other tools: name, tool_lines.json line, open schema. A bad call of one returns its full row. ferb stats flags a not_done run with an unused listed tool fitting its targets."
+why = "Every tool in full was 29.8k o200k tokens on each worker step, 10.9k on each checker step; the core and lines are 15.0k and 4.9k (fixed_part.rs). The records name no kind of work beyond the runtime, so similarity comes from the targets the planner wrote."
+evidence = "ferbd tests/tool_core.rs (composed daemon: default core, same bytes across steps and via tools.list, similar tasks, checker 10, direct and bad calls, tools.find), tool_guard.rs, fixed_part.rs; ferb-gateway tests/catalog.rs (a line per tool, the owner's numbers per grant)."
+paths = ["engine/crates/ferb-gateway/src/tool_core.rs", "engine/crates/ferb-gateway/src/gateway/run_tools.rs", "engine/crates/ferb-gateway/src/tool_lines.json", "engine/crates/ferb-gateway/src/catalog_additions.json", "engine/crates/ferbd/src/compose/rpc.rs", "engine/crates/ferbd/src/tool_guard.rs"]

@@ -715,6 +715,9 @@ impl Daemon {
                 browser_support: opts.browser_support.clone(),
                 dev_tools: std::sync::Mutex::new(Vec::new()),
             });
+            // decision: ORCH-756 — the tool core is off in FERB.app (every tool in full) until a real-model replay
+            // shows workers still find and call what they need; the stand-ins' daemon (tests) has it on
+            gw.set_tool_core(opts.overrides.is_some());
             let real: Arc<dyn supervisor::Reads> = Arc::new(supervisor::RealReads {
                 host,
                 seams: seams.clone(),

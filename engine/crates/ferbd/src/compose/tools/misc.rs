@@ -140,6 +140,23 @@ pub fn first(p: &Parts) -> Vec<Arc<dyn Tool>> {
             describe: read_spec(),
             run: search,
         }) as Arc<dyn Tool>,
+        // ORCH-756: the full description of a tool the run lists by its line (a Rust addition after actions.search)
+        Arc::new(Catalogued {
+            name: ferb_gateway::tool_core::FIND,
+            describe: read_spec(),
+            // answered by the gateway from the run's own listing, never here
+            run: Arc::new(|_a, _c| {
+                Box::pin(async {
+                    Ok(ToolOutput::from(ToolResult {
+                        content: crate::basics::object(
+                            json!({"error": "tools.find is answered by the gateway"}),
+                        ),
+                        is_error: true,
+                        ..ToolResult::default()
+                    }))
+                })
+            }),
+        }),
         super::context::tool_named(p, "abilities.list"),
         super::context::tool_named(p, "abilities.read"),
         // SENSE-422: this Mac's facts, after abilities.read (a Rust addition to Python's registry)

@@ -26,6 +26,7 @@ pub mod seams;
 pub mod stop;
 pub mod stuck;
 pub mod tool;
+pub mod tool_core;
 pub mod validators;
 pub mod words;
 

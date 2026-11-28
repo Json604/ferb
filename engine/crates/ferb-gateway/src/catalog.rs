@@ -19,6 +19,8 @@ use serde_json::{Map, Value};
 const TOOLS_JSON: &str = include_str!("../../../fixtures/catalog/tools.json");
 /// The Rust engine's own tools (not Python's), each with its decision and the tool it follows.
 const ADDITIONS_JSON: &str = include_str!("catalog_additions.json");
+/// Each tool's one line, what it does and when to use it (ORCH-752): how a run lists a tool outside its full core.
+const LINES_JSON: &str = include_str!("tool_lines.json");
 /// The deliberate changes to Python's tools (`engine/fixtures/catalog/tool_changes.json`), each with its decision.
 const CHANGES_JSON: &str = include_str!("../../../fixtures/catalog/tool_changes.json");
 
@@ -182,6 +184,9 @@ pub struct Entry {
     pub identities: BTreeSet<String>,
     /// Every attribute the gateway reads (`getattr`/`hasattr`); a method is `"<method>"`.
     pub facts: Map<String, Value>,
+    /// ORCH-752: its one line, what it does and when to use it (`tool_lines.json`), as a run lists it outside its
+    /// full core.
+    pub line: String,
 }
 
 /// The frozen data: the tools in registry order and the gateway's constants.
@@ -220,7 +225,17 @@ fn entry_of(t: &Value) -> Entry {
         scopes: strings(&t["scopes"]),
         identities: strings(&t["identities"]),
         facts: t["facts"].as_object().cloned().unwrap_or_default(),
+        line: String::new(),
     }
+}
+
+/// `tool_lines.json`'s lines, by tool (ORCH-752).
+pub fn lines() -> &'static Map<String, Value> {
+    static L: OnceLock<Map<String, Value>> = OnceLock::new();
+    L.get_or_init(|| {
+        let v: Value = serde_json::from_str(LINES_JSON).expect("tool_lines.json is JSON");
+        v["lines"].as_object().cloned().expect("lines is an object")
+    })
 }
 
 impl Catalog {
@@ -259,6 +274,11 @@ impl Catalog {
             entries.insert(at, entry_of(t));
             additions.push(a);
         }
+        for e in &mut entries {
+            if let Some(Value::String(l)) = lines().get(&e.name) {
+                e.line = l.clone();
+            }
+        }
         let constants = raw["constants"].as_object().cloned().unwrap_or_default();
         Catalog {
             entries,
@@ -270,6 +290,11 @@ impl Catalog {
 
     pub fn entry(&self, name: &str) -> Option<&Entry> {
         self.entries.iter().find(|e| e.name == name)
+    }
+
+    /// ORCH-752: a tool's one line ("" when none is written).
+    pub fn line(&self, name: &str) -> &str {
+        self.entry(name).map(|e| e.line.as_str()).unwrap_or("")
     }
 
     /// A constant of `gateway.py` as frozen (`EFFECTS`, `EFFECT_FIELD`, `DESTINATION_SCHEMA`, `WHY_HELP`, ...).

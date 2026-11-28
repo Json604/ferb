@@ -1026,8 +1026,8 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
                     .unwrap_or_default()
             };
             let grant = ferb_rpc::auth::RunGrant {
-                task_id: "t".into(),
-                worker_id: "w".into(),
+                task_id: req["task_id"].as_str().unwrap_or("t").into(),
+                worker_id: req["worker_id"].as_str().unwrap_or("w").into(),
                 scopes: set("scopes"),
                 identity,
                 expires_at: f64::MAX,
@@ -1035,7 +1035,13 @@ async fn control(d: &Arc<Daemon>, s: &StandIns, req: &Value) -> Result<Value, St
                 tools: set("tools"),
                 max_calls: req["max_calls"].as_u64().unwrap_or(0),
             };
-            let tools = crate::compose::rpc::tools_for(&d.gateway, &d.b_tools(), &grant);
+            // `run`: the listing a model run is given (ORCH-756's core and lines); else the grant's whole listing
+            // (Python's `tools_for`, which the catalog test compares)
+            let tools = if req["run"].as_bool().unwrap_or(false) {
+                crate::compose::rpc::tools_for(&d.gateway, &d.b_tools(), &grant)
+            } else {
+                ferb_gateway::listing::tools_for(&d.gateway.registry(), &grant, &d.b_tools().live())
+            };
             Ok(json!(tools))
         }
         // the RPC methods with a handler in this daemon: [unary, stream] (the every-method test)

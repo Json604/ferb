@@ -29,10 +29,12 @@ fn ferb_error(message: &str) -> HandlerError {
     HandlerError::refusal("FerbError", message)
 }
 
-/// The listing a grant is offered (`gateway.tools_for(grant)`), with the descriptions as they read now.
+/// The listing a run's grant is given, with the descriptions as they read now: every runtime's (the MCP bridge's
+/// tools.list, the API loop, the worker's reserve) is this one. ORCH-756: a worker's or the checker's run gets its
+/// core in full and every other tool by name and line, chosen at its first listing (`Gateway::run_listing`).
 pub fn tools_for(gateway: &Gateway, tools: &super::tools::Parts, grant: &RunGrant) -> Vec<Value> {
     let live = tools.live();
-    ferb_gateway::listing::tools_for(&gateway.registry(), grant, &live)
+    gateway.run_listing(grant, &live)
 }
 
 pub fn register(server: &Server, p: &Parts) {

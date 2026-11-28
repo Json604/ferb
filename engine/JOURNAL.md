@@ -15442,6 +15442,90 @@ daemon looked a quoted entry up only in the stored chat, so the quote was droppe
 **Unverified.** Nothing ran live. One Android full run had 35 unrelated failures that passed alone and on a rerun
 (load).
 
+## 2026-11-28 · 287 · A run's tools: a fixed core in full, every other tool by its line, tools.find (T-1334)
+
+**Why (ORCH-719 item 3, owner 2026-11-25; ORCH-752, owner 2026-11-28).** Every worker step carried every tool's full
+description and schema: 29,758 o200k tokens for an owner's worker with every scope (82 tools), 10,866 for the checker
+(40). The owner's numbers: a worker at most 25 tools in full, the checker 10; every other tool listed by name and one
+line saying what it does and when to use it; `tools.find` for the full description; a direct call of any listed tool
+works; the list never changes mid-run; a weekly guard. The core is chosen at the run's start from the worker type and
+what similar earlier tasks used. In the records "worker type" is only the runtime (default, codex, claude), so the
+similar tasks are what varies the core.
+
+**What (ORCH-756, agent).**
+- One listing for every runtime: `Gateway::run_listing` (`ferb-gateway/src/gateway/run_tools.rs`), called by ferbd's
+  `compose::rpc::tools_for`, which the MCP bridge's tools.list (Codex, Claude Code), the API loop's `GatewayBridge`,
+  the worker's token reserve and the supervisor's reserve estimate all call. A grant that names its tools (the
+  planner's lookups, the front door) gets every tool in full as before (`listing::tools_for`, Python's listing).
+- A worker's grant (no tools named) gets, at its run's first listing, a core: tools.find plus 24 (the checker's,
+  observe-only: plus 9) of, in order: the tools similar earlier tasks used, most tasks first; the default order; the
+  rest offered, in registry order (`tool_core::choose`). Kept per worker id until `forget_calls` (the run's end) or
+  the task leaves; a later listing of the same run returns the same choice whatever was recorded meanwhile. A grant
+  offered no more tools than its core holds gets them all and no tools.find.
+- The default order (`tool_core::WORKER_ORDER`, `CHECKER_ORDER`): the owner's records of 2026-11-01..28, read only,
+  tools ranked by tasks using them (chat.* left out): the first 25 over every role (the coordinator's list, 93.6% of
+  worker calls), then the rest worker runs used; the checker's from verifier tasks. A fresh install with no records
+  starts from these constants. In FERB's own identity `ferb_browser.X` stands where the order names `browser.X`.
+- Similar tasks: other requests' task trees whose targets (`task_context.spec_json`'s `targets`, the planner's) share
+  an app (words without case), a site (`destinations::site_host`) or a person with this task's request
+  (`Requests`); newest first, read until their tools would fill the core; tool calls of their worker tasks (the
+  checker: verifier tasks), FERB's own questions left out. A request with no targets, or no similar task: the default.
+- Every other tool: `{name, description: its line, input_schema: {"type": "object", "properties": {},
+  "additionalProperties": true}}`. The lines are written by hand in `ferb-gateway/src/tool_lines.json`, one per
+  catalog tool (110: the 97 of Python's catalog, the 12 additions, tools.find), loaded into `catalog::Entry.line`;
+  the six the owner approved word for word.
+- A call of a tool listed by its line runs when its arguments validate. One whose arguments don't gets
+  `{"error": "invalid arguments", "details": [...], "tool": <its full row>}` (`build`'s argument check).
+- `tools.find` (a catalog addition after actions.search, ORCH-756; read-only, origin ferb): `name` (also the MCP
+  spelling, browser_pdf) gives that tool's full row; `query` the tools sharing most of its words (name, line,
+  description; literal word overlap, best first), five in full and the other matches by name. The gateway answers it
+  at the tool's run step from the run's own listing (the same live descriptions), through the whole call path.
+- The run's span records `tool_core`: kind, the tools in full, those by line, how many similar tasks were read.
+- The weekly guard (`ferbd/src/tool_guard.rs`, a section of `ferb stats`, printed only when a worker run of the last
+  7 days recorded its tools): a run whose span's status is `not_done` with a tool it listed by line, never called
+  (its tool.call spans), whose family fits the task tree's targets: a site the browser tools, an app the Mac tools,
+  a path the file tools. Nothing else is judged.
+- Catalog differences, named: tools.find is a new addition (listed after actions.search wherever that is; the
+  catalog tests take additions out as before). No tool of Python's catalog changes, so `tool_changes.json` doesn't;
+  no prompt text changes. ferbd's `listing` stand-in control gives the whole listing (Python's, what the catalog
+  tests compare) and, with `run`, the run's.
+- Recorded replays, named: ferbd `chat_replay` moves each recorded worker or check call's token reserve by the bytes
+  its run's listing saves (`core_shift`, the default core, which every recorded run gets; an
+  observe-only grant, the check and a fix of its findings, is the checker's), and takes a span's `tool_core` out
+  before comparing the stored spans (`named_diffs::without_tool_core`, shared with ferb-supervisor's tests).
+- ORCH-721's ceilings lowered to the new sizes plus about 5%: worker 78,500 characters (74,514 measured), checker
+  39,000 (37,058).
+
+**Checked.**
+- ferbd `tests/tool_core.rs` (the composed daemon with stand-ins): the default core of 25 for an owner's worker
+  with every scope and each other tool's line; the same bytes over later listings after a similar task was recorded
+  and through tools.list over a run token (shown failing with the run's choice not kept); similar tasks on one site
+  written two ways add their tools and push out the two the default ranks last, a task on another target doesn't;
+  the checker's 10; fs.disk_usage called directly runs, a bad call carries its full row, a core tool's bad call
+  doesn't; tools.find by name, MCP name and words, and not for a tool the run isn't offered.
+- ferbd `tests/tool_guard.rs`: one flagged run of five (done, a person target, a fitting tool called, older than the
+  week are not); nothing printed with nothing recorded.
+- ferb-gateway `tests/catalog.rs`: one line per tool with "Use", the approved samples, the owner's numbers for the
+  four worker and checker grants of the frozen catalog, FERB's own browser in its core; every other ferb-gateway test.
+- ferbd's whole suite (`every_tool_through_the_program` with tools.find in its table, `every_method_answers`,
+  `catalog_mcp`, `fixed_part`, `chat_replay`, `front_door_replay`, `replay` among them): every binary passed;
+  `front_door_replay_7` failed once on its journal kinds while chat_replay ran beside it and passed alone and in an
+  earlier full run. ferb-gateway's and ferb-supervisor's suites; workspace clippy (not the phone crates' three) and
+  fmt.
+- Measured (fixed_part.rs, o200k): worker tools 29,758 → 14,955 tokens; checker 10,866 → 4,874; the planner's 2,675
+  unchanged.
+
+**Unverified.**
+- No model run: whether models call a tool listed by its line directly, use tools.find, and read a bad call's full
+  row well is untested. Whether Codex and Claude Code accept the open schema for 57 tools at once is not tried live.
+- The similar-task choice is tested on invented records only; on the owner's records 59 of 69 task contexts name
+  targets, so most runs will get some adjustment, unmeasured.
+- The guard's families are structural and coarse: a site task flags every unused browser tool listed by line, so it
+  will list many; it judges nothing else.
+- tools.find's five in full is an agent's number; the default order is November's measurement, not refreshed.
+- `kb check` names ORCH-756's new paths only once they are tracked.
+
+**Off in FERB.app until a real replay (coordinator, 2026-11-28).** The owner: faster only if the work doesn't get worse. `Gateway::set_tool_core`: ferbd turns the core on only for the stand-ins' daemon (the tests), so FERB.app's runs still list every tool in full. It goes on once a replay on a real model, with a call budget the owner sets, shows workers find and call the tools they need from the lines.
 ## 2026-11-28 · 288 · The checker's middle path, its calls first; the unconfirmed line names what wasn't confirmed (T-1336, T-1348)
 
 **Why.** ORCH-719 item 5 (owner, 2026-11-25): the checker gets the newest look at each page, app window and file in

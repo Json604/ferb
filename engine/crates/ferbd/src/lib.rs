@@ -36,5 +36,6 @@ pub mod standins_c;
 #[cfg(feature = "stand-ins")]
 pub mod standins_chat;
 pub mod stats;
+pub mod tool_guard;
 pub mod usage_stats;
 pub mod watchdog;

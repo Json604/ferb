@@ -1743,6 +1743,49 @@
     "origin": "ferb",
     "named_only": true
    }
+  },
+  {
+   "decision": "ORCH-756",
+   "after": "actions.search",
+   "name": "tools.find",
+   "description": "Give the full description and arguments of tools this run lists by one line only: name for one tool exactly, or query (words for what you need to do) for the best matches first. Every listed tool can be called directly; a call whose arguments don't fit returns that tool's full description, so you can call it again right. Read-only.",
+   "input_schema": {
+    "properties": {
+     "name": {
+      "default": "",
+      "description": "a listed tool's exact name; empty when you give query",
+      "title": "Name",
+      "type": "string"
+     },
+     "query": {
+      "default": "",
+      "description": "words for what you need to do: the listed tools whose name and line match them best",
+      "title": "Query",
+      "type": "string"
+     },
+     "why": {
+      "type": "string",
+      "description": "Optional short explanation of what this action does toward the owner's request."
+     }
+    },
+    "title": "Input",
+    "type": "object"
+   },
+   "added_by_gateway": [
+    "why"
+   ],
+   "acts": false,
+   "scopes": [],
+   "identities": [
+    "ferb",
+    "owner"
+   ],
+   "facts": {
+    "risk": 1,
+    "reversible": true,
+    "observation": true,
+    "origin": "ferb"
+   }
   }
  ]
 }

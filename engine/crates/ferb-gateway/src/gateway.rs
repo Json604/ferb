@@ -55,6 +55,7 @@ use crate::words::*;
 
 mod hidden;
 mod own;
+mod run_tools;
 pub use hidden::{HiddenError, SecretAsk};
 pub use own::{OwnEvent, OwnQuestion};
 
@@ -423,6 +424,11 @@ struct Inner {
     file_grants: crate::file_grants::FileGrants,
     /// ORCH-753: per model run, the last look at each place it can rebuild (the what-changed view).
     looks: crate::look_view::Looks,
+    /// ORCH-756: per model run (worker id), the tools its listing gives in full, chosen at its first listing.
+    cores: HashMap<String, run_tools::RunCore>,
+    /// ORCH-756: the core is off (every tool in full, as before): FERB.app's daemon until a real-model replay shows
+    /// workers still find and call the tools they need (owner 2026-11-28: faster only if the work doesn't get worse).
+    tool_core_off: bool,
 }
 
 /// `refused_fills.Refusal`: one field's refusals in a task tree.
@@ -774,7 +780,9 @@ impl Gateway {
     }
 
     pub fn remove_task(&self, task_id: &str) {
-        lock(&self.inner).tasks.remove(task_id);
+        let mut i = lock(&self.inner);
+        i.tasks.remove(task_id);
+        i.cores.retain(|_, c| c.task_id != task_id);
     }
 
     pub fn record_request(&self, r: Request) {
@@ -1461,6 +1469,7 @@ impl Gateway {
         i.last_act.remove(worker_id);
         i.lookup_answers.retain(|k, _| k.0 != worker_id);
         i.looks.forget(worker_id);
+        i.cores.remove(worker_id);
         // fixed against Python: a call of this ended attempt still queued behind another call's question would
         // otherwise ask or act, for nobody, once that question is answered
         for (_, w, c) in &i.queued {
@@ -1661,7 +1670,13 @@ impl Gateway {
         };
         let checked = match args::check(tool.as_ref(), arguments) {
             Ok(c) => c,
-            Err(content) => return Ok(Err(self.reply(Some(rec), content, true, None, false))),
+            Err(mut content) => {
+                // decision: ORCH-756 — a tool the run lists by its line: the error carries its full description
+                if let Some(row) = self.described(grant, name) {
+                    content.insert("tool".into(), row);
+                }
+                return Ok(Err(self.reply(Some(rec), content, true, None, false)));
+            }
         };
         let o = ferb_origin();
         if let Some(refusal) = tool.precheck(&checked.args) {
@@ -6675,9 +6690,22 @@ impl Gateway {
         covered.started = true;
         // `_measured`: what the tool's code measured meanwhile goes on its span whatever the outcome, a cancel's too
         let record = ferb_core::call_facts::Record::default();
+        // ORCH-756: tools.find answers from this run's own listing, which only the gateway holds
+        let found = (name == crate::tool_core::FIND).then(|| self.find_tools(&c.grant, &c.args));
         let run = Recorded {
             record: record.clone(),
-            run: c.tool.run(&c.args, &ctx),
+            run: match found {
+                Some((content, is_error)) => {
+                    let out = ToolOutput::from(ferb_core::types::ToolResult {
+                        content,
+                        is_error,
+                        ..Default::default()
+                    });
+                    Box::pin(async move { Ok(out) })
+                        as ferb_core::interfaces::BoxFuture<'_, Result<ToolOutput, ToolError>>
+                }
+                None => c.tool.run(&c.args, &ctx),
+            },
         };
         let ran = c.cancel.guard(run).await;
         let measured = record.facts();

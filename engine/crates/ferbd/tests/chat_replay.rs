@@ -119,6 +119,77 @@ fn with_additions(tools: &Value, sorted: bool) -> Value {
     json!(names)
 }
 
+/// A catalog tool by name only, for its listed row (nothing here runs it).
+struct Frozen(String);
+
+impl ferb_gateway::tool::Tool for Frozen {
+    fn name(&self) -> &str {
+        &self.0
+    }
+    fn describe(&self, _args: &ferb_gateway::tool::Args) -> ferb_core::types::ActionSpec {
+        ferb_core::types::ActionSpec::new("read")
+    }
+    fn run<'a>(
+        &'a self,
+        _args: &'a ferb_gateway::tool::Args,
+        _ctx: &'a ferb_core::types::ToolContext,
+    ) -> ferb_core::interfaces::BoxFuture<
+        'a,
+        Result<ferb_gateway::tool::ToolOutput, ferb_gateway::tool::ToolError>,
+    > {
+        Box::pin(async {
+            Err(ferb_gateway::tool::ToolError::failed(
+                "NotImplementedError",
+                "",
+            ))
+        })
+    }
+}
+
+/// How many fewer bytes (the byte-ceiling tokenizer's tokens) a worker's or the checker's call reserves now that its
+/// run lists its core in full and every other tool by its line (the named difference; decision: ORCH-756). `tools`:
+/// the call's tool names as offered now (`with_additions`); the planner's lookups name their tools and stay whole.
+/// The recordings' requests name no targets another recorded task shares, so the default core is the run's.
+fn core_shift(tools: &Value, role: &str) -> i64 {
+    use ferb_gateway::tool_core::{self, Kind, FIND};
+    if role == "orchestrator" {
+        return 0;
+    }
+    let names: Vec<String> = tools
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|t| t.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    if names.is_empty() {
+        return 0;
+    }
+    let live = ferb_gateway::catalog::Live::default();
+    let rows: Vec<Value> = names
+        .iter()
+        .map(|n| {
+            let tool = Frozen(n.clone());
+            json!({"name": n, "description": ferb_gateway::tool::Tool::description(&tool, &live),
+                "input_schema": ferb_gateway::listing::listed_schema(&tool)})
+        })
+        .collect();
+    // an observe-only grant (the check, and a fix run of its findings) offers only tools that observe
+    let kind = if names
+        .iter()
+        .all(|n| ferb_gateway::listing::observes(&Frozen(n.clone())))
+    {
+        Kind::Checker
+    } else {
+        Kind::Worker
+    };
+    let offered: Vec<String> = names.iter().filter(|n| *n != FIND).cloned().collect();
+    let core = tool_core::choose(kind, &offered, &[]);
+    let now = tool_core::listing(rows.clone(), core.as_ref());
+    ferb_py::json::dumps(&json!(now)).len() as i64 - ferb_py::json::dumps(&json!(rows)).len() as i64
+}
+
 fn bodies() -> &'static HashMap<String, String> {
     static B: OnceLock<HashMap<String, String>> = OnceLock::new();
     B.get_or_init(|| {
@@ -1612,7 +1683,9 @@ fn run_scenario(
         let shift = prompt_changes::reserved_shift(&s(&want["system"]));
         // decision: DMN-595: the Rust engine's own tools offered beside the recorded ones are reserved for too; the
         // span that records this call's context has the same budget line, moved the same (`tool_shifts`)
-        let by_tools = prompt_changes::tool_shift(&strs(&want["tools"]));
+        let offered_now = with_additions(&want["tools"], want["runtime_role"] == "orchestrator");
+        let by_tools = prompt_changes::tool_shift(&strs(&want["tools"]))
+            + core_shift(&offered_now, &s(&want["runtime_role"]));
         let recorded: Vec<(String, i64)> = strs(&want["parts"])
             .iter()
             .map(|p| {

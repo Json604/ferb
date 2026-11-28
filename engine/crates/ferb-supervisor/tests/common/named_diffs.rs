@@ -201,10 +201,41 @@ pub fn named_rows(
                     a[c] = x;
                     b[c] = y;
                 }
+                b[c] = without_tool_core(&b[c]);
             }
         }
     }
     (python, rust)
+}
+
+/// ORCH-756 (not Python's): a model run's span records which tools its listing gave in full and which by line
+/// (`tool_core`); a span's input as Python stored it, without that record.
+// decision: ORCH-756
+pub fn without_tool_core(input: &Value) -> Value {
+    let Value::String(t) = input else {
+        return input.clone();
+    };
+    // cut out the key and its object as written (the record is the input's last key; its strings hold no braces),
+    // so the rest keeps the bytes the store wrote, ASCII-escaped or not
+    let key = ", \"tool_core\": {";
+    let Some(at) = t.find(key) else {
+        return input.clone();
+    };
+    let mut depth = 0;
+    for (i, ch) in t[at + key.len() - 1..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    let end = at + key.len() - 1 + i + 1;
+                    return Value::String(format!("{}{}", &t[..at], &t[end..]));
+                }
+            }
+            _ => {}
+        }
+    }
+    input.clone()
 }
 
 /// ORCH-655 (not Python's order): a check's previous-attempts block comes last among the task's blocks, just before

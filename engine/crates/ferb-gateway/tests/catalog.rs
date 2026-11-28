@@ -194,7 +194,8 @@ fn the_rust_additions_are_listed_as_written() {
             ("ORCH-736", "chat.dispatch_task"),
             ("ORCH-736", "chat.remember"),
             ("ORCH-736", "chat.schedule"),
-            ("ORCH-736", "chat.set_reminder")
+            ("ORCH-736", "chat.set_reminder"),
+            ("ORCH-756", "tools.find")
         ]
     );
     for a in a {
@@ -531,4 +532,106 @@ fn a_checks_calls_past_its_cap_are_refused_with_the_checks_words() {
         .as_str()
         .unwrap()
         .starts_with("this turn has made its 6 lookups"));
+}
+
+/// ORCH-752: every tool of the catalog has exactly one line, saying what it does and when to use it, written beside
+/// the catalog (tool_lines.json, its one source); none for a tool the catalog doesn't have.
+// decision: ORCH-752
+// decision: ORCH-756
+#[test]
+fn every_tool_has_one_line_saying_what_and_when() {
+    let c = catalog::catalog();
+    let names: BTreeSet<&str> = c.entries.iter().map(|e| e.name.as_str()).collect();
+    for e in &c.entries {
+        assert!(!e.line.is_empty(), "{}: no line", e.name);
+        assert!(e.line.contains(". Use "), "{}: says when to use it", e.name);
+        assert!(e.line.len() <= 200, "{}: a line, not a description", e.name);
+    }
+    for n in catalog::lines().keys() {
+        assert!(names.contains(n.as_str()), "{n}: a line for no tool");
+    }
+    // the owner's approved samples, word for word
+    assert_eq!(
+        c.line("browser.pdf"),
+        "Save a page, or an HTML file you wrote, as a PDF. Use when the owner wants a PDF file."
+    );
+    assert_eq!(
+        c.line("time.remind_at"),
+        "Set a reminder at a time the owner named. Use only when he asked to be reminded."
+    );
+}
+
+/// ORCH-756: a worker's run with every scope gets 25 tools in full (tools.find among them) and the rest by line;
+/// the checker's 10; a grant with few tools, or one naming its tools, gets them all in full and no tools.find.
+// decision: ORCH-719
+// decision: ORCH-756
+#[test]
+fn the_core_holds_the_owners_numbers() {
+    use ferb_gateway::tool_core::{self, Kind, FIND};
+    let r = registry();
+    let catalog = catalog::catalog();
+    let raw = catalog.raw();
+    for (grant, size) in [
+        ("worker_owner_all_scopes", tool_core::WORKER_CORE),
+        ("worker_ferb_all_scopes", tool_core::WORKER_CORE),
+        ("checker_owner_all_scopes", tool_core::CHECKER_CORE),
+        ("checker_ferb_all_scopes", tool_core::CHECKER_CORE),
+    ] {
+        let g = &raw["listings"][grant]["grant"];
+        let grant = RunGrant {
+            task_id: "t".into(),
+            worker_id: "w".into(),
+            scopes: set(&g["scopes"]),
+            identity: if g["identity"] == "ferb" {
+                Identity::Ferb
+            } else {
+                Identity::Owner
+            },
+            expires_at: 1e9,
+            observe_only: g["observe_only"].as_bool().unwrap(),
+            tools: set(&g["tools"]),
+            max_calls: 0,
+        };
+        let full = tools_for(&r, &grant, &Live::default());
+        let offered: Vec<String> = full
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .filter(|n| n != FIND)
+            .collect();
+        let core = tool_core::choose(Kind::of(&grant).unwrap(), &offered, &[]).unwrap();
+        assert_eq!(core.len(), size);
+        assert!(core.contains(FIND));
+        let listing = tool_core::listing(full.clone(), Some(&core));
+        assert_eq!(listing.len(), full.len());
+        let lean = tool_core::listed_only_schema();
+        assert_eq!(
+            listing.iter().filter(|t| t["input_schema"] != lean).count(),
+            size
+        );
+        if grant.identity == Identity::Ferb {
+            // FERB's own browser stands where the measured order names the owner's
+            assert!(core.contains("ferb_browser.snapshot"), "{core:?}");
+        }
+    }
+    // a grant with few tools: all in full, no tools.find
+    let few = RunGrant {
+        task_id: "t".into(),
+        worker_id: "w".into(),
+        scopes: ["fs:read".to_string()].into_iter().collect(),
+        identity: Identity::Owner,
+        expires_at: 1e9,
+        observe_only: false,
+        tools: BTreeSet::new(),
+        max_calls: 0,
+    };
+    let full = tools_for(&r, &few, &Live::default());
+    let offered: Vec<String> = full
+        .iter()
+        .map(|t| t["name"].as_str().unwrap().to_string())
+        .filter(|n| n != FIND)
+        .collect();
+    assert_eq!(tool_core::choose(Kind::Worker, &offered, &[]), None);
+    let listing = tool_core::listing(full.clone(), None);
+    assert_eq!(listing.len(), full.len() - 1);
+    assert!(listing.iter().all(|t| t["name"] != FIND));
 }

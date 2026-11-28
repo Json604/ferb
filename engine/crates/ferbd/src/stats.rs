@@ -398,6 +398,13 @@ fn run(
         repeats(&c, out)?;
     }
     resources(&c, days, tables.contains("resource_samples"), now, out)?;
+    // ORCH-756: the week's runs that said not done with a fitting tool listed by line and never called
+    let week = now
+        .utc
+        .plus(-crate::tool_guard::DAYS * 86_400, 0)
+        .map_err(|_| "OverflowError: date value out of range")?
+        .isoformat(Timespec::Auto);
+    crate::tool_guard::report(&c, &week, out)?;
     // ORCH-720: what each role's model calls cost (printed only when usage was recorded in the range)
     let range = match range {
         Some((from, to)) => crate::usage_stats::Range::Days { from, to },

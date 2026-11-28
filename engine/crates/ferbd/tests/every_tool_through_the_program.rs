@@ -58,6 +58,8 @@ fn calls() -> Vec<(&'static str, Value, Expect, &'static str)> {
     let no_tab = "no tab t1 open for this task";
     vec![
         ("actions.search", json!({"query": "files"}), Works, "read"),
+        // decision: ORCH-756
+        ("tools.find", json!({"name": "fs.read"}), Works, "read"),
         ("abilities.list", json!({}), Works, "read"),
         ("abilities.read", json!({"name": "google_docs"}), Works, "read"),
         ("device.facts", json!({}), Works, "read"),
