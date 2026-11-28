@@ -94,6 +94,9 @@ struct Hello {
     /// While pairing: the server's signed statement of the phone's FERB account, which the daemon checks (PHN-828).
     #[serde(default)]
     account: Option<String>,
+    /// PHN-849: a paired phone's new fingerprint-only key, with `pair` proving the code the owner made for it.
+    #[serde(default)]
+    update_fingerprint: Option<String>,
 }
 
 /// A paired phone as the daemon lists it (`link.devices`): the daemon's own table is the authority (kb PHN-469).
@@ -128,6 +131,8 @@ struct Pending {
 #[derive(Default)]
 struct PairState {
     window: Option<Window>,
+    /// PHN-849: the open window was made to update this paired phone's fingerprint key, and pairs nothing.
+    update_for: Option<String>,
     pending: Option<Pending>,
 }
 
@@ -512,7 +517,7 @@ impl Bridge {
     pub async fn asked(&self, what: &str, p: &Value) -> LinkResult<Value> {
         Ok(match what {
             "status" => self.status(),
-            "pair_start" => self.pair_start()?,
+            "pair_start" => self.pair_start_for(p.get("update").and_then(Value::as_str))?,
             "pair_cancel" => {
                 self.pair_cancel();
                 json!({"ok": true})
@@ -632,14 +637,23 @@ impl Bridge {
         })
     }
 
-    /// Opens the pairing window and returns what the QR shows. A new window replaces an open one.
+    /// Opens the pairing window and returns what the QR shows. A new window replaces an open one. With `update` (a
+    /// paired phone's id, PHN-849) the window only lets that phone replace its fingerprint key: no limit applies.
     pub fn pair_start(&self) -> LinkResult<Value> {
+        self.pair_start_for(None)
+    }
+    /// [`Self::pair_start`] for a new phone (`None`) or for the fingerprint update of the paired phone `update`.
+    pub fn pair_start_for(&self, update: Option<&str>) -> LinkResult<Value> {
         let l = self.limits();
         let max = self
             .inner
             .devices_max
             .load(std::sync::atomic::Ordering::Relaxed);
-        if self.devices().len() as u32 >= max {
+        if let Some(id) = update {
+            if self.device(id).is_none() {
+                return Err(errors::not_paired());
+            }
+        } else if self.devices().len() as u32 >= max {
             return Err(LinkError::new(
                 errors::DEVICE_LIMIT,
                 format!("FERB already has {max} paired phones, the most it keeps."),
@@ -676,6 +690,7 @@ impl Bridge {
             self.cancel_request(old.request_id);
         }
         p.window = Some(window);
+        p.update_for = update.map(str::to_string);
         // `url` is the link every build reads; `code` the short form the QR shows (the link itself when the
         // short form cannot carry this setup). Both name the same window.
         let url = invite.to_url();
@@ -687,6 +702,7 @@ impl Bridge {
     pub fn pair_cancel(&self) {
         let mut p = self.inner.pairing.lock().unwrap();
         p.window = None;
+        p.update_for = None;
         if let Some(old) = p.pending.take() {
             self.cancel_request(old.request_id);
         }
@@ -1050,15 +1066,25 @@ impl Bridge {
             let e = errors::version(VERSION, MIN_VERSION, hello.v, hello.min_v);
             return self.end_hello(&conn, tx, e).await;
         }
-        let device = match self.device(&peer) {
-            Some(d) => d,
+        let (device, updated) = match self.device(&peer) {
+            Some(d) => match hello
+                .update_fingerprint
+                .as_deref()
+                .filter(|_| hello.pair.is_some())
+            {
+                None => (d, false),
+                Some(key) => match self.update(&conn, &mut tx, &peer, &hello, key).await {
+                    Ok(d) => (d, true),
+                    Err(e) => return self.end_hello(&conn, tx, e).await,
+                },
+            },
             None => match self.pair(&conn, &mut tx, &peer, &hello).await {
-                Ok(d) => d,
+                Ok(d) => (d, false),
                 Err(e) => return self.end_hello(&conn, tx, e).await,
             },
         };
         drop(_slot);
-        self.session(conn, tx, rx, device, hello).await;
+        self.session(conn, tx, rx, device, hello, updated).await;
     }
 
     /// An error before the session exists: sent as an error frame on the hello stream, then the connection
@@ -1088,40 +1114,7 @@ impl Bridge {
             // an endpoint that only knows the Mac's id: nothing is shown on the Mac
             return Err(errors::not_paired());
         };
-        let closed = || {
-            LinkError::new(
-                errors::PAIR_WINDOW_CLOSED,
-                "The pairing code is no longer valid (it works once, for a short time).",
-            )
-            .allow("Choose Pair a phone on the Mac again and scan the new code")
-        };
-        {
-            let mut p = self.inner.pairing.lock().unwrap();
-            let Some(w) = p.window.as_mut() else {
-                return Err(closed());
-            };
-            if w.expired() {
-                p.window = None;
-                return Err(closed());
-            }
-            match w.check(&proof, self.ep().id(), conn.remote_id(), l.pair_wrong_max) {
-                Checked::Wrong { ended } => {
-                    if ended {
-                        p.window = None;
-                    }
-                    drop(p);
-                    self.tell_admin(json!({"event": "pair_wrong_secret", "window_closed": ended}));
-                    return Err(LinkError::new(
-                        errors::PAIR_SECRET_WRONG,
-                        "The pairing code did not match.",
-                    )
-                    .allow("Scan the code FERB shows on the Mac again"));
-                }
-                Checked::Right => {
-                    p.window = None; // single use: the secret is gone whatever the owner answers
-                }
-            }
-        }
+        self.take_window(conn, &proof, None)?;
         let name = store::clean_name(&hello.name);
         let code = crate::pairing::code(&proof);
         // decision: PHN-102
@@ -1188,6 +1181,149 @@ impl Bridge {
         Ok(d)
     }
 
+    /// The open window's one-time secret, proved by `proof`: used up when it matches (single use: the secret is gone
+    /// whatever the owner answers). `update`: the paired phone this connection is (PHN-849), for whom alone a window
+    /// made by "Update fingerprint" is; a pairing window never updates and an update window never pairs, and neither
+    /// is used up by the wrong kind.
+    fn take_window(&self, conn: &Connection, proof: &[u8], update: Option<&str>) -> LinkResult<()> {
+        let l = self.limits();
+        let closed = || {
+            LinkError::new(
+                errors::PAIR_WINDOW_CLOSED,
+                "The pairing code is no longer valid (it works once, for a short time).",
+            )
+            .allow(if update.is_some() {
+                "Choose Update fingerprint on the Mac again and scan the new code"
+            } else {
+                "Choose Pair a phone on the Mac again and scan the new code"
+            })
+        };
+        let mut p = self.inner.pairing.lock().unwrap();
+        let right_kind = p.update_for.as_deref() == update;
+        let Some(w) = p.window.as_mut() else {
+            return Err(closed());
+        };
+        if w.expired() {
+            p.window = None;
+            p.update_for = None;
+            return Err(closed());
+        }
+        if !right_kind {
+            return Err(match update {
+                None => LinkError::new(
+                    errors::UPDATE_CODE,
+                    "This code updates a paired phone's fingerprint. It can't pair a phone.",
+                )
+                .allow("Choose Pair a phone on the Mac and scan that code"),
+                Some(_) => LinkError::new(
+                    errors::UPDATE_CODE,
+                    "This code isn't for updating this phone's fingerprint.",
+                )
+                .allow(
+                    "On the Mac, choose Update fingerprint beside this phone and scan that code",
+                ),
+            });
+        }
+        match w.check(proof, self.ep().id(), conn.remote_id(), l.pair_wrong_max) {
+            Checked::Wrong { ended } => {
+                if ended {
+                    p.window = None;
+                    p.update_for = None;
+                }
+                drop(p);
+                self.tell_admin(json!({"event": "pair_wrong_secret", "window_closed": ended}));
+                Err(
+                    LinkError::new(errors::PAIR_SECRET_WRONG, "The pairing code did not match.")
+                        .allow("Scan the code FERB shows on the Mac again"),
+                )
+            }
+            Checked::Right => {
+                p.window = None;
+                p.update_for = None;
+                Ok(())
+            }
+        }
+    }
+
+    /// PHN-849: a paired phone whose fingerprints changed proved the code the owner made for it and offers a new
+    /// fingerprint-only key; the daemon asks the owner with the six digits both screens show, as for a pairing, and
+    /// his Yes replaces the key. Whatever the answer, the phone stays paired: a No ends only this connection.
+    async fn update(
+        &self,
+        conn: &Connection,
+        tx: &mut SendStream,
+        peer: &str,
+        hello: &Hello,
+        key: &str,
+    ) -> LinkResult<Device> {
+        let l = self.limits();
+        let proof = hello
+            .pair
+            .as_deref()
+            .and_then(b64_any)
+            .ok_or_else(|| LinkError::new(errors::BAD_REQUEST, "unreadable code proof"))?;
+        self.take_window(conn, &proof, Some(peer))?;
+        let code = crate::pairing::code(&proof);
+        let asked = self
+            .inner
+            .daemon
+            .link_call(
+                "link.pair_request",
+                json!({"endpoint": peer, "code": code, "strong_pub": key, "update": true}),
+                Duration::from_secs(5),
+            )
+            .await?;
+        let request_id = asked["request_id"].as_str().unwrap_or_default().to_string();
+        let name = self.device(peer).map(|d| d.name).unwrap_or_default();
+        self.inner.pairing.lock().unwrap().pending = Some(Pending {
+            phone: peer.to_string(),
+            name: name.clone(),
+            code: code.clone(),
+            request_id: request_id.clone(),
+        });
+        self.tell_admin(
+            json!({"event": "pair_request", "phone": peer, "name": name, "code": code,
+                               "request_id": request_id, "update": true}),
+        );
+        wire::write_json(
+            tx,
+            K_EVENT,
+            &json!({"type": "pairing", "state": "waiting_for_mac", "update": true}),
+        )
+        .await?;
+        let wait = Duration::from_secs(l.pair_confirm_s + 10);
+        let answer = tokio::select! {
+            r = self.inner.daemon.link_call("link.pair_wait", json!({"request_id": request_id}), wait) => r,
+            _ = conn.closed() => {
+                self.cancel_request(request_id.clone());
+                Ok(json!({"paired": false}))
+            }
+        };
+        {
+            let mut p = self.inner.pairing.lock().unwrap();
+            if p.pending
+                .as_ref()
+                .is_some_and(|x| x.request_id == request_id)
+            {
+                p.pending = None;
+            }
+        }
+        let yes = matches!(&answer, Ok(v) if v["paired"] == json!(true));
+        self.tell_admin(
+            json!({"event": "pair_ended", "phone": peer, "paired": yes, "update": true}),
+        );
+        if !yes {
+            answer?;
+            return Err(LinkError::new(
+                errors::PAIR_DENIED,
+                "The fingerprint update was not approved on the Mac.",
+            )
+            .allow("On the Mac, choose Update fingerprint again and say Yes when it asks"));
+        }
+        self.refresh_devices().await?;
+        self.device(peer).ok_or_else(errors::not_paired)
+    }
+
     // ---- one phone's connection ---------------------------------------------------------------------------------------
 
     async fn session(
@@ -1197,6 +1333,7 @@ impl Bridge {
         _hello_rx: RecvStream,
         device: Device,
         hello: Hello,
+        updated: bool,
     ) {
         let l = self.limits();
         // (the lock key is taken at pairing only: adding one later would let whoever holds the phone's link key choose it;
@@ -1210,6 +1347,10 @@ impl Bridge {
             "relay": self.relay_info(),
             "limits": l,
         });
+        let mut welcome = welcome;
+        if updated {
+            welcome["fingerprint_updated"] = json!(true);
+        }
         if wire::write_json(&mut tx, K_WELCOME, &welcome)
             .await
             .is_err()

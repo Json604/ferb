@@ -357,6 +357,11 @@ class FeaturesTest {
         vm.openFolder("~/Documents/Keys", keyPlace = true)
         assertEquals(R.string.needs_pairing_again, vm.ui.value.files.problem?.res)
         assertTrue(signers.isEmpty())
+        // the Mac holds the old fingerprint key: the words point at Update fingerprint (decision: PHN-849)
+        phone.state.value = PhoneState.Open(KeyHealth(KeyState.OK, KeyState.OK, KeyState.GONE, strongOnMac = true))
+        vm.openFolder("~/Documents/Keys", keyPlace = true)
+        assertEquals(R.string.needs_fingerprint_update, vm.ui.value.files.problem?.res)
+        assertTrue(signers.isEmpty())
     }
 
     // decision: PHN-13, PHN-115

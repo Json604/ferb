@@ -19,7 +19,7 @@ public enum KeyState: Sendable, Equatable {
     /// Not made: this phone could not hold it when the keys were made (no passcode, no Face ID or Touch ID).
     case none
     /// Made once and since lost: the passcode was turned off (iOS deletes the lock and strong keys), or (strong) the
-    /// enrolled faces or fingers changed.
+    /// enrolled faces or fingers changed, or (strong, [Vault.keyHealth]) the Mac holds another strong key than this one.
     case gone
 }
 
@@ -33,21 +33,29 @@ public struct PublicKeys: Equatable, Sendable {
     }
 }
 
-/// Which keys work now.
+/// Which keys work now. As the app reads it ([Vault.keyHealth]) `strong` is GONE also when this phone's Face ID / Touch
+/// ID key is not the one the Mac holds (one made for an update the owner didn't approve): the Mac would refuse its
+/// signature. `strongOnMac`: the Mac holds a Face ID / Touch ID key for this phone, so a new one can be given to it with
+/// Update fingerprint (PHN-849).
 public struct KeyHealth: Equatable, Sendable {
     public var device: KeyState
     public var lock: KeyState
     public var strong: KeyState
-    public init(device: KeyState, lock: KeyState, strong: KeyState) {
-        self.device = device; self.lock = lock; self.strong = strong
+    public var strongOnMac: Bool
+    public init(device: KeyState, lock: KeyState, strong: KeyState, strongOnMac: Bool = false) {
+        self.device = device; self.lock = lock; self.strong = strong; self.strongOnMac = strongOnMac
     }
 
     /// The Mac can no longer be unlocked from this phone (its lock key is gone, or there never was one) or no longer
     /// recognises it as this phone: pair again (after turning a passcode on).
     public var pairAgain: Bool { lock != .ok || device != .ok }
 
-    /// Only the Face ID / Touch ID key is gone: chat works; a hard Yes and sensitive changes need pairing again.
+    /// Only the Face ID / Touch ID key is gone, or the Mac holds another one ([Vault.keyHealth]): chat works; a hard Yes
+    /// and sensitive changes wait for Update fingerprint (PHN-849).
     public var fingerprintsChanged: Bool { strong == .gone }
+
+    /// The Face ID / Touch ID changed and the Mac can take a new key without pairing again: Update fingerprint.
+    public var updateFingerprint: Bool { fingerprintsChanged && strongOnMac && !pairAgain }
 }
 
 /// Where the private halves live and how they sign: the Secure Enclave on a phone, CryptoKit in software on the
@@ -137,6 +145,28 @@ public final class PhoneKeys: @unchecked Sendable {
         lock.unlock()
         return try ensure()
     }
+
+    /// The fingerprint-only key for Update fingerprint (PHN-849; owner 2026-11-28): a GONE one (the enrolled faces or
+    /// fingers changed) is deleted and made anew; a usable one is kept, as it may be one an earlier update made that the
+    /// Mac never took. Its public half, or nil when this phone can't hold one now (no Face ID or Touch ID enrolled).
+    /// Only the strong key changes: the device and lock keys the Mac holds stay.
+    public func strongForUpdate() throws -> String? {
+        lock.lock(); defer { lock.unlock() }
+        var r = readRecord()
+        let now = state(.strong, r)
+        if now != .ok {
+            guard backend.canHold(.strong) else { return nil }
+            if now == .gone { backend.delete(.strong) }
+            _ = try backend.make(.strong)
+            if !r.made.contains(KeyKind.strong.rawValue) { r.made.append(KeyKind.strong.rawValue) }
+            r.biometry = backend.biometryState()
+            writeRecord(r)
+        }
+        return publicKeysLocked(r).strong
+    }
+
+    /// The Face ID / Touch ID key's public half when it is usable, else nil. No prompt.
+    public func strongPublic() -> String? { publicKeys().strong }
 
     /// The public halves of the keys that are OK now.
     public func publicKeys() -> PublicKeys {

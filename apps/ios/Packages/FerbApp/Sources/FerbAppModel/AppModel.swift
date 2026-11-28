@@ -14,12 +14,23 @@ public enum PairReason: Sendable { case wiped, removed, keys, unknown }
 /// Why the Mac's side needs the owner's fingerprint again while the app is open (kb PHN-649's card).
 public enum MacNeed: Sendable { case lapsed, cancelled, old }
 
+/// Update fingerprint on the phone (PHN-849; owner 2026-11-28; Android's FingerprintCard): the card while this paired
+/// phone's Face ID / Touch ID key is one the Mac can't use and the Mac can take a new one, or an update started here is
+/// under way. `changed`: the card with its scan button, and why the last try didn't work; `waiting`: the link is
+/// reaching the Mac (no code yet) or the Mac asks the owner with these six digits. Never the pairing screens.
+public enum FingerprintStep: Equatable, Sendable {
+    case changed(problem: Note?)
+    case waiting(code: String?)
+}
+
 /// What pressing the microphone needs from the screen: nothing more, or iOS's microphone and speech questions.
 public enum VoicePress: Sendable { case done, askMicrophone }
 
 /// What slides up over the page. Only ids are kept (nothing saved holds question words, and never a private value).
 public enum AppSheet: Equatable, Sendable {
     case relay, profile, forget, typeCode, scan, ownRelay, notifications, help, stopAll, settings
+    /// Update fingerprint's scanner and its typed code (PHN-849): over the chat, never the pairing pages.
+    case fingerprintScan, fingerprintTypeCode
     /// The connection control's sheet (kb PHN-752): which Mac, how the link stands, its path, Try again.
     case connection
     case days(key: String)
@@ -208,6 +219,8 @@ public struct UiState: Equatable {
     public var settings: [MacSettingRow]? = nil
     /// A Face ID / Touch ID key made after pairing that the Mac doesn't know yet (PHN-133).
     public var newKeys = false
+    /// Update fingerprint's card (PHN-849), or nil when the Mac can use this phone's Face ID / Touch ID key.
+    public var fingerprint: FingerprintStep? = nil
     public init() {}
 }
 
@@ -349,6 +362,13 @@ public final class AppModel {
     public let account: AccountModel
     /// "I've installed it — pair now" was chosen (the phone-first page gives way to the pairing page).
     @ObservationIgnored private var pairChosen = false
+    /// Update fingerprint (PHN-849): one started here hasn't ended (its card follows the link's `fingerprintUpdate`), and
+    /// why the last one didn't start or take.
+    @ObservationIgnored private var fingerprintUpdating = false
+    @ObservationIgnored private var fingerprintNote: Note?
+    /// What the link said of the previous update when this one started: until it says something else, it is not this
+    /// update's word (the app's copy of the link's status can lag the call by a moment).
+    @ObservationIgnored private var fingerprintBefore: FingerprintUpdate??
     /// Binding a legacy pairing was tried since the last unlock (at most once per unlock, kb PHN-828).
     @ObservationIgnored private var bindTried = false
     @ObservationIgnored let session: Session
@@ -774,6 +794,7 @@ public final class AppModel {
         ui.gate = gate
         ui.pairReason = reason
         ui.macFirst = gate == .pair && reason == nil && !pairChosen && !ui.pairing
+        fingerprintOf(gate == .main ? keys : nil, l?.fingerprintUpdate)
         if case .failed(let code, let detail) = s { ui.failure = "\(code): \(detail)" } else { ui.failure = nil }
     }
 
@@ -1438,6 +1459,74 @@ public final class AppModel {
         }
     }
 
+    // ---- Update fingerprint (PHN-849) --------------------------------------------------------------------------------
+
+    /// The card from the keys' health and the link's word on the update started here: Done is said once and the card
+    /// goes with the changed key; a failure stays on the card in the link's words (Android's fingerprintHeard).
+    private func fingerprintOf(_ keys: KeyHealth?, _ update: FingerprintUpdate?) {
+        if fingerprintUpdating, let before = fingerprintBefore, before == update {
+            // still the previous update's word
+        } else if fingerprintUpdating {
+            fingerprintBefore = nil
+            switch update {
+            case .done?:
+                AppLog.i("fingerprint update: done")
+                fingerprintUpdating = false
+                fingerprintNote = nil
+                note(Note("fingerprint_done"))
+            case .failed(let p)?:
+                AppLog.i("fingerprint update failed: \(p.code)")
+                fingerprintUpdating = false
+                fingerprintNote = Self.fingerprintFailed(p)
+            default: break
+            }
+        }
+        let step: FingerprintStep?
+        if keys == nil || !(keys?.updateFingerprint == true || fingerprintUpdating) { step = nil }
+        else if fingerprintUpdating, case .waiting(let code)? = update { step = .waiting(code: code) }
+        else { step = .changed(problem: fingerprintNote) }
+        if ui.fingerprint != step { ui.fingerprint = step }
+    }
+
+    /// Why an Update fingerprint didn't take, in the link's words: what stopped it, then what would allow it; a Mac whose
+    /// FERB doesn't know updates yet is said as such (kb PHN-656).
+    public static func fingerprintFailed(_ p: LinkProblem) -> Note {
+        if p.code == "mac_link_older" { return Note("err_mac_older") }
+        return Note("err_mac_said", [p.detail, p.allow ?? ""].filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.joined(separator: " "))
+    }
+
+    private func refreshFingerprint() { fingerprintOf(ui.gate == .main ? api.state.keys : nil, api.link?.fingerprintUpdate) }
+
+    /// The card's Scan the code: the scanner, over the chat (never the pairing pages).
+    public func scanForFingerprint() {
+        fingerprintNote = nil
+        refreshFingerprint()
+        show(.fingerprintScan)
+    }
+
+    /// A scanned or typed code from Update fingerprint on the Mac: a new Face ID / Touch ID key goes to the Mac with
+    /// it; the card then shows the six digits to compare, and Done says so (PHN-849). The phone stays paired whatever
+    /// happens.
+    @discardableResult
+    public func updateFingerprint(_ code: String) -> Task<Void, Never> {
+        busy("fingerprint", tap: true) { [self] in
+            let text = code.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty { return }
+            sheet = nil
+            fingerprintUpdating = true
+            fingerprintNote = nil
+            fingerprintBefore = .some(api.link?.fingerprintUpdate)
+            refreshFingerprint()
+            AppLog.i("fingerprint update: asked")
+            if case .failed(let e) = await api.updateFingerprint(text) {
+                AppLog.i("fingerprint update refused: \(e.linkCode ?? e.code)")
+                fingerprintUpdating = false
+                fingerprintNote = e.linkCode == FerbPhone.noFingerprint ? Note("fingerprint_none") : Self.errorNote(e)
+            }
+            refreshFingerprint()
+        }
+    }
+
     /// "I've installed it — pair now" on the phone-first page: the pairing page (kb PHN-829).
     public func choosePair() {
         pairChosen = true
@@ -1938,7 +2027,7 @@ public final class AppModel {
         case .sent:
             refresh()
         case .notSent: break
-        case .needsPairingAgain: note(Note("answer_needs_pairing"))
+        case .needsPairingAgain: note(Note(ui.keys?.updateFingerprint == true ? "answer_needs_fingerprint" : "answer_needs_pairing"))
         case .failed(let e): failed(e)
         }
     }
@@ -2304,7 +2393,10 @@ public final class AppModel {
                 return nil
             }
         }
-        guard let kind = unlocker.freshKind() else { note(Note("needs_pairing_again")); return nil }
+        guard let kind = unlocker.freshKind() else {
+            note(Note(ui.keys?.updateFingerprint == true ? "needs_fingerprint_update" : "needs_pairing_again"))
+            return nil
+        }
         guard let signer = p.signer(kind, why: why) else { note(Note("err_try_again")); return nil }
         return signer
     }
@@ -2640,6 +2732,7 @@ public final class AppModel {
 
     public static func errorNote(_ e: FerbError) -> Note {
         if e.linkCode == Unlocker.pairAgain { return Note("needs_pairing_again") }
+        if e.linkCode == Unlocker.updateFingerprint { return Note("needs_fingerprint_update") }
         // a feature the paired Mac's FERB doesn't have yet: said, never a silent failure (kb PHN-656)
         if e.linkCode == "mac_link_older" || e.linkCode == "method_not_allowed" { return Note("err_mac_older") }
         if e.linkCode == "app_older" { return Note("err_app_older") }

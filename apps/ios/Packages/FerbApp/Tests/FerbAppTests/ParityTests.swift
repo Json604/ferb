@@ -359,8 +359,37 @@ final class ParityTests: XCTestCase {
         let t = try XCTUnwrap(rows.compactMap { if case .task(let t) = $0 { return t } else { return nil } }.first)
         XCTAssertEqual(t.tint, .asking)
         XCTAssertEqual(t.parts.first?.sub.map(\.title), ["Read the notes"])
+        // the running step shows its own picture (FERB.app's feederLines)
+        XCTAssertEqual(t.subWatch, [["t-1.s1"]])
         let since = rows.compactMap { if case .line(let k, _, _, let s) = $0, k.hasSuffix(":line") { return s } else { return nil } }.first
         XCTAssertEqual(since, Date(timeIntervalSince1970: 1_767_344_400))
+    }
+
+    /// Two rows waiting on the same running step: its picture shows under the first only (FERB.app's feederLines,
+    /// APP-891's once), a step that ended shows none, and each keeps its own mark.
+    // decision: PHN-736, PHN-737, PHN-851
+    func testAStepTwoRowsWaitOnShowsItsPictureOnceAndAnEndedStepNone() throws {
+        let card: [String: Any] = ["request_id": "r1", "task_id": "t-1", "total": 2,
+                                   "plan": [["id": "s1", "label": "Read the notes", "step_task_id": "t-1.s1"],
+                                            ["id": "s0", "label": "Open the folder", "step_task_id": "t-1.s0"],
+                                            ["id": "s2", "label": "Write the email", "step_task_id": "t-1.s2", "depends_on": ["s0", "s1"]],
+                                            ["id": "s3", "label": "Write the memo", "step_task_id": "t-1.s3", "depends_on": ["s1"]]],
+                                   "rows": [["part": "a", "label": "Draft the email", "state": "waiting", "step": "s2"],
+                                            ["part": "b", "label": "Draft the memo", "state": "waiting", "step": "s3"]]]
+        var v = try view([message("m1", "r1", "draft both"),
+                          entry("p1", "plan", "r1", ["text": "On it.", "plan_line": "On it.", "lines": [String](), "card": card], task: "t-1")])
+        var lv = try XCTUnwrap(v.live.first)
+        lv.rows = [LiveRow(id: "a", kind: "waiting", words: nil, spinner: false, until: nil),
+                   LiveRow(id: "b", kind: "waiting", words: nil, spinner: false, until: nil)]
+        let reading = LiveRow(id: "s1", kind: "running", words: "Reading", spinner: true, until: nil)
+        lv.feeders = [LiveFeeder(part: "a", step: "s0", label: "Open the folder", stepTaskId: "t-1.s0",
+                                 line: LiveRow(id: "s0", kind: "done", words: nil, spinner: false, until: nil)),
+                      LiveFeeder(part: "a", step: "s1", label: "Read the notes", stepTaskId: "t-1.s1", line: reading),
+                      LiveFeeder(part: "b", step: "s1", label: "Read the notes", stepTaskId: "t-1.s1", line: reading)]
+        v.live = [lv]
+        let t = try XCTUnwrap(ChatModel.rows(v).compactMap { if case .task(let t) = $0 { return t } else { return nil } }.first)
+        XCTAssertEqual(t.parts.map { $0.sub.map(\.kind) }, [[.done, .running], [.running]])
+        XCTAssertEqual(t.subWatch, [[nil, "t-1.s1"], [nil]])
     }
 
     /// A reply still coming says so; the work row also counts the Mac's tasks started elsewhere.
@@ -416,7 +445,8 @@ final class ParityTests: XCTestCase {
                 PlanPart(kind: .waiting, title: "Draft the email", detail: "Waiting for Review source materials",
                          sub: [PlanPart(kind: .running, title: "Find the contact", detail: "Searching the address book")]),
                 PlanPart(kind: .waiting, title: "Send it to the team", detail: "Waiting for Draft the email"),
-            ], status: "0 of 3 done · 1 running · 2 waiting", watching: [true, false, false], pictures: [nil, nil, nil])
+            ], status: "0 of 3 done · 1 running · 2 waiting", watching: [true, false, false], pictures: [nil, nil, nil],
+               subWatching: [[], [true], []])
             PartsCard(headline: "Book the dentist", progress: "1 of 2", parts: [
                 PlanPart(kind: .done, title: "Find a free slot", rich: words("Tuesday at 10 is free.")),
                 PlanPart(kind: .asking, title: "Book it", detail: "Needs you", tone: .amber),
@@ -433,6 +463,19 @@ final class ParityTests: XCTestCase {
     // decision: PHN-737, PHN-734, PHN-735
     func testGoldenTheCardOfPartsInEachStateOnThreeSkies() throws {
         for (hour, name) in [(6.5, "dawn"), (12.5, "noon"), (22.5, "night")] { shot(states(), "card-states-\(name)", height: 900, hour: hour) }
+    }
+
+    /// Update fingerprint's card (PHN-849): the owner's words with the scanner's button, a No's reason, and while the
+    /// Mac asks, the six digits to compare.
+    // decision: PHN-849
+    func testGoldenTheFingerprintCard() throws {
+        shot(VStack(spacing: 12) {
+            FingerprintCard(step: .changed(problem: nil), busy: false, bio: .faceID) {}
+            FingerprintCard(step: .changed(problem: Note("err_mac_said", "The fingerprint update was not approved on the Mac. On the Mac, choose Update fingerprint again and say Yes when it asks")),
+                            busy: false, bio: .faceID) {}
+            FingerprintCard(step: .waiting(code: "123 456"), busy: false) {}
+            FingerprintCard(step: .waiting(code: nil), busy: false) {}
+        }, "fingerprint-card", height: 1000, hour: 12.5)
     }
 
     // decision: PHN-737, PHN-738

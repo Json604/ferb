@@ -409,7 +409,7 @@ public final class Transfers {
         case .NeedsBetterPath: phase = .waitingPath
         default: phase = .failed
         }
-        let note: Note? = phase == .paused ? nil : (e.linkCode == Unlocker.pairAgain ? Note("needs_pairing_again") : AppModel.errorNote(e))
+        let note: Note? = phase == .paused ? nil : AppModel.errorNote(e)
         let local = self.local
         update(key) { t in
             let have = (t.way == .fetch && t.task == nil && local.isFile(t.local)) ? local.size(t.local) : t.done

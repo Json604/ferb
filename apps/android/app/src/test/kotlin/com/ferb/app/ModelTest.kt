@@ -6,9 +6,12 @@ import com.ferb.app.model.AppLock
 import com.ferb.app.model.Corpus
 import com.ferb.app.model.Moment
 import com.ferb.app.model.Question
+import com.ferb.app.model.Unlocker
+import com.ferb.app.model.Why
 import com.ferb.core.KeyHealth
 import com.ferb.core.KeyKind
 import com.ferb.core.KeyState
+import com.ferb.core.linkCode
 import com.ferb.core.Outcome
 import com.ferb.design.sky.SkyMoment
 import com.ferb.design.sky.SkyPlace
@@ -160,6 +163,25 @@ class AnswerFlowTest {
         phone.answerScript.add(FakePhone.refused("unlock_required"))
         assertEquals(Answered.NeedsPairingAgain, flow().answer("ap-1", AnswerInput.Approve(true, 1)))
         assertEquals(1, phone.calls.size)
+    }
+
+    // decision: PHN-849
+    @Test
+    fun changed_fingerprints_with_a_key_on_the_mac_point_at_update_fingerprint() = runBlocking {
+        keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.GONE, strongOnMac = true)
+        assertTrue(keys.updateFingerprint)
+        phone.answerScript.add(FakePhone.refused("unlock_required"))
+        // the answer is refused as before (no PIN in its place)
+        assertEquals(Answered.NeedsPairingAgain, flow().answer("ap-1", AnswerInput.Approve(true, 1)))
+        // a fresh proof the phone can't give says Update fingerprint, not pair again
+        val unlocker = Unlocker(phone, { keys }) { k, _ -> FakeSigner(k) }
+        val r = unlocker.withProof(upfront = true, why = Why.FILE) { Outcome.Ok(Unit) }
+        assertEquals(Unlocker.UPDATE_FINGERPRINT, (r as Outcome.Failed).error.linkCode)
+        assertEquals(R.string.needs_fingerprint_update, FerbViewModel.errorNote(r.error).res)
+        // the screen lock's case stays pair again
+        keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.GONE)
+        val again = Unlocker(phone, { keys }) { k, _ -> FakeSigner(k) }.withProof(upfront = true, why = Why.FILE) { Outcome.Ok(Unit) }
+        assertEquals(Unlocker.PAIR_AGAIN, (again as Outcome.Failed).error.linkCode)
     }
 
     // decision: PHN-125, PHN-13, PHN-503

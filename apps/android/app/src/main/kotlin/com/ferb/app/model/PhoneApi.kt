@@ -197,6 +197,12 @@ interface PhoneApi {
     suspend fun registerKeys(signer: (KeyKind) -> Signer): Outcome<Boolean>
 
     /**
+     * Update fingerprint: a new fingerprint-only key for the paired Mac, with the code FERB on the Mac shows after
+     * Update fingerprint (scanned or typed). Returns once the link took it; [link]'s `fingerprintUpdate` says the rest.
+     */
+    suspend fun updateFingerprint(code: String): Outcome<Unit>
+
+    /**
      * FERB's review of what an import brought in (kb MEM-460..457; ferb-mobile `review.rs`): the list as it stands, and
      * the owner's answer to items of one part (one or all at once), which gives the list after it. Both in the unlock window.
      */
@@ -313,6 +319,7 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun cachedMacInfo() = phone.call { it.cachedMacInfo() }
     override suspend fun unregisteredKeys() = phone.unregisteredKeys()
     override suspend fun registerKeys(signer: (KeyKind) -> Signer) = phone.registerKeys(signer)
+    override suspend fun updateFingerprint(code: String) = phone.updateFingerprint(code)
 
     override suspend fun memoryReview() = phone.call { it.memoryReview() }
     override suspend fun answerMemoryReview(part: String, itemIds: List<String>, answer: String) =

@@ -58,6 +58,8 @@ impl LinkError {
                 | ACCOUNT_MISMATCH
                 | MAC_SIGNED_OUT
                 | ACCOUNT_UNCONFIRMED
+                | UPDATE_CODE
+                | OTHER_MAC
         )
     }
 }
@@ -71,6 +73,11 @@ pub const PAIR_DENIED: &str = "pair_denied";
 pub const PAIR_BUSY: &str = "pair_busy";
 pub const DEVICE_LIMIT: &str = "device_limit";
 pub const ALREADY_PAIRED: &str = "already_paired";
+/// PHN-849: a code made to update one paired phone's fingerprint key, scanned for anything else (a new pairing,
+/// another phone).
+pub const UPDATE_CODE: &str = "update_code";
+/// PHN-849: a code from another Mac than the one this phone is paired with.
+pub const OTHER_MAC: &str = "other_mac";
 pub const VERSION_MISMATCH: &str = "version_mismatch";
 /// PHN-828: a phone pairs only with a Mac signed in to the same FERB account; the daemon checks the server's signed
 /// statement the phone sent, before the owner is asked. Each says what to do in its words; none is fixed by a redial
@@ -143,6 +150,7 @@ pub fn close_code(code: &str) -> u32 {
         ACCOUNT_MISMATCH => 0x1c,
         MAC_SIGNED_OUT => 0x1d,
         ACCOUNT_UNCONFIRMED => 0x1e,
+        UPDATE_CODE => 0x20,
         _ => 0x1f,
     }
 }

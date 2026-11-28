@@ -8,7 +8,7 @@ import Foundation
 final class PlaygroundPhone {
     var phones: [[String: Any]] = [
         ["id": "sample-pixel", "name": "Sample Pixel", "app": "android", "paired_at": PlaygroundSamples.time(-9 * 86_400),
-         "last_seen": PlaygroundSamples.time(-300), "unused_warning": false],
+         "last_seen": PlaygroundSamples.time(-300), "unused_warning": false, "fingerprint_key": true],
         ["id": "sample-tablet", "name": "Sample tablet", "app": "android", "paired_at": PlaygroundSamples.time(-50 * 86_400),
          "last_seen": PlaygroundSamples.time(-35 * 86_400), "unused_warning": true]]
     var pairing: [String: Any]?
@@ -43,13 +43,14 @@ final class PlaygroundPhone {
             guard let waiting = pairing else { return nil }
             pairing = nil
             let yes = params["yes"] as? Bool == true
-            if yes {
+            let update = waiting["update"] as? Bool == true
+            if yes, !update {
                 phones.append(["id": waiting["phone"] ?? "", "name": waiting["name"] ?? "", "app": "android",
                                "paired_at": PlaygroundSamples.time(), "last_seen": PlaygroundSamples.time(), "unused_warning": false])
             }
             audit.append(["at": PlaygroundSamples.time(), "phone": "", "method": "phone.pair_decide", "class": "owner",
                           "outcome": yes ? "ok" : "denied"])
-            return ["phone": waiting["phone"] ?? "", "name": waiting["name"] ?? "", "paired": yes]
+            return ["phone": waiting["phone"] ?? "", "name": waiting["name"] ?? "", "paired": yes, "update": update]
         case "phone.audit": return ["rows": audit]
         case "phone.link_status":
             let tier = ownRelay == nil ? "direct" : "own_relay"
@@ -62,11 +63,17 @@ final class PlaygroundPhone {
             if let ownRelay { status["own_relay"] = ["url": ownRelay, "token_set": true] as [String: Any] }
             return status
         case "phone.pair_start":
-            // a sample phone scans it a few seconds later
+            // a sample phone scans it a few seconds later: a new phone, or the paired phone the update names
+            let update = (params["update"] as? String).flatMap { id in phones.first { $0["id"] as? String == id } }
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(4))
-                self?.pairing = ["request_id": "sample-request", "phone": "sample-new-phone", "name": "Sample new phone",
-                                 "app": "android", "code": "482 913", "seconds_left": 120]
+                if let update {
+                    self?.pairing = ["request_id": "sample-update", "phone": update["id"] ?? "", "name": update["name"] ?? "",
+                                     "app": "android", "code": "305 718", "seconds_left": 120, "update": true]
+                } else {
+                    self?.pairing = ["request_id": "sample-request", "phone": "sample-new-phone", "name": "Sample new phone",
+                                     "app": "android", "code": "482 913", "seconds_left": 120]
+                }
             }
             return ["code": "FERB1-SAMPLE-CODE-ONLY", "url": "ferb://pair?sample", "qr": Self.rows, "qr_old": Self.rows, "seconds": 120]
         case "phone.pair_cancel": pairing = nil; return ["ok": true]

@@ -136,6 +136,65 @@ final class KeysTests: XCTestCase {
         XCTAssertEqual(keys2.health(), KeyHealth(device: .none, lock: .none, strong: .none))
     }
 
+    /// Update fingerprint's key (PHN-849): a strong key iOS made unusable is replaced by a new one; a usable one is
+    /// kept (an earlier update the Mac never took made it); the device and lock keys never change; a phone with no Face
+    /// ID or Touch ID gets none.
+    // decision: PHN-849
+    func testUpdateFingerprintReplacesOnlyAGoneStrongKey() throws {
+        let store = MemoryStore()
+        let phone = FakeSettings()
+        phone.passcode = true
+        let backend = SoftwareBackend(store: store, holds: { kind in kind == .lock ? phone.passcode : kind == .strong ? phone.biometrics : true },
+                                      biometry: { phone.faces })
+        let keys = PhoneKeys(backend: backend, record: dir.appendingPathComponent("keys.made"))
+        let paired = try keys.ensure()
+
+        XCTAssertEqual(try keys.strongForUpdate(), paired.strong, "a usable key is kept")
+        phone.faces = Data("faces-2".utf8)   // a face added: the strong key is gone
+        XCTAssertEqual(keys.health().strong, .gone)
+        let fresh = try XCTUnwrap(try keys.strongForUpdate())
+        XCTAssertNotEqual(fresh, paired.strong, "a new key")
+        XCTAssertEqual(keys.health(), KeyHealth(device: .ok, lock: .ok, strong: .ok), "it works with the faces as they are now")
+        XCTAssertEqual(keys.publicKeys().device, paired.device)
+        XCTAssertEqual(keys.publicKeys().lock, paired.lock)
+        XCTAssertNotNil(keys.sign(.strong, "{}", reason: "test"))
+        XCTAssertEqual(try keys.strongForUpdate(), fresh, "made once: a second scan reuses it")
+
+        phone.faces = Data("faces-3".utf8)
+        phone.biometrics = false   // Face ID turned off: nothing to make
+        XCTAssertNil(try keys.strongForUpdate())
+    }
+
+    /// The Mac's view of the strong key (PHN-849): a usable key that isn't the one the Mac holds counts as changed.
+    // decision: PHN-849
+    func testAStrongKeyTheMacDoesntHoldReadsAsChanged() throws {
+        let store = MemoryStore()
+        let phone = FakeSettings()
+        phone.passcode = true
+        let keys = PhoneKeys(backend: SoftwareBackend(store: store, holds: { kind in kind == .lock ? phone.passcode : true },
+                                                      biometry: { phone.faces }),
+                             record: dir.appendingPathComponent("keys.made"))
+        let vault = Vault(dir: dir.appendingPathComponent("ferb"), secrets: store, keys: keys)
+        let paired = try keys.ensure()
+        vault.saveRegisteredKeys(paired)
+        XCTAssertEqual(vault.keyHealth().strong, .ok)
+
+        phone.faces = Data("faces-2".utf8)
+        let made = try XCTUnwrap(try keys.strongForUpdate())   // made for an update the owner then said No to
+        XCTAssertEqual(keys.health().strong, .ok)
+        XCTAssertEqual(vault.keyHealth().strong, .gone, "the Mac still holds the old key")
+        XCTAssertTrue(vault.keyHealth().fingerprintsChanged)
+        XCTAssertFalse(vault.keyHealth().pairAgain, "chat still works")
+        XCTAssertTrue(vault.keyHealth().updateFingerprint, "the Mac holds a strong key: it can take a new one")
+
+        vault.saveRegisteredKeys(PublicKeys(device: paired.device, lock: paired.lock, strong: made))   // the Mac's Done
+        XCTAssertEqual(vault.keyHealth().strong, .ok)
+
+        vault.saveRegisteredKeys(PublicKeys(device: paired.device, lock: paired.lock, strong: nil))   // paired without one
+        XCTAssertEqual(vault.keyHealth().strong, .ok, "a key the Mac was never given is registered, not changed")
+        XCTAssertFalse(vault.keyHealth().strongOnMac)
+    }
+
     /// The prompt stands between the app and the lock and strong keys; the device key never asks.
     // decision: PHN-497, PHN-561
     func testOnlyTheDeviceKeySignsWithoutThePrompt() throws {
@@ -155,6 +214,7 @@ final class KeysTests: XCTestCase {
 /// The phone's settings as a test changes them.
 final class FakeSettings: @unchecked Sendable {
     var passcode = false
+    var biometrics = true
     var faces: Data? = Data("faces-1".utf8)
     var asked: [KeyKind] = []
     var allow = false

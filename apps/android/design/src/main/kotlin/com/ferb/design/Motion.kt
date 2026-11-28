@@ -50,8 +50,13 @@ object Motion {
     /** Conversation.swift ConvoPlayer.stop: ease-out 0.25 s. */
     const val CLOSE_MS = 250
 
-    /** Mobile.swift Mark(.running): one turn in 0.8 s. Theme.swift Spinner: 0.9 s. */
-    const val MARK_TURN_MS = 800
+    /**
+     * Every running spinner turns as FERB.app's RowSpinner (TurnCardView.swift): a 70 % arc, one turn in 0.9 s. The
+     * owner chose the Mac's over the lab's (Mobile.swift Mark(.running): a 30 % arc in 0.8 s, which a still frame
+     * shows as "("), 2026-11-28. Theme.swift Spinner: 0.9 s.
+     */
+    const val RUNNING_TURN_MS = 900
+    const val RUNNING_SWEEP = 0.7f
     const val SPINNER_TURN_MS = 900
 
     /** SwiftUI's easeInOut and easeOut curves. */

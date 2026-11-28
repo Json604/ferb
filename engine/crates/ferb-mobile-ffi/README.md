@@ -69,6 +69,7 @@ interface PreviewSink { fun frame(frame: PreviewFrame); fun ended(code: String?,
 // the link
 Link.start(config: LinkConfig, listener: LinkListener, deviceSigner: DeviceSigner?): Link
 l.endpointId(): String; l.pair(code: String, account: String); l.status(): LinkStatus; l.setActive(on: Boolean)
+l.updateFingerprint(code: String, strongPub: String)
 l.networkChanged(kind: String?); l.retry(); l.forget(); l.shutdown(); l.isClosed(): Boolean
 // what the app implements
 interface Clock { fun nowIso(): String }                 interface Ids { fun newId(): String }
@@ -148,6 +149,12 @@ state is `LinkStatus.relay`.
   `mac_signed_out`, `account_unconfirmed`, with the words to show). `LinkStatus` then shows `Pairing`,
   `PairingWaitForMac` with `pairingCode` (the six digits both screens show, `123 456`), and `Online` with `paired`
   once the owner said Yes on the Mac. `forget()` forgets the Mac on the phone (the phone's link key stays).
+- **Fingerprint update (PHN-849):** when a paired phone's fingerprints change, Android and iOS destroy its
+  fingerprint-only key. `updateFingerprint(code, strongPub)` takes the code FERB on the Mac shows after Update fingerprint
+  beside that phone, and the phone's new key. `LinkStatus.fingerprintUpdate` then goes through `Waiting` (with `code`,
+  the six digits both screens show, once the Mac asks), then `Done` or `Failed` with the problem. The phase stays
+  Connecting/Online as for any paired phone, and the phone stays paired whatever the answer. Refused at once with link
+  code `not_paired` or `other_mac`. A pairing code can't update and an update code can't pair (`update_code`).
 - **Status:** `phase`, `path` (Direct, OwnRelay, PublicRelay, Offline), `tierWords`, `bulkAllowed` (PHN-444),
   `ownRelayUrl` and `ownRelayAlways` (the Mac's setting: the phone follows the Mac's relay, PHN-418/453; the owner
   changes it in FERB on the Mac), `relay` (`Shared`, `Own`, `OwnDown`, `OwnFallback`, with the problem), `problem`

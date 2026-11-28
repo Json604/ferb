@@ -128,6 +128,12 @@ final class FakePhone: PhoneApi {
         return pairResult
     }
     func endpointId() async -> String? { endpoint }
+    /// What Update fingerprint answers at once (PHN-849); how it goes is the link's `fingerprintUpdate`.
+    @ObservationIgnored var updateResult: Outcome<Void> = .ok(())
+    func updateFingerprint(_ code: String) async -> Outcome<Void> {
+        calls.append("update:\(code)")
+        return updateResult
+    }
     /// What binding a legacy pairing answers (PHN-828), and the assertions it carried.
     @ObservationIgnored var bindResult: Outcome<Bool> = .ok(true)
     @ObservationIgnored var bound: [String] = []
@@ -477,10 +483,10 @@ final class FakePhone: PhoneApi {
     }
 
     static func status(_ phase: LinkPhase = .online, paired: Bool = true, path: LinkPath = .direct, code: String? = nil,
-                       problem: LinkProblem? = nil) -> LinkStatus {
+                       problem: LinkProblem? = nil, update: FingerprintUpdate? = nil) -> LinkStatus {
         LinkStatus(phase: phase, path: path, tierWords: nil, pairingCode: code, paired: paired, bulkAllowed: path != .publicRelay,
                    slow: false, ownRelayUrl: nil, ownRelayAlways: false, relay: nil, problem: problem, retryInS: nil, macOlder: false,
-                   macNewer: false)
+                   macNewer: false, fingerprintUpdate: update)
     }
 
     static func refused(_ linkCode: String) -> FerbError { .NeedsUnlock(detail: "The Mac wants the phone's proof.", linkCode: linkCode) }

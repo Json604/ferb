@@ -360,7 +360,7 @@ class StormUplinks(private val mac: StormMac) : UplinkFactory {
         tierWords = when (path) { LinkPath.DIRECT -> "a direct connection"; LinkPath.PUBLIC_RELAY -> "the shared relay"; else -> null },
         pairingCode = null, paired = true, bulkAllowed = path == LinkPath.DIRECT, slow = false, ownRelayUrl = null,
         ownRelayAlways = false, relay = null, problem = null, retryInS = if (phase == LinkPhase.WAITING) 2uL else null,
-        macOlder = false, macNewer = false,
+        macOlder = false, macNewer = false, fingerprintUpdate = null,
     )
 
     /** The link's state changed: the core hears its event, the app its status (each on the link's own thread). */
@@ -381,6 +381,7 @@ class StormUplinks(private val mac: StormMac) : UplinkFactory {
                 this@StormUplinks.mobile = mobile
             }
             override fun pair(code: String, account: String) {}
+            override fun updateFingerprint(code: String, strongPub: String) {}
             override fun endpointId(): String = ""
             override fun status(): LinkStatus? = now
             override fun setActive(on: Boolean) {}

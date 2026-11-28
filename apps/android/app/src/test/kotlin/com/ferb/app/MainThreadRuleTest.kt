@@ -90,8 +90,9 @@ class MainThreadRuleTest {
                 mobile.linkEvent("""{"type":"state","phase":"online","tier":"direct"}""")
             }
             override fun pair(code: String, account: String) {}
+            override fun updateFingerprint(code: String, strongPub: String) {}
             override fun endpointId(): String = ""
-            override fun status() = LinkStatus(LinkPhase.ONLINE, LinkPath.DIRECT, "a direct connection", null, true, true, false, null, false, null, null, null, false, false)
+            override fun status() = LinkStatus(LinkPhase.ONLINE, LinkPath.DIRECT, "a direct connection", null, true, true, false, null, false, null, null, null, false, false, null)
             override fun setActive(on: Boolean) { said += "active=$on" }
             override fun setOpen(on: Boolean) { said += "open=$on" }
             override fun networkChanged(kind: String?) { said += "network=$kind" }

@@ -8,6 +8,9 @@ public protocol Uplink: AnyObject, Sendable {
     /// Pairs from a code, carrying `account`: the server's signed word of this phone's FERB account for this link's
     /// endpoint id, which the Mac's daemon checks against its own account before it asks the owner (PHN-828).
     func pair(_ code: String, account: String) throws
+    /// Update fingerprint (PHN-849): the paired phone gives the Mac `strongPub`, proven by the code FERB on the Mac shows
+    /// after Update fingerprint. Returns at once; `LinkStatus.fingerprintUpdate` says how it goes.
+    func updateFingerprint(_ code: String, strongPub: String) throws
     /// This phone's link id (its endpoint id): what the account's assertion names.
     func endpointId() -> String
     func status() -> LinkStatus?
@@ -61,6 +64,7 @@ private final class LinkUplink: Uplink, @unchecked Sendable {
     init(_ link: Link) { self.link = link }
     func attach(_ mobile: Mobile) throws { try mobile.connect(link: link) }
     func pair(_ code: String, account: String) throws { try link.pair(code: code, account: account) }
+    func updateFingerprint(_ code: String, strongPub: String) throws { try link.updateFingerprint(code: code, strongPub: strongPub) }
     func endpointId() -> String { link.endpointId() }
     func status() -> LinkStatus? { link.status() }
     func setActive(_ on: Bool) { try? link.setActive(on: on) }

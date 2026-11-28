@@ -230,13 +230,16 @@ fun Mark(kind: MarkKind, size: Dp = Phone.mark, modifier: Modifier = Modifier) {
     }
 }
 
-/** Mobile.swift Mark(.running): a 30 % arc, 2.5 wide, round ends, inset 2, one turn in 0.8 s. */
+/**
+ * The running spinner: FERB.app's RowSpinner, a 70 % arc turning once in 0.9 s, round ends ([Motion.RUNNING_SWEEP]);
+ * the lab's Mark(.running) gives it its 2.5 line and inset 2 where no thinner line is asked for.
+ */
 @Composable
 fun RunningArc(size: Dp, color: Color, modifier: Modifier = Modifier, stroke: Dp = 2.5.dp) {
     val reduced = rememberReducedMotion()
     val turn: androidx.compose.runtime.State<Float>? = if (reduced) null else {
         val transition = rememberInfiniteTransition(label = "running")
-        transition.animateFloat(0f, 360f, infiniteRepeatable(tween(Motion.MARK_TURN_MS, easing = LinearEasing), RepeatMode.Restart), label = "turn")
+        transition.animateFloat(0f, 360f, infiniteRepeatable(tween(Motion.RUNNING_TURN_MS, easing = LinearEasing), RepeatMode.Restart), label = "turn")
     }
     // The turn is read while drawing, in a layer of its own: a turning mark redraws itself alone and recomposes
     // nothing, wherever it sits (kb PHN-711).
@@ -244,7 +247,7 @@ fun RunningArc(size: Dp, color: Color, modifier: Modifier = Modifier, stroke: Dp
         val w = stroke.toPx()
         val inset = (if (stroke < 2.5.dp) 1.dp else 2.dp).toPx() + w / 2
         drawArc(
-            color, startAngle = turn?.value ?: 0f, sweepAngle = 0.3f * 360f, useCenter = false,
+            color, startAngle = turn?.value ?: 0f, sweepAngle = Motion.RUNNING_SWEEP * 360f, useCenter = false,
             topLeft = Offset(inset, inset), size = Size(this.size.width - 2 * inset, this.size.height - 2 * inset),
             style = Stroke(w, cap = StrokeCap.Round),
         )

@@ -570,9 +570,12 @@ public enum CardTint: Sendable { case none, asking, failed, updated
 /// running adn after too. please make it clean liek mac"): one card on FERB's surface, no fill behind any part, no
 /// buttons. A running or waiting part is one line: a thin spinner or a small hollow circle, its label, its state words
 /// in the quieter ink (each of the two at most half the line when both are long, cut with "…"), its own picture at the
-/// far right. A part that ended is its label as a small heading with its answer under it, hairlines between them; the
-/// footer is the done line in bold with code's lines after it. A tap on a running part with no picture opens its task's
-/// short view (Watch live and Stop are there).
+/// far right. Under a waiting part, the steps it waits on that no part answers are compact lines (FERB.app's
+/// ChecklistLineView under a waiting CardRowView, APP-895): their marks under the part's label, a smaller label that
+/// keeps the line before its state words do, and the step's own picture while it runs, once per step. A part that ended
+/// is its label as a small heading with its answer under it, hairlines between them; the footer is the done line in bold
+/// with code's lines after it. A tap on a running part with no picture opens its task's short view (Watch live and Stop
+/// are there).
 public struct PartsCard: View {
     let headline: String
     let progress: String
@@ -585,16 +588,28 @@ public struct PartsCard: View {
     var pictures: [UIImage?] = []
     var onPicture: ((Int) -> Void)?
     var onPart: ((Int) -> Void)?
+    /// Per part, per step under it (`PlanPart.sub`): whether that step shows its own picture, the picture, and its tap.
+    var subWatching: [[Bool]] = []
+    var subPictures: [[UIImage?]] = []
+    var onSubPicture: ((Int, Int) -> Void)?
     var more = "Show more", less = "Show less"
     @Environment(\.onFerb) private var onFerb
 
     public init(headline: String, progress: String, parts: [PlanPart], tint: CardTint = .none, status: String? = nil, footer: String? = nil,
                 footerLines: [String] = [], watching: [Bool] = [], pictures: [UIImage?] = [], onPicture: ((Int) -> Void)? = nil,
-                onPart: ((Int) -> Void)? = nil, more: String = "Show more", less: String = "Show less") {
+                onPart: ((Int) -> Void)? = nil, subWatching: [[Bool]] = [], subPictures: [[UIImage?]] = [],
+                onSubPicture: ((Int, Int) -> Void)? = nil, more: String = "Show more", less: String = "Show less") {
         self.headline = headline; self.progress = progress; self.parts = parts; self.tint = tint; self.status = status; self.footer = footer
         self.footerLines = footerLines; self.watching = watching; self.pictures = pictures; self.onPicture = onPicture; self.onPart = onPart
+        self.subWatching = subWatching; self.subPictures = subPictures; self.onSubPicture = onSubPicture
         self.more = more; self.less = less
     }
+
+    /// The nested steps' column (FERB.app's feeder lines sit at the row's own text edge): the part's label starts after
+    /// its padding, its 14-point mark and the 8 between them.
+    static let subIndent: CGFloat = 14 + 14 + 8
+    /// FERB.app's RowSpinner draws its 9-point circle with a 1.4 line; the card here is drawn about 1.2 times its size.
+    static let spinnerWidth: CGFloat = 1.7
 
     private static func live(_ k: MarkKind) -> Bool { k == .running || k == .waiting }
 
@@ -610,8 +625,17 @@ public struct PartsCard: View {
             ForEach(Array(parts.enumerated()), id: \.offset) { i, p in
                 if Self.live(p.kind) {
                     let watch = i < watching.count && watching[i]
-                    line(p, ink, indent: false, picture: watch ? .some(i < pictures.count ? pictures[i] : nil) : nil, index: i)
-                    ForEach(Array(p.sub.enumerated()), id: \.offset) { _, s in line(s, ink, indent: true, picture: nil, index: nil) }
+                    line(p, ink, picture: watch ? .some(i < pictures.count ? pictures[i] : nil) : nil, index: i)
+                    if !p.sub.isEmpty {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(p.sub.enumerated()), id: \.offset) { j, s in
+                                let w = i < subWatching.count && j < subWatching[i].count && subWatching[i][j]
+                                let pic = i < subPictures.count && j < subPictures[i].count ? subPictures[i][j] : nil
+                                subLine(s, ink, picture: w ? .some(pic) : nil) { onSubPicture?(i, j) }
+                            }
+                        }
+                        .padding(.leading, Self.subIndent).padding(.trailing, 14).padding(.bottom, 4)
+                    }
                 } else {
                     if i > 0 && !Self.live(parts[i - 1].kind) { hairline(ink) }
                     ended(p, ink)
@@ -637,15 +661,12 @@ public struct PartsCard: View {
 
     private func hairline(_ ink: CardInk) -> some View { Rectangle().fill(ink.line).frame(height: 1).padding(.horizontal, 14) }
 
-    @ViewBuilder private func line(_ p: PlanPart, _ ink: CardInk, indent: Bool, picture: UIImage??, index: Int?) -> some View {
+    @ViewBuilder private func line(_ p: PlanPart, _ ink: CardInk, picture: UIImage??, index: Int?) -> some View {
         let waiting = p.kind == .waiting
         HStack(spacing: 8) {
             Group {
                 if waiting { Circle().stroke(ink.faint, lineWidth: 1.2).frame(width: 10, height: 10) }
-                else { MotionClock { t in
-                    Circle().trim(from: 0, to: 0.3).stroke(ink.secondary, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
-                        .rotationEffect(.degrees(t.truncatingRemainder(dividingBy: 0.8) / 0.8 * 360)).padding(1)
-                } }
+                else { RunningArc(color: ink.secondary, width: Self.spinnerWidth).padding(1) }
             }
             .frame(width: 14, height: 14)
             ViewThatFits(in: .horizontal) {
@@ -662,11 +683,49 @@ public struct PartsCard: View {
                 .buttonStyle(.plain).accessibilityLabel("Live preview of \(p.title)")
             }
         }
-        .padding(.leading, indent ? 34 : 14).padding(.trailing, 14).padding(.vertical, 3)
+        .padding(.leading, 14).padding(.trailing, 14).padding(.vertical, 3)
         .frame(minHeight: 34)
         .contentShape(Rectangle())
         .onTapGesture { if picture == nil, let index { onPart?(index) } }
         .accessibilityElement(children: .combine)
+    }
+
+    /// A step under a waiting part (FERB.app's ChecklistLineView): its small mark, its label (semibold while it runs,
+    /// greyed once done) that keeps the line before its state words do, those words, and its picture while it runs.
+    private func subLine(_ p: PlanPart, _ ink: CardInk, picture: UIImage??, onPicture: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            subMark(p.kind, ink).frame(width: 14, height: 14)
+            Text(p.title).type(14, p.kind == .running ? .semibold : .regular,
+                               p.kind == .done ? ink.faint : p.kind == .running || p.kind == .asking ? ink.primary : ink.secondary)
+                .lineLimit(1).truncationMode(.tail).layoutPriority(1)
+            if let d = p.detail, !d.isEmpty {
+                Text(d).type(13.5, .regular, p.kind == .asking ? ink.amberText : p.kind == .failed ? ink.red : ink.secondary)
+                    .lineLimit(1).truncationMode(.tail)
+            }
+            Spacer(minLength: 0)
+            if let picture {
+                Button(action: onPicture) {
+                    Group { if let image = picture { Image(uiImage: image).resizable().scaledToFill() } else { Ink.darkFill } }
+                        .frame(width: 24, height: 24).clipShape(Circle())
+                        .overlay(Circle().stroke(Ink.amber.opacity(0.65), lineWidth: 1))
+                }
+                .buttonStyle(.plain).accessibilityLabel("Live preview of \(p.title)")
+            }
+        }
+        .padding(.vertical, 1)
+        .frame(minHeight: 26)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// FERB.app's checklist marks at the phone's size: a check, the turning arc, a hollow circle, a question, a cross.
+    @ViewBuilder private func subMark(_ k: MarkKind, _ ink: CardInk) -> some View {
+        switch k {
+        case .done: Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(ink.secondary)
+        case .running: RunningArc(color: ink.secondary, width: Self.spinnerWidth).padding(1)
+        case .waiting: Circle().stroke(ink.faint, lineWidth: 1.2).frame(width: 10, height: 10)
+        case .asking: Image(systemName: "questionmark.circle.fill").font(.system(size: 10)).foregroundStyle(Ink.amber)
+        case .failed: Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(ink.red)
+        }
     }
 
     private func label(_ p: PlanPart, _ ink: CardInk, _ waiting: Bool) -> some View {

@@ -279,7 +279,8 @@ class ParityShotsTest {
                 PlanPart(MarkKind.WAITING, "Draft the email", "Waiting for Review source materials",
                     sub = listOf(PlanPart(MarkKind.RUNNING, "Find the contact", "Searching the address book"))),
                 PlanPart(MarkKind.WAITING, "Send it to the team", "Waiting for Draft the email"),
-            ), status = "0 of 3 done · 1 running · 2 waiting", watch = listOf("t-1.s1", null, null)),
+            ), status = "0 of 3 done · 1 running · 2 waiting", watch = listOf("t-1.s1", null, null),
+                subWatch = listOf(emptyList(), listOf("t-1.s2a"), emptyList())),
             ChatRow.Task("ask", "t-2", "Book the dentist", 1, 2, listOf(
                 PlanPart(MarkKind.DONE, "Find a free slot", rich = listOf(com.ferb.design.components.RichBlock.Paragraph(listOf(com.ferb.design.components.RichRun("Tuesday at 10 is free."))))),
                 PlanPart(MarkKind.ASKING, "Book it", "Needs you", tone = com.ferb.design.components.PartTone.AMBER),
@@ -320,6 +321,46 @@ class ParityShotsTest {
             PlanPart(MarkKind.WAITING, "Tell you the next three trains")))
         compose.setContent { Frame(base.copy(rows = listOf(eight, checklist))) }
         shoot("card-eight-and-checklist.png")
+    }
+
+    /** A part that waits on steps no part answers: each step a compact line under the part's label, the working one
+     *  bold with its own picture, its label kept whole before its words are cut (FERB.app's feeder lines, APP-895). */
+    // decision: PHN-737
+    // decision: PHN-851
+    @Test
+    fun a_waiting_part_shows_its_steps_as_compact_lines_under_it() {
+        val card = ChatRow.Task("nested", "t-1", "Microsoft outreach email", 0, 3, listOf(
+            PlanPart(MarkKind.RUNNING, "Review source materials", "Reading the outreach notes"),
+            PlanPart(MarkKind.WAITING, "Draft the email", "Waiting for its steps", sub = listOf(
+                PlanPart(MarkKind.DONE, "Open the shared folder"),
+                PlanPart(MarkKind.RUNNING, "Look up everyone on the outreach list", "Searching the address book for each name"),
+                PlanPart(MarkKind.WAITING, "Check the team's calendar"))),
+            PlanPart(MarkKind.WAITING, "Send it to the team", "Waiting for Draft the email"),
+        ), status = "0 of 3 done · 2 running · 2 waiting", watch = listOf("t-1.s1", null, null),
+            subWatch = listOf(emptyList(), listOf(null, "t-1.s2a", null), emptyList()))
+        compose.setContent { Frame(base.copy(rows = listOf(ChatRow.Owner("m", "Write the Microsoft outreach email", emptyList(), null), card))) }
+        shoot("card-nested-steps.png")
+    }
+
+    /** Update fingerprint's card on the chat: what changed and where on the Mac, then the six digits while the Mac asks. */
+    // decision: PHN-849
+    @Test
+    fun the_update_fingerprint_card_and_its_code() {
+        val keys = KeyHealth(KeyState.OK, KeyState.OK, KeyState.GONE, strongOnMac = true)
+        val rows = listOf<ChatRow>(ChatRow.Owner("m", "Pay the electricity bill", emptyList(), null))
+        val waiting = FakePhone.status().copy(fingerprintUpdate = com.ferb.mobile.FingerprintUpdate.Waiting("123 456"))
+        var ui by androidx.compose.runtime.mutableStateOf(base.copy(rows = rows, keys = keys, fingerprintUpdating = true, link = waiting))
+        compose.setContent { Frame(ui) }
+        compose.onNodeWithText("Waiting for your Mac").assertExists()
+        shoot("fingerprint-code.png")
+        // with the clock held, a state write reaches the composition once its snapshot is applied
+        ui = base.copy(rows = rows, keys = keys)
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        shoot("fingerprint-changed.png")
+        ui = ui.copy(fingerprintNote = FerbViewModel.fingerprintFailed(
+            com.ferb.mobile.LinkProblem("pair_denied", "Your Mac said no, so fingerprint checks stay off.", null)))
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        shoot("fingerprint-failed.png")
     }
 
     private fun question(id: String, body: String): com.ferb.app.model.Question =

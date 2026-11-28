@@ -252,6 +252,101 @@ class FerbPhoneTest {
         assertEquals(KeyState.OK, (p.state.value as PhoneState.Open).keys.strong)
     }
 
+    /** The link's status carrying [update] (online, paired, direct). */
+    private fun linkSays(update: com.ferb.mobile.FingerprintUpdate?) = com.ferb.mobile.LinkStatus(
+        com.ferb.mobile.LinkPhase.ONLINE, com.ferb.mobile.LinkPath.DIRECT, null, null, true, true, false, null, false, null, null, null,
+        false, false, update,
+    )
+
+    private fun until(what: String, ok: () -> Boolean) {
+        val end = System.currentTimeMillis() + 5_000
+        while (!ok()) {
+            if (System.currentTimeMillis() > end) throw AssertionError("waited for $what")
+            Thread.sleep(10)
+        }
+    }
+
+    private fun strongNow(p: FerbPhone) = (p.state.value as PhoneState.Open).keys
+
+    // decision: PHN-849
+    @Test
+    fun update_fingerprint_offers_a_new_key_and_records_it_only_when_the_mac_says_done() = runBlocking {
+        val keys = SoftwareKeys()
+        val uplinks = FakeUplinks()
+        val vault = Vault(dir, MemoryProtector(), keys)
+        val p = phone(vault, uplinks)
+        p.start()
+        assertTrue(p.pair("FERB-INVENTED", "fpa1.invented.statement") is Outcome.Ok)
+        val old = vault.registeredKeys()!!.strong!!
+        keys.gone.add(KeyKind.STRONG) // a fingerprint was added: Android destroyed the key
+        assertTrue(p.updateFingerprint("FERB-UPDATE") is Outcome.Ok)
+        val link = uplinks.made.last()
+        val (code, offered) = link.updates.single()
+        assertEquals("FERB-UPDATE", code)
+        assertNotEquals("a new key, not the destroyed one", old, offered)
+        assertEquals(offered, keys.strongPublic())
+        assertEquals("no pairing for an update", listOf("FERB-INVENTED"), uplinks.made.flatMap { it.paired })
+        // until the Mac says Done the Mac holds the old key: fingerprint checks stay off
+        until("the health") { strongNow(p).strong == KeyState.GONE }
+        assertTrue(strongNow(p).updateFingerprint)
+        assertEquals(old, vault.registeredKeys()!!.strong)
+        uplinks.starts.last().listener.statusChanged(linkSays(com.ferb.mobile.FingerprintUpdate.Waiting("123 456")))
+        Thread.sleep(50)
+        assertEquals(old, vault.registeredKeys()!!.strong)
+        uplinks.starts.last().listener.statusChanged(linkSays(com.ferb.mobile.FingerprintUpdate.Done))
+        until("the key recorded as the Mac's") { vault.registeredKeys()!!.strong == offered }
+        until("the checks back on") { strongNow(p).strong == KeyState.OK }
+        assertFalse(strongNow(p).updateFingerprint)
+        // the other keys the Mac holds are unchanged
+        assertEquals(keys.pairs[KeyKind.LOCK]!!.public.let(Proofs::publicKey), vault.registeredKeys()!!.lock)
+    }
+
+    // decision: PHN-849
+    @Test
+    fun a_refused_update_leaves_the_old_key_registered_and_the_next_one_offers_the_same_new_key() = runBlocking {
+        val keys = SoftwareKeys()
+        val uplinks = FakeUplinks()
+        val vault = Vault(dir, MemoryProtector(), keys)
+        val p = phone(vault, uplinks)
+        p.start()
+        assertTrue(p.pair("FERB-INVENTED", "fpa1.invented.statement") is Outcome.Ok)
+        val old = vault.registeredKeys()!!.strong!!
+        keys.gone.add(KeyKind.STRONG)
+        assertTrue(p.updateFingerprint("FERB-UPDATE") is Outcome.Ok)
+        val first = uplinks.made.last().updates.single().second
+        uplinks.starts.last().listener.statusChanged(linkSays(com.ferb.mobile.FingerprintUpdate.Failed(
+            com.ferb.mobile.LinkProblem("pair_denied", "Your Mac said no.", null))))
+        Thread.sleep(50)
+        assertEquals("a No keeps the Mac's key", old, vault.registeredKeys()!!.strong)
+        until("the health") { strongNow(p).strong == KeyState.GONE }
+        // a usable key the Mac doesn't hold yet is offered again, not replaced
+        assertTrue(p.updateFingerprint("FERB-UPDATE-2") is Outcome.Ok)
+        assertEquals(first, uplinks.made.last().updates.last().second)
+        // the link's refusal comes back typed, and nothing is recorded
+        uplinks.made.last().refuseUpdate = com.ferb.mobile.FerbException.Refused("This code is from another Mac.", "other_mac")
+        val r = p.updateFingerprint("FERB-OTHER")
+        assertEquals("other_mac", (r as Outcome.Failed).error.linkCode)
+        assertEquals(old, vault.registeredKeys()!!.strong)
+    }
+
+    // decision: PHN-849
+    @Test
+    fun update_fingerprint_needs_a_fingerprint_on_the_phone() = runBlocking {
+        val keys = SoftwareKeys()
+        val uplinks = FakeUplinks()
+        val vault = Vault(dir, MemoryProtector(), keys)
+        val p = phone(vault, uplinks)
+        p.start()
+        assertTrue(p.pair("FERB-INVENTED", "fpa1.invented.statement") is Outcome.Ok)
+        keys.gone.add(KeyKind.STRONG)
+        keys.fingerprint = false // every fingerprint was removed
+        val r = p.updateFingerprint("FERB-UPDATE")
+        assertEquals(FerbPhone.NO_FINGERPRINT, (r as Outcome.Failed).error.linkCode)
+        assertTrue(uplinks.made.last().updates.isEmpty())
+        // still said as changed fingerprints: the card stays until a fingerprint is added and the update is made
+        until("the health") { strongNow(p).updateFingerprint }
+    }
+
     // decision: PHN-828
     @Test
     fun pairing_hands_the_account_statement_to_the_link_for_its_own_endpoint() = runBlocking {

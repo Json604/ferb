@@ -220,6 +220,23 @@ pub fn add_keys(
     by_endpoint(conn, endpoint)
 }
 
+/// The phone's fingerprint-only key is replaced (PHN-849: its fingerprints changed and the owner said Yes on the Mac to
+/// the matching code). Only a live phone that holds one already: a phone without one registers it with [`add_keys`].
+pub fn replace_strong(
+    conn: &Connection,
+    endpoint: &str,
+    strong_pub: &str,
+) -> Result<Option<Phone>> {
+    let changed = conn.execute(
+        "UPDATE phone_devices SET strong_pub = ? WHERE endpoint = ? AND removed_at IS NULL AND strong_pub IS NOT NULL",
+        params![strong_pub, endpoint],
+    )?;
+    if changed == 0 {
+        return Ok(None);
+    }
+    by_endpoint(conn, endpoint)
+}
+
 /// The unused warning was given now.
 pub fn mark_warned(conn: &Connection, id: i64, now: &str) -> Result<()> {
     conn.execute(

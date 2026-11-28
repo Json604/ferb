@@ -5298,3 +5298,12 @@ request = "Over a few days, let FERB learn things about you as you use it (prefe
 pass = "Nothing about memory is asked while you work or at a start; the day's first open (either device) shows at most one card or note, later opens nothing new; the card lists all with Approve all on top and a tick per line; Approve answers the ticked and declines the unticked in one tap; the note's Review opens To check (Mac) or a sheet (phone); an unanswered card or note waits and the note's number changes at most once a day."
 decisions = ["MEM-485", "MEM-486", "MEM-487", "MEM-488"]
 sitting = "after this build is installed, over three or four days"
+
+[LIVE-1224]
+title = "A paired phone whose fingerprints changed gets fingerprint checks back with Update fingerprint"
+area = "phone"
+surface = "FERB.app and the Android APK of this change, paired; a fingerprint added on the phone"
+request = "Add a fingerprint on the phone (or remove one), open FERB on it, read the card. On the Mac, Settings → Phone, choose Update fingerprint beside the phone, scan the code from the card, compare the six digits and say No; then do it again and say Yes. Answer a question that needs the fingerprint from the phone."
+pass = "The card shows at once and chat still works. After the No the phone stays connected and fingerprint checks stay off. After the Yes the phone says it is done, the Mac says the phone can use the fingerprint again, the phone keeps its name and chat, and the fingerprint answer goes through."
+decisions = ["PHN-849", "PHN-850"]
+sitting = "about 5 minutes"

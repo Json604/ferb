@@ -18,6 +18,12 @@ interface Uplink {
      */
     fun pair(code: String, account: String)
 
+    /**
+     * Gives the paired Mac this phone's new fingerprint-only key [strongPub] with the code FERB on the Mac shows after
+     * Update fingerprint. Returns at once; [LinkStatus.fingerprintUpdate] says how it goes.
+     */
+    fun updateFingerprint(code: String, strongPub: String)
+
     /** This phone's link id (its endpoint id): what the account statement names; empty when the link can't say. */
     fun endpointId(): String
     fun status(): LinkStatus?
@@ -71,6 +77,7 @@ class LinkUplinks(private val tune: (LinkConfig) -> LinkConfig = { it }) : Uplin
 private class LinkUplink(private val link: Link) : Uplink {
     override fun attach(mobile: Mobile) = mobile.connect(link)
     override fun pair(code: String, account: String) = link.pair(code, account)
+    override fun updateFingerprint(code: String, strongPub: String) = link.updateFingerprint(code, strongPub)
     override fun endpointId(): String = link.endpointId()
     override fun status(): LinkStatus? = link.status()
     override fun setActive(on: Boolean) = link.setActive(on)

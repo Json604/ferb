@@ -120,6 +120,7 @@ public final class FerbPhone {
         engine = Engine(vault: vault, uplinks: uplinks, identity: identity, clock: clock, ids: ids, utcOffsetS: utcOffsetS)
         engine.onChange = { [weak self] change in Task { @MainActor in self?.emit(change) } }
         engine.onLink = { [weak self] status in Task { @MainActor in self?.link = status } }
+        engine.onKeys = { [weak self] in Task { @MainActor in self?.publishOpen() } }
     }
 
     /// The real phone: the vault in Application Support and the Keychain, the real link, this phone's names.
@@ -171,6 +172,21 @@ public final class FerbPhone {
         return r
     }
 
+    /// The app's own code: Update fingerprint needs Face ID or Touch ID set up on this phone first (PHN-849).
+    public nonisolated static let noFingerprint = "no_fingerprint"
+
+    /// Update fingerprint (PHN-849; owner 2026-11-28): this paired phone's fingerprints changed, so iOS made its Face ID /
+    /// Touch ID key unusable. A new one is made (a usable one the Mac doesn't hold is kept) and handed to the Mac with
+    /// `code`, the code FERB on the Mac shows after Settings → Phone → Update fingerprint. Returns once the link has it;
+    /// `link.fingerprintUpdate` says how it goes. On Done the new key is recorded as the Mac's and the keys' health is
+    /// published again; on anything else the phone stays paired and the Mac keeps the old key.
+    public func updateFingerprint(_ code: String) async -> Outcome<Void> {
+        let r = await engine.serial { $0.updateFingerprint(code) }
+        publishOpen()
+        link = await engine.concurrent { $0.linkStatus() }
+        return r
+    }
+
     /// This phone's link id (its endpoint id), or nil before the link started. A restart for new keys keeps it (the
     /// same kept state); Forget this Mac makes a new one.
     public func endpointId() async -> String? {
@@ -215,8 +231,8 @@ public final class FerbPhone {
     public func stopEverything() async -> Outcome<Void> { await call { try $0.stopEverything() } }
 
     /// Keys this phone holds that the Mac was never given (a Face ID or Touch ID enrolled after a pairing made
-    /// without one); nil when there is nothing to register. A strong key iOS made unusable is replaced only by
-    /// pairing again (PHN-133).
+    /// without one); nil when there is nothing to register. A strong key iOS made unusable is replaced by Update
+    /// fingerprint ([updateFingerprint], PHN-849).
     public func unregisteredKeys() async -> PublicKeys? { await engine.serial { $0.unregisteredKeys() } }
 
     /// Registers [unregisteredKeys] with the Mac (`link.keys`), signed by the strong key where the Mac holds one,
@@ -224,7 +240,7 @@ public final class FerbPhone {
     public func registerKeys(_ signer: @escaping @Sendable (KeyKind) -> Signer) async -> Outcome<Bool> {
         // the vault's file and the keys' health are read off the main actor (a Keychain round each, kb PHN-682)
         guard let fresh = await unregisteredKeys(), let mac = await engine.concurrent({ $0.vault.registeredKeys() }) else { return .ok(false) }
-        let strongOk = await engine.concurrent { $0.vault.keys.health().strong == .ok }
+        let strongOk = await engine.concurrent { $0.vault.keyHealth().strong == .ok }
         let kind: KeyKind = (mac.strong != nil && strongOk) ? .strong : .lock
         let s = signer(kind)
         let r = await call { try $0.registerKeys(devicePub: fresh.device, strongPub: fresh.strong, signer: s) }
@@ -284,7 +300,7 @@ public final class FerbPhone {
         guard engine.mobile != nil, state != .closed else { return }
         let engine = self.engine
         Task { [weak self] in
-            let keys = await engine.concurrent { $0.vault.keys.health() }
+            let keys = await engine.concurrent { $0.vault.keyHealth() }
             guard let self, engine.mobile != nil, self.state != .closed else { return }
             self.state = .open(keys: keys, wiped: engine.wiped)
         }
@@ -308,6 +324,9 @@ final class Engine: @unchecked Sendable {
     private(set) var wiped: Lost?
     var onChange: (@Sendable (Change) -> Void)?
     var onLink: (@Sendable (LinkStatus) -> Void)?
+    var onKeys: (@Sendable () -> Void)?
+    /// The strong key handed to the Mac by the last Update fingerprint, until the Mac's Done records it (PHN-849).
+    private var _updating: String?
 
     var mobile: Mobile? { lock.lock(); defer { lock.unlock() }; return _mobile }
     var uplink: Uplink? { lock.lock(); defer { lock.unlock() }; return _uplink }
@@ -356,17 +375,27 @@ final class Engine: @unchecked Sendable {
     private lazy var deviceSigner = DeviceKeySigner(vault.keys)
 
     fileprivate func changed(_ c: Change) { onChange?(c) }
-    fileprivate func statusChanged(_ s: LinkStatus) { onLink?(s) }
+    fileprivate func statusChanged(_ s: LinkStatus) {
+        // PHN-849: the Mac took the new strong key: when it is still this phone's, it is what the Mac holds now
+        if case .done = s.fingerprintUpdate {
+            lock.lock(); let sent = _updating; _updating = nil; lock.unlock()
+            if let sent, let held = vault.registeredKeys(), held.strong != sent, vault.keys.strongPublic() == sent {
+                vault.saveRegisteredKeys(PublicKeys(device: held.device, lock: held.lock, strong: sent))
+            }
+            if sent != nil { onKeys?() }
+        }
+        onLink?(s)
+    }
     fileprivate func persist(_ state: Data) {
         // on the link's thread, at once: the state holds the phone's link key
         do { try vault.saveLinkState(state) } catch { NSLog("ferb-link: the link state could not be kept: \(error)") }
     }
 
     func start() -> PhoneState {
-        if mobile != nil { return .open(keys: vault.keys.health(), wiped: wiped) }
+        if mobile != nil { return .open(keys: vault.keyHealth(), wiped: wiped) }
         do {
             try bringUp()
-            return .open(keys: vault.keys.health(), wiped: wiped)
+            return .open(keys: vault.keyHealth(), wiped: wiped)
         } catch let e as FerbError {
             NSLog("ferb: the start failed: %@ (%@)", e.code, e.detail)
             return .failed(code: e.code, detail: e.detail)
@@ -392,6 +421,24 @@ final class Engine: @unchecked Sendable {
         } catch let e as FerbError {
             return .failed(e)
         } catch {
+            return .failed(.Internal(detail: "\(error)", linkCode: nil))
+        }
+    }
+
+    func updateFingerprint(_ code: String) -> Outcome<Void> {
+        do {
+            guard let u = uplink, vault.registeredKeys() != nil else { return .failed(.Closed(detail: "FERB is not open.", linkCode: nil)) }
+            guard let pub = try vault.keys.strongForUpdate() else {
+                return .failed(.NeedsSigner(detail: "This phone has no Face ID or Touch ID set up.", linkCode: FerbPhone.noFingerprint))
+            }
+            lock.lock(); _updating = pub; lock.unlock()
+            try u.updateFingerprint(code, strongPub: pub)
+            return .ok(())
+        } catch let e as FerbError {
+            lock.lock(); _updating = nil; lock.unlock()
+            return .failed(e)
+        } catch {
+            lock.lock(); _updating = nil; lock.unlock()
             return .failed(.Internal(detail: "\(error)", linkCode: nil))
         }
     }

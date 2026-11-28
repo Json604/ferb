@@ -14,7 +14,7 @@ struct SheetsView: View {
 
     var body: some View {
         // one sheet at a time, up from below and back down; a going one keeps what it last showed (kb PHN-623)
-        MotionSwitch((model.sheet == .scan ? nil : model.sheet).map(SheetKey.init), kind: .sheet) { k in sheet(k.sheet) }
+        MotionSwitch((model.sheet == .scan || model.sheet == .fingerprintScan ? nil : model.sheet).map(SheetKey.init), kind: .sheet) { k in sheet(k.sheet) }
     }
 
     /// The sheet as the switch's key (AppSheet is Equatable only).
@@ -26,7 +26,7 @@ struct SheetsView: View {
     @ViewBuilder private func sheet(_ shown: AppSheet) -> some View {
         let close = { model.show(nil) }
         switch Optional(shown) {
-        case nil, .scan:
+        case nil, .scan, .fingerprintScan:
             EmptyView()   // the scanner is a page of its own (Root's ScanPage)
         case .relay:
             RelaySheet(copy: LabSample.relay, insets: insets, onClose: close)
@@ -86,6 +86,8 @@ struct SheetsView: View {
             }
         case .typeCode:
             TypeCode(model: model, insets: insets, close: close)
+        case .fingerprintTypeCode:
+            TypeCode(model: model, insets: insets, close: close, update: true)
         case .ownRelay:
             let url = model.ui.link?.ownRelayUrl
             Plain(title: L.s("mac_own_relay_title"), text: url.map { L.s("mac_own_relay_set", hostOf($0)) } ?? L.s("mac_own_relay_none"),
@@ -196,9 +198,12 @@ struct TypeCode: View {
     @Bindable var model: AppModel
     let insets: PhoneInsets
     let close: () -> Void
+    /// Update fingerprint's code (PHN-849): the button updates instead of pairing.
+    var update = false
     @State private var code = ""
 
     var body: some View {
+        let ready = !code.trimmingCharacters(in: .whitespaces).isEmpty
         Plain(title: L.s("type_code_title"), text: L.s("type_code_text"), insets: insets, close: close) {
             TextField(L.s("type_code_hint"), text: $code)
                 .font(.system(size: 16)).foregroundStyle(Ink.black)
@@ -206,7 +211,8 @@ struct TypeCode: View {
                 .padding(.horizontal, 16).frame(minHeight: 54)
                 .background(Ink.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .padding(.top, 16)
-            Pill(title: L.s("type_code_pair"), kind: .black, onClick: code.trimmingCharacters(in: .whitespaces).isEmpty ? nil : { model.pair(code) })
+            Pill(title: L.s(update ? "type_code_update" : "type_code_pair"), kind: .black,
+                 onClick: !ready ? nil : update ? { model.updateFingerprint(code) } : { model.pair(code) })
                 .padding(.top, 14)
         }
     }

@@ -122,6 +122,7 @@
     <string name="private_decline">Don\'t fill in</string>
     <string name="private_field">Type it here</string>
     <string name="answer_needs_pairing">This answer needs your fingerprint, and this phone\'s fingerprint key changed. Answer on your Mac, or pair this phone again.</string>
+    <string name="answer_needs_fingerprint">This answer needs your fingerprint, and this phone\'s fingerprints changed. Answer on your Mac, or turn fingerprint checks back on: in FERB on your Mac, Settings → Phone → Update fingerprint.</string>
 
     <!-- what isn't on the phone yet -->
     <!-- Speaking to FERB (kb PHN-603..605): hold the microphone; the words land in the message box, never sent by themselves -->
@@ -146,6 +147,15 @@
     <string name="voice_failed">FERB didn\'t catch that. Hold the microphone and try again, or type your message.</string>
     <string name="not_on_shared_relay">Not on the shared relay. This waits until your phone reaches your Mac directly or through your own relay.</string>
     <string name="needs_pairing_again">This needs your fingerprint, and this phone\'s fingerprint key changed. Pair this phone again to do it here.</string>
+    <string name="needs_fingerprint_update">This needs your fingerprint, and this phone\'s fingerprints changed. To do it here, turn fingerprint checks back on: in FERB on your Mac, Settings → Phone → Update fingerprint.</string>
+
+    <!-- Update fingerprint (PHN-133: a new fingerprint-only key without pairing again; the card's and Done's words are the owner's) -->
+    <string name="fingerprint_changed">Your phone\'s fingerprints changed, so FERB turned off fingerprint checks from this phone. Chat still works. To turn them back on, open FERB on your Mac: Settings → Phone → Update fingerprint.</string>
+    <string name="fingerprint_compare">Your Mac shows a code. Say Yes there only if it is this one:</string>
+    <string name="fingerprint_waiting">Waiting for your Mac</string>
+    <string name="fingerprint_done">Done. Your Mac can ask for your fingerprint again.</string>
+    <string name="fingerprint_none">This phone has no fingerprint set up. Add one in Android\'s settings, then scan the code again.</string>
+    <string name="type_code_update">Update fingerprint</string>
 
     <!-- Stop everything (DMN-1, PHN-125) -->
     <string name="stop_all_title">Stop everything on your Mac?</string>

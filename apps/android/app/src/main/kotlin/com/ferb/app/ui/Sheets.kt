@@ -160,7 +160,7 @@ fun Sheets(vm: FerbViewModel, ui: UiState, sheet: Sheet?, insets: PhoneInsets, h
             Pill(stringResource(R.string.forget_yes), Modifier.padding(top = 18.dp), onClick = { vm.forget() })
             Pill(stringResource(R.string.cancel), Modifier.padding(top = 4.dp), PillKind.PLAIN, height = 44.dp, onClick = close)
         }
-        Sheet.TypeCode -> TypeCode(vm, insets, close)
+        Sheet.TypeCode -> TypeCodeSheet(vm, ui.gate == com.ferb.app.Gate.MAIN, insets, close)
         Sheet.Scan -> Unit // a page of its own (Root's Pair), not a sheet
         Sheet.OwnRelay -> {
             val url = ui.link?.ownRelayUrl
@@ -226,13 +226,15 @@ fun Field(value: String, onChange: (String) -> Unit, hint: String, modifier: Mod
     }
 }
 
+/** The code typed in: a pairing's, or on the paired app ([update]) Update fingerprint's (FerbViewModel.codeRead). */
 @Composable
-private fun TypeCode(vm: FerbViewModel, insets: PhoneInsets, close: () -> Unit) {
+private fun TypeCodeSheet(vm: FerbViewModel, update: Boolean, insets: PhoneInsets, close: () -> Unit) {
     var code by remember { mutableStateOf("") }
     Plain(stringResource(R.string.type_code_title), stringResource(R.string.type_code_text), insets, close) {
         Field(code, { code = it }, stringResource(R.string.type_code_hint), Modifier.padding(top = 16.dp),
             KeyboardOptions(KeyboardCapitalization.Characters, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done))
-        Pill(stringResource(R.string.type_code_pair), Modifier.padding(top = 14.dp), onClick = if (code.isBlank()) null else ({ vm.pair(code) }))
+        Pill(stringResource(if (update) R.string.type_code_update else R.string.type_code_pair), Modifier.padding(top = 14.dp),
+            onClick = if (code.isBlank()) null else ({ vm.codeRead(code) }))
     }
 }
 

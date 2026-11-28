@@ -25,7 +25,7 @@ class Unlocker(
     private val keys: () -> KeyHealth?,
     private val signer: (KeyKind, Why) -> Signer?,
 ) {
-    /** The key for a fresh proof, or null: this phone's keys changed and it must pair again. */
+    /** The key for a fresh proof, or null: this phone's keys changed (Update fingerprint, or pair again). */
     fun freshKind(): KeyKind? {
         val k = keys() ?: return null
         return when {
@@ -36,7 +36,7 @@ class Unlocker(
         }
     }
 
-    /** A signer for a fresh proof, or null (pair again; [PAIR_AGAIN]). */
+    /** A signer for a fresh proof, or null ([UPDATE_FINGERPRINT] or [PAIR_AGAIN]). */
     fun fresh(why: Why): Signer? = freshKind()?.let { signer(it, why) }
 
     /** [block], and once more after the Mac's unlock when the Mac's window had closed. */
@@ -66,7 +66,12 @@ class Unlocker(
         return run { block(proof) }
     }
 
-    private fun pairAgain(): Outcome.Failed = Outcome.Failed(FerbException.NeedsSigner("Pair this phone again.", PAIR_AGAIN))
+    /** No key can sign: the fingerprints changed and the Mac can take a new key (Update fingerprint), else pair again. */
+    private fun pairAgain(): Outcome.Failed = if (keys()?.updateFingerprint == true) {
+        Outcome.Failed(FerbException.NeedsSigner("Update this phone's fingerprint in FERB on your Mac.", UPDATE_FINGERPRINT))
+    } else {
+        Outcome.Failed(FerbException.NeedsSigner("Pair this phone again.", PAIR_AGAIN))
+    }
 
     companion object {
         /** The Mac's codes for "this call needs the phone's own proof" (not "the window closed"). */
@@ -74,5 +79,8 @@ class Unlocker(
 
         /** The app's own code: the key that would sign is gone (the fingerprints changed): pair again. */
         const val PAIR_AGAIN = "pair_again"
+
+        /** The app's own code: the fingerprint-only key changed and the Mac holds the old one: Update fingerprint. */
+        const val UPDATE_FINGERPRINT = "update_fingerprint"
     }
 }

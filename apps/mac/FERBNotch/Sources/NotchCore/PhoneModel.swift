@@ -39,6 +39,9 @@ public struct PhoneEntry: Equatable, Identifiable {
     public let lastSeen: Date?
     /// Unused for the warning's days (PHN-419): said on its row until it is seen again; never removed by itself.
     public let unusedWarning: Bool
+    /// The daemon holds a fingerprint key for it (`fingerprint_key`): its row offers Update fingerprint, for when the
+    /// phone's fingerprints changed and that key stopped working. False from a daemon that doesn't say.
+    public let fingerprintKey: Bool
     public var connection: PhoneConnection?
 
     init?(_ value: [String: Any]) {
@@ -49,6 +52,7 @@ public struct PhoneEntry: Equatable, Identifiable {
         pairedAt = WindowTime.parse(value["paired_at"])
         lastSeen = WindowTime.parse(value["last_seen"])
         unusedWarning = value["unused_warning"] as? Bool ?? false
+        fingerprintKey = value["fingerprint_key"] as? Bool ?? false
     }
 }
 
@@ -58,6 +62,8 @@ public struct PairRequest: Equatable {
     public let phone: String
     public let name: String
     public let code: String
+    /// A paired phone asking to replace its fingerprint key (`update`), not a new phone asking to pair.
+    public let update: Bool
 
     init?(_ value: Any?) {
         guard let value = value as? [String: Any], let phone = value["phone"] as? String, !phone.isEmpty else { return nil }
@@ -65,16 +71,28 @@ public struct PairRequest: Equatable {
         self.phone = phone
         name = (value["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? PhoneWords.unnamedPhone
         code = value["code"] as? String ?? ""
+        update = value["update"] as? Bool ?? false
     }
 
-    private init(requestID: String?, phone: String, name: String, code: String) {
-        self.requestID = requestID; self.phone = phone; self.name = name; self.code = code
+    private init(requestID: String?, phone: String, name: String, code: String, update: Bool) {
+        self.requestID = requestID; self.phone = phone; self.name = name; self.code = code; self.update = update
     }
 
     /// Six digits as "123 456", or nothing: a code the bus masked is never shown as if it were the code.
     var withoutMaskedCode: PairRequest {
         let digits = code.filter(\.isNumber)
-        return digits.count == 6 ? self : PairRequest(requestID: requestID, phone: phone, name: name, code: "")
+        return digits.count == 6 ? self : PairRequest(requestID: requestID, phone: phone, name: name, code: "", update: update)
+    }
+}
+
+/// What `phone.pair_decide` answered: whether the Yes took effect, and whether it was a fingerprint update.
+public struct PairDecision: Equatable {
+    public let paired: Bool
+    public let update: Bool
+
+    public init(paired: Bool, update: Bool = false) {
+        self.paired = paired
+        self.update = update
     }
 }
 
@@ -330,13 +348,15 @@ public protocol PhoneService: AnyObject {
     func list() async throws -> PhoneList
     func rename(id: String, name: String) async throws -> String
     func remove(id: String) async throws
-    /// The owner's answer to the phone waiting (`phone.pair_decide`): whether it is paired now.
-    func decide(requestID: String?, yes: Bool) async throws -> Bool
+    /// The owner's answer to the phone waiting (`phone.pair_decide`): whether it is paired (or its key updated) now.
+    func decide(requestID: String?, yes: Bool) async throws -> PairDecision
     func audit(limit: Int) async throws -> [PhoneAuditRow]
     // the phone link's helper
     var hasLink: Bool { get }
     func linkStatus() async throws -> LinkStatus
-    func startPairing() async throws -> PairingInvite
+    /// A code for a new phone, or (`update`: a paired phone's id) one that only lets that phone replace its fingerprint
+    /// key (`phone.pair_start {"update": id}`).
+    func startPairing(update: String?) async throws -> PairingInvite
     func cancelPairing() async throws
     func testRelay(_ entry: RelayEntry) async throws -> RelayCheck
     /// Tested by the helper first; saved only when the test passes (PHN-205).
@@ -379,10 +399,11 @@ public final class RPCPhoneService: PhoneService {
 
     public func remove(id: String) async throws { _ = try await daemon.call("phone.remove", params: ["id": id]) }
 
-    public func decide(requestID: String?, yes: Bool) async throws -> Bool {
+    public func decide(requestID: String?, yes: Bool) async throws -> PairDecision {
         var params: [String: Any] = ["yes": yes]
         if let requestID { params["request_id"] = requestID }
-        return try await daemon.call("phone.pair_decide", params: params)["paired"] as? Bool ?? false
+        let reply = try await daemon.call("phone.pair_decide", params: params)
+        return PairDecision(paired: reply["paired"] as? Bool ?? false, update: reply["update"] as? Bool ?? false)
     }
 
     public func audit(limit: Int) async throws -> [PhoneAuditRow] {
@@ -400,8 +421,9 @@ public final class RPCPhoneService: PhoneService {
 
     public func linkStatus() async throws -> LinkStatus { LinkStatus(try await helper("phone.link_status")) }
 
-    public func startPairing() async throws -> PairingInvite {
-        guard let invite = PairingInvite(try await helper("phone.pair_start")) else { throw DaemonRPCError.invalidResponse }
+    public func startPairing(update: String?) async throws -> PairingInvite {
+        let params: [String: Any] = update.map { ["update": $0] } ?? [:]
+        guard let invite = PairingInvite(try await helper("phone.pair_start", params)) else { throw DaemonRPCError.invalidResponse }
         return invite
     }
 
@@ -445,7 +467,17 @@ public final class PhoneSettingsModel: ObservableObject {
     @Published public private(set) var unusedDays = 30
     @Published public private(set) var uploadFolder: UploadFolder?
     @Published public private(set) var screenUse: ScreenUse?
-    @Published public private(set) var pairing: Pairing = .idle
+    @Published public private(set) var pairing: Pairing = .idle {
+        didSet {
+            switch pairing {
+            case .starting, .showing, .asking: break
+            case .idle, .ended: updating = nil
+            }
+        }
+    }
+    /// The paired phone whose fingerprint key the code shown now updates; nil for pairing a new phone. It lasts while
+    /// that code shows (New code keeps it) and goes when the pairing ends.
+    @Published public private(set) var updating: String?
     @Published public private(set) var activity: [PhoneAuditRow] = []
     @Published public private(set) var link: LinkStatus?
     /// The daemon didn't answer, or refused: in its words.
@@ -475,6 +507,16 @@ public final class PhoneSettingsModel: ObservableObject {
     }
 
     public var hasLink: Bool { service.hasLink }
+    /// The name of the phone being updated, as the list has it.
+    public var updatingName: String? { updating.map { names[$0] ?? PhoneWords.unnamedPhone } }
+    /// Whether the pairing section shows an update now (its code, or a phone asking to update) rather than a pairing.
+    public var showsUpdate: Bool {
+        switch pairing {
+        case .starting, .showing: return updating != nil
+        case .asking(let request, _): return request.update
+        case .idle, .ended: return false
+        }
+    }
     public var isFull: Bool { phones.count >= max }
     public var names: [String: String] { Dictionary(phones.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }) }
 
@@ -539,7 +581,7 @@ public final class PhoneSettingsModel: ObservableObject {
             }
         case .asking(let waiting, _):
             // the daemon no longer holds it (the phone left, another took its place, its time ran out)
-            if list.pairing == nil { pairing = .ended(PhoneWords.requestEnded) }
+            if list.pairing == nil { pairing = .ended(waiting.update ? PhoneWords.updateRequestEnded : PhoneWords.requestEnded) }
             else if let request = list.pairing, request.requestID != waiting.requestID || request.code != waiting.code {
                 // another request, or the same one whose digits the app didn't have yet
                 pairing = .asking(request, until: current.addingTimeInterval(list.pairingSecondsLeft ?? Self.answerWindow))
@@ -554,14 +596,16 @@ public final class PhoneSettingsModel: ObservableObject {
 
     // MARK: Pairing
 
-    /// Shows a code for one phone (the helper's pairing window). A sixth phone is refused before anything opens.
-    public func startPairing() async {
+    /// Shows a code for one phone (the helper's pairing window). A sixth phone is refused before anything opens; an
+    /// update (`update`: a paired phone's id) adds no phone, so the limit never refuses it.
+    public func startPairing(update: String? = nil) async {
         note = nil
-        guard !isFull else { pairing = .ended(PhoneWords.full(max)); return }
+        guard update != nil || !isFull else { pairing = .ended(PhoneWords.full(max)); return }
         guard service.hasLink else { pairing = .ended(PhoneWords.noLinkInThisVersion); return }
         pairing = .starting
+        updating = update
         do {
-            let invite = try await service.startPairing()
+            let invite = try await service.startPairing(update: update)
             ticks = 0
             clock = now()
             pairing = .showing(invite, until: clock.addingTimeInterval(invite.seconds))
@@ -569,6 +613,12 @@ public final class PhoneSettingsModel: ObservableObject {
             pairing = .ended(PhoneWords.linkProblem(error))
         }
     }
+
+    /// Update fingerprint on a paired phone's row: a code that only lets that phone replace its fingerprint key.
+    public func updateFingerprint(_ id: String) async { await startPairing(update: id) }
+
+    /// New code: another code for the same thing, a new phone or the same phone's update.
+    public func newCode() async { await startPairing(update: updating) }
 
     public func cancelPairing() async {
         if case .asking = pairing { _ = try? await service.decide(requestID: request?.requestID, yes: false) }
@@ -582,13 +632,20 @@ public final class PhoneSettingsModel: ObservableObject {
     public func decide(yes: Bool) async {
         guard let request else { return }
         do {
-            let paired = try await service.decide(requestID: request.requestID, yes: yes)
-            pairing = .ended(paired ? PhoneWords.paired(request.name) : PhoneWords.notPaired)
-            if !paired, service.hasLink { try? await service.cancelPairing() }
-        } catch let error as DaemonRPCError where error.code == PhoneCodes.deviceLimit {
+            let decision = try await service.decide(requestID: request.requestID, yes: yes)
+            if request.update {
+                // only a reply that says the update took effect counts; a pairing's answer never does
+                let updated = decision.paired && decision.update
+                pairing = .ended(updated ? PhoneWords.fingerprintUpdated(request.name)
+                                 : yes ? PhoneWords.updateFailed : PhoneWords.notUpdated(request.name))
+            } else {
+                pairing = .ended(decision.paired ? PhoneWords.paired(request.name) : PhoneWords.notPaired)
+            }
+            if !decision.paired, service.hasLink { try? await service.cancelPairing() }
+        } catch let error as DaemonRPCError where error.code == PhoneCodes.deviceLimit && !request.update {
             pairing = .ended(PhoneWords.full(max))
         } catch let error as DaemonRPCError where error.code == PhoneCodes.notFound {
-            pairing = .ended(PhoneWords.requestEnded)
+            pairing = .ended(request.update ? PhoneWords.updateRequestEnded : PhoneWords.requestEnded)
         } catch {
             problem = PhoneWords.daemonProblem(error)
         }
@@ -603,12 +660,12 @@ public final class PhoneSettingsModel: ObservableObject {
         switch pairing {
         case let .showing(_, until):
             if clock >= until {
-                pairing = .ended(PhoneWords.expired)
+                pairing = .ended(updating == nil ? PhoneWords.expired : PhoneWords.updateExpired)
                 if service.hasLink { try? await service.cancelPairing() }
                 return
             }
-        case let .asking(_, until):
-            if clock >= until { pairing = .ended(PhoneWords.noAnswer); return }
+        case let .asking(request, until):
+            if clock >= until { pairing = .ended(request.update ? PhoneWords.updateNoAnswer : PhoneWords.noAnswer); return }
         default: return
         }
         ticks += 1
@@ -822,10 +879,28 @@ public enum PhoneWords {
     public static let requestEnded = "That phone stopped waiting, so it wasn't paired."
     public static let starting = "Making a code…"
 
+    // a paired phone's new fingerprint key (its fingerprints changed, so the old key stopped working)
+    public static let updateFingerprint = "Update fingerprint"
+    public static func updateHeading(_ name: String) -> String { "Update “\(name)”'s fingerprint" }
+    public static func updateTitle(_ name: String) -> String { "Update “\(name)”'s fingerprint?" }
+    public static let updateCheckCode = "Its fingerprints changed. Say Yes only if you added the fingerprint yourself and " +
+        "the phone shows this code:"
+    public static func fingerprintUpdated(_ name: String) -> String { "“\(name)” can use your fingerprint again." }
+    public static func notUpdated(_ name: String) -> String {
+        "Not updated. “\(name)” can't use your fingerprint until you update it."
+    }
+    public static let updateFailed = "The fingerprint wasn't updated. Choose Update fingerprint to try again."
+    public static let updateExpired = "The code expired. Choose Update fingerprint for a new one."
+    public static let updateNoAnswer = "The phone stopped waiting for your answer, so its fingerprint wasn't updated."
+    public static let updateRequestEnded = "That phone stopped waiting, so its fingerprint wasn't updated."
+
     // the notch
     /// The notch's line carries no code: a chat notice is kept and masked like any text; the digits are on the page.
     public static func notchAsks(_ name: String) -> String {
         "“\(name)” wants to pair with FERB. Compare its code and answer in Settings → Phone."
+    }
+    public static func notchAsksUpdate(_ name: String) -> String {
+        updateTitle(name) + " Compare its code and answer in Settings → Phone."
     }
     public static let openPhoneSettings = "Open Settings → Phone"
 
@@ -845,6 +920,7 @@ public enum PhoneWords {
         case "phone.keys": return "added its keys"
         case "phone.remove": return fromMac ? "removed a phone" : "removed another phone"
         case "phone.pair_decide": return "paired a phone"
+        case "phone.fingerprint_update": return "updated its fingerprint"
         case "phone.list": return "looked at the paired phones"
         case "settings.get": return "read FERB's settings"
         case "settings.set": return "changed a setting"

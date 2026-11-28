@@ -272,6 +272,77 @@ final class FeaturesTests: XCTestCase {
         XCTAssertTrue(prompts.signers.isEmpty)
     }
 
+    /// Update fingerprint (PHN-849; owner 2026-11-28; Android's FeaturesTest twin): the Face ID key changed and the Mac
+    /// holds the old one, so the chat shows the card (chat goes on, never the pairing pages); the scan's code goes to the
+    /// update; while the Mac asks, the six digits; a No says why in the link's words and the card stays; Done says so
+    /// once and the card goes with the changed key.
+    // decision: PHN-849
+    func testUpdateFingerprintIsACardInTheChatNeverThePairingPages() async throws {
+        session.unlocked()
+        let vm = rig.model()
+        await eventually("the chat") { vm.ui.gate == .main }
+        XCTAssertNil(vm.ui.fingerprint)
+        // the Mac never held a Face ID key for this phone: nothing to update (it is registered instead)
+        phone.state = .open(keys: KeyHealth(device: .ok, lock: .ok, strong: .gone), wiped: nil)
+        await settle()
+        XCTAssertNil(vm.ui.fingerprint)
+        phone.state = .open(keys: KeyHealth(device: .ok, lock: .ok, strong: .gone, strongOnMac: true), wiped: nil)
+        await eventually("the card") { vm.ui.fingerprint == .changed(problem: nil) }
+        XCTAssertEqual(vm.ui.gate, .main, "chat still works")
+
+        vm.scanForFingerprint()
+        XCTAssertEqual(vm.sheet, .fingerprintScan)
+        await vm.updateFingerprint("FERB-update").value
+        XCTAssertTrue(phone.calls.contains("update:FERB-update"))
+        XCTAssertNil(vm.sheet)
+        phone.link = FakePhone.status(update: .waiting(code: nil))
+        await eventually("reaching the Mac") { vm.ui.fingerprint == .waiting(code: nil) }
+        phone.link = FakePhone.status(update: .waiting(code: "123 456"))
+        await eventually("the code") { vm.ui.fingerprint == .waiting(code: "123 456") }
+        XCTAssertEqual(vm.ui.gate, .main, "never the pairing pages")
+
+        phone.link = FakePhone.status(update: .failed(problem: LinkProblem(code: "pair_denied", detail: "The fingerprint update was not approved on the Mac.",
+                                                                           allow: "On the Mac, choose Update fingerprint again and say Yes when it asks")))
+        await eventually("why") {
+            vm.ui.fingerprint == .changed(problem: Note("err_mac_said", "The fingerprint update was not approved on the Mac. On the Mac, choose Update fingerprint again and say Yes when it asks"))
+        }
+        XCTAssertNil(vm.ui.note, "nothing said as done")
+
+        // a code the link refuses at once, and a phone with no Face ID: said on the card
+        phone.updateResult = .failed(.Refused(detail: "This code is from another Mac.", linkCode: "other_mac"))
+        await vm.updateFingerprint("FERB-other").value
+        XCTAssertEqual(vm.ui.fingerprint, .changed(problem: Note("err_mac_said", "This code is from another Mac.")))
+        phone.updateResult = .failed(.NeedsSigner(detail: "x", linkCode: FerbPhone.noFingerprint))
+        await vm.updateFingerprint("FERB-update").value
+        XCTAssertEqual(vm.ui.fingerprint, .changed(problem: Note("fingerprint_none")))
+        vm.scanForFingerprint()
+        XCTAssertEqual(vm.ui.fingerprint, .changed(problem: nil), "a new scan starts clean")
+        vm.show(nil)
+
+        phone.updateResult = .ok(())
+        await vm.updateFingerprint("FERB-update-2").value
+        phone.link = FakePhone.status(update: .waiting(code: "654 321"))
+        await eventually("the code") { vm.ui.fingerprint == .waiting(code: "654 321") }
+        phone.link = FakePhone.status(update: .done)
+        await eventually("done") { vm.ui.note == Note("fingerprint_done") }
+        phone.state = .open(keys: KeyHealth(device: .ok, lock: .ok, strong: .ok, strongOnMac: true), wiped: nil)
+        await eventually("the card goes") { vm.ui.fingerprint == nil }
+        XCTAssertEqual(AppModel.fingerprintFailed(LinkProblem(code: "mac_link_older", detail: "x", allow: nil)), Note("err_mac_older"))
+    }
+
+    /// While the Face ID key is one the Mac can't use, what needs it says where to turn it back on, never "pair again".
+    // decision: PHN-849
+    func testWhatNeedsTheChangedKeyPointsAtUpdateFingerprint() async throws {
+        session.unlocked()
+        let vm = rig.model()
+        phone.state = .open(keys: KeyHealth(device: .ok, lock: .ok, strong: .gone, strongOnMac: true), wiped: nil)
+        prompts.signers = []
+        await vm.openFolder("~/Documents/Keys", keyPlace: true).value
+        XCTAssertEqual(vm.ui.files.problem?.key, "needs_fingerprint_update")
+        XCTAssertTrue(prompts.signers.isEmpty)
+        XCTAssertEqual(AppModel.errorNote(.NeedsSigner(detail: "", linkCode: Unlocker.updateFingerprint)), Note("needs_fingerprint_update"))
+    }
+
     // decision: PHN-13, PHN-115
     func testAFetchPausesAndGoesOnFromTheBytesSaved() async throws {
         session.unlocked()

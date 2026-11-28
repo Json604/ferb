@@ -80,6 +80,8 @@ sealed interface ChatRow {
         val footerLines: List<String> = emptyList(),
         /** Each part's own live picture, by its step task id while its step works (FERB.app's RowPreview.watch). */
         val watch: List<String?> = emptyList(),
+        /** Per part, each nested step's own live picture by its step task id while it works (FERB.app's feeder lines). */
+        val subWatch: List<List<String?>> = emptyList(),
         /** The card's colour as a whole (FERB.app's surfaceTint). */
         val tint: com.ferb.design.components.CardTint = com.ferb.design.components.CardTint.NONE,
     ) : ChatRow {
@@ -422,6 +424,16 @@ object ChatModel {
             part(r.row, l?.kind ?: r.shows.kind, l?.words ?: r.shows.words, "$e:${r.row.part}").copy(
                 sub = feeders[r.row.part].orEmpty().map { f -> PlanPart(markOf(f.line.kind), f.label, f.line.words) })
         }
+        // FERB.app's feederLines: a nested step that works now shows its own picture, a step shared by two parts under
+        // the first only (APP-891: a picture shows once)
+        val shown = mutableSetOf<String>()
+        // FERB.app's ChecklistLine.isRunning: a running or repeating step
+        val runningKinds = setOf("running", "loop")
+        val subWatch = c.rows.map { r ->
+            feeders[r.row.part].orEmpty().map { f ->
+                f.stepTaskId.takeIf { it.isNotEmpty() && f.line.kind in runningKinds && shown.add(f.step) }
+            }
+        }
         // FERB.app's surfaceTint: amber while it asks, red when a part failed, blue when one was updated or paused
         val states = c.rows.map { it.row.state }.toSet()
         val tint = when {
@@ -438,7 +450,8 @@ object ChatModel {
         }
         return ChatRow.Task("$e:card", c.taskId.ifEmpty { t.taskId }, c.headline ?: planLine ?: t.taskName.orEmpty(),
             c.done.toInt(), c.total.toInt(), parts,
-            status = live?.cardLine, footer = c.line, footerLines = c.linesShown, watch = watch, tint = tint)
+            status = live?.cardLine, footer = c.line, footerLines = c.linesShown, watch = watch,
+            subWatch = if (subWatch.any { s -> s.any { it != null } }) subWatch else emptyList(), tint = tint)
     }
 
     /**

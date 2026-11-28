@@ -16,19 +16,30 @@ struct PhoneSettingsPage: View {
 
     var body: some View {
         WindowPage {
-            if let problem = model.problem {
-                Label(problem, systemImage: "exclamationmark.circle").foregroundStyle(.red).textSelection(.enabled)
+            ScrollViewReader { scroll in
+                VStack(alignment: .leading, spacing: 12) {
+                    if let problem = model.problem {
+                        Label(problem, systemImage: "exclamationmark.circle").foregroundStyle(.red).textSelection(.enabled)
+                    }
+                    if let note = model.note { Text(note).foregroundStyle(.secondary).textSelection(.enabled) }
+                    if let screen = model.screenUse, screen.active { untilBack(screen) }
+                    // an update's code and question show here too, under that phone's heading instead of "Pair a phone"
+                    WindowSettingsSection(title: model.showsUpdate ? nil : "Pair a phone") { pairing }
+                        .id(Self.pairingSection)
+                    WindowSettingsSection(title: "Paired phones") { phoneList }
+                    if let folder = model.uploadFolder {
+                        WindowSettingsSection(title: PhoneWords.filesTitle) { files(folder) }
+                    }
+                    WindowSettingsSection(title: "Recent activity") { activity }
+                    WindowSettingsSection(title: "Use my own relay") { relay }
+                    WindowSettingsSection(title: PhoneWords.howToTitle) { howTo }
+                }
+                // Update fingerprint is on a phone's row further down: its code shows where pairing's does
+                .onChange(of: model.updating) { _, id in
+                    guard id != nil else { return }
+                    withAnimation { scroll.scrollTo(Self.pairingSection, anchor: .top) }
+                }
             }
-            if let note = model.note { Text(note).foregroundStyle(.secondary).textSelection(.enabled) }
-            if let screen = model.screenUse, screen.active { untilBack(screen) }
-            WindowSettingsSection(title: "Pair a phone") { pairing }
-            WindowSettingsSection(title: "Paired phones") { phoneList }
-            if let folder = model.uploadFolder {
-                WindowSettingsSection(title: PhoneWords.filesTitle) { files(folder) }
-            }
-            WindowSettingsSection(title: "Recent activity") { activity }
-            WindowSettingsSection(title: "Use my own relay") { relay }
-            WindowSettingsSection(title: PhoneWords.howToTitle) { howTo }
         }
         .task { await model.load() }
         .task {
@@ -57,6 +68,8 @@ struct PhoneSettingsPage: View {
             Text(PhoneWords.stopRelayMessage)
         }
     }
+
+    private static let pairingSection = "pairing"
 
     // MARK: "Until I'm back at my Mac" (GATE-615)
 
@@ -125,6 +138,9 @@ struct PhoneSettingsPage: View {
                 Text(PhoneWords.starting)
             }
         case let .showing(invite, _):
+            if let name = model.updatingName {
+                Text(PhoneWords.updateHeading(name)).font(.system(size: 14, weight: .semibold))
+            }
             HStack(alignment: .top, spacing: 20) {
                 if !invite.rows.isEmpty { PairingCodeView(rows: invite.rows) }
                 VStack(alignment: .leading, spacing: 8) {
@@ -141,7 +157,7 @@ struct PhoneSettingsPage: View {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(invite.code, forType: .string)
                         }
-                        Button("New code") { Task { await model.startPairing() } }
+                        Button("New code") { Task { await model.newCode() } }
                         Button("Cancel") { Task { await model.cancelPairing() } }
                             .keyboardShortcut(.cancelAction)
                     }
@@ -149,20 +165,24 @@ struct PhoneSettingsPage: View {
             }
         case let .asking(request, _):
             VStack(alignment: .leading, spacing: 10) {
-                Text(PhoneWords.wantsToPair(request.name)).font(.system(size: 14, weight: .semibold))
-                Text(PhoneWords.checkCode)
+                Text(request.update ? PhoneWords.updateTitle(request.name) : PhoneWords.wantsToPair(request.name))
+                    .font(.system(size: 14, weight: .semibold))
+                Text(request.update ? PhoneWords.updateCheckCode : PhoneWords.checkCode)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(verbatim: request.code).font(.system(size: 28, weight: .semibold, design: .monospaced))
                     .textSelection(.enabled)
                     .accessibilityLabel("Pairing code")
                     .accessibilityValue(request.code.map { String($0) }.joined(separator: " "))
-                Text(PhoneWords.pairExplain).font(.system(size: 12)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if !request.update {
+                    Text(PhoneWords.pairExplain).font(.system(size: 12)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Text(PhoneWords.answerWithin(model.secondsLeft)).font(.system(size: 12)).foregroundStyle(.secondary)
                     .monospacedDigit()
                 HStack(spacing: 10) {
-                    Button("Pair it") { Task { await model.decide(yes: true) } }
+                    Button(request.update ? "Yes" : "Pair it") { Task { await model.decide(yes: true) } }
                         .keyboardShortcut(.defaultAction)
-                    Button("Don't pair") { Task { await model.decide(yes: false) } }
+                    Button(request.update ? "No" : "Don't pair") { Task { await model.decide(yes: false) } }
                         .keyboardShortcut(.cancelAction)
                 }
             }
@@ -184,6 +204,10 @@ struct PhoneSettingsPage: View {
                         Text(connection.words).font(.system(size: 12)).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 12)
+                    // the phone's fingerprints changed and its key stopped working: a code for this phone only
+                    if phone.fingerprintKey {
+                        Button(PhoneWords.updateFingerprint) { Task { await model.updateFingerprint(phone.id) } }
+                    }
                     Button("Rename") { renaming = phone.id; newName = phone.name }
                     Button("Remove…", role: .destructive) { removing = phone }
                 }
@@ -387,7 +411,9 @@ extension NotchModel {
         guard topic == "phone.pair_requested", let request = data["request_id"] as? String ?? data["phone"] as? String else { return }
         let name = (data["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? PhoneWords.unnamedPhone
         let card = ResultCard(["type": "page", "page": "phone", "line": PhoneWords.openPhoneSettings])
-        showOwnAlert(id: "phone-pair-" + request, text: PhoneWords.notchAsks(name), card: card)
+        // a paired phone replacing its fingerprint key is no pairing: it says so (an update, never "wants to pair")
+        let text = data["update"] as? Bool == true ? PhoneWords.notchAsksUpdate(name) : PhoneWords.notchAsks(name)
+        showOwnAlert(id: "phone-pair-" + request, text: text, card: card)
         announceAttention("phone-pair:" + request)
     }
 }

@@ -456,7 +456,7 @@ title = "How the rest is built: which key signs what, the lists, the click on a 
 by = "agent"
 date = 2026-11-10
 status = "active"
-rule = "The phone has a PIN-capable lock key and a fingerprint-only key (Android destroys it when a fingerprint is added). When the second is registered the daemon takes only its signature for the sensitive class, every fresh-proof file or folder and key registration; it is replaced only by pairing again. The guarded list is FERB's never-read list (sync-protection.py; a test fails when FERB's grows) plus SEC-31's places, shell history and dotenv files. The audit is cut into pieces; one older than audit_keep_days goes. A Mac prompt is clicked on the owner's signed Yes; a refused click is said."
+rule = "The phone has a PIN-capable lock key and a fingerprint-only key (Android destroys it when fingerprints change). When the second is registered the daemon takes only its signature for the sensitive class, every fresh-proof file or folder and key registration; it is replaced by pairing again or by an update (PHN-849). The guarded list is FERB's never-read list (sync-protection.py; a test fails if FERB's grows) plus SEC-31's places, shell history and dotenv files. The audit is cut into pieces, dropped past audit_keep_days. A Mac prompt is clicked on the owner's signed Yes; a refused click is said."
 why = "SEC-29, SEC-21, SEC-30, SEC-20. A hard Yes and a private answer still take either key: his words name key places and settings; whether a hard Yes should be fingerprint-only is asked (T-21)."
 evidence = "Imported from ferb-phone-link@57b3f34 kb/decisions/security.toml SEC-33. There it superseded SEC-22."
 legacy = "ferb-phone-link@57b3f34 SEC-33; lab paths: standin/phone.py, standin/protection.py, scripts/sync-protection.py, rust/src/store.rs"
@@ -4489,3 +4489,38 @@ why = "The app's lock page is the gate for someone holding the phone; the Mac's 
 rejected = ["A new link method for the lock by hand: an older Mac refuses an unknown method, while the parameter falls back to the plain lock", "Keeping the hold in the store: a daemon restart already ends every unlock window, and the phone's own one-shot survives a restart of either side"]
 paths = ["apps/android/app/src/main/kotlin/com/ferb/app/FerbViewModel.kt", "apps/android/app/src/main/kotlin/com/ferb/app/FerbApplication.kt", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppModel.swift", "apps/ios/Packages/FerbApp/Sources/FerbAppModel/AppLock.swift", "engine/crates/ferb-mobile/src/remote.rs", "engine/crates/ferb-link/src/bridge.rs", "engine/crates/ferb-daemon/src/phone/gate.rs"]
 live = ["LIVE-1218"]
+
+
+[PHN-849]
+title = "A phone whose fingerprints changed gets a new fingerprint key without pairing again"
+by = "owner"
+date = 2026-11-28
+status = "active"
+words = "yes build it"
+words_source = "Owner 2026-11-28, shown: a card on the phone; Update fingerprint on the Mac shows a code the phone scans; his Yes after a six-digit check; the card and Mac prompt words (in rule)."
+rule = "A phone whose fingerprint key Android or iOS destroyed says so in a card; chat works. Update fingerprint on the Mac shows a code; the phone scans it with a new key; his Yes to the six digits replaces the key; the phone keeps its name and history. Card: \"Your phone's fingerprints changed, so FERB turned off fingerprint checks from this phone. Chat still works. To turn them back on, open FERB on your Mac: Settings → Phone → Update fingerprint.\" Mac: \"Update “{name}”'s fingerprint?\" / \"Its fingerprints changed. Say Yes only if you added the fingerprint yourself and the phone shows this code:\""
+why = "He added a fingerprint and had to pair the phone again (2026-11-27); re-pairing lost nothing in safety over this, which proves the same and that it is the same phone."
+live = ["LIVE-1224"]
+
+
+[PHN-850]
+title = "Update fingerprint: the pairing window, made for one phone; the owner's Yes replaces strong_pub"
+by = "agent"
+date = 2026-11-28
+status = "active"
+rule = "For PHN-849. phone.pair_start {update: id} (no limit) opens the one-time window for that phone only; the kinds don't mix (update_code). The phone's hello carries the proof and update_fingerprint; the bridge asks link.pair_request {update: true}; the daemon asks as for a pairing (with update) and his Yes replaces strong_pub (replace_strong); the welcome says fingerprint_updated. A No or failure ends only the update: the phone stays paired, its old key kept. Apps read LinkStatus.fingerprint_update."
+why = "The same proof a new pairing needs (the QR's secret, the matching code, his Yes), plus the paired phone's own link identity; no new method or window, so every check of pairing applies. The phone can't clear its key by itself: that would let whoever knows the PIN drop the fingerprint requirement."
+rejected = ["Letting the phone sign its new key with the lock key alone: anyone who knows the PIN could add a fingerprint and re-key", "A new link method: an older Mac lets a paired phone in and never looks at the code; the welcome's missing fingerprint_updated says so"]
+paths = ["engine/crates/ferb-link/src/bridge.rs", "engine/crates/ferb-link/src/client.rs", "engine/crates/ferb-mobile-ffi/src/link.rs", "engine/crates/ferb-daemon/src/phone/mod.rs", "engine/crates/ferb-daemon/src/phone/link.rs", "engine/crates/ferb-store/src/phones.rs", "apps/mac/FERBNotch/Sources/NotchCore/PhoneModel.swift"]
+live = ["LIVE-1224"]
+
+
+[PHN-851]
+title = "The phone's running spinner and a task card's nested step rows look like the Mac's"
+by = "owner"
+date = 2026-11-28
+status = "active"
+words = "correct it"
+words_source = "Owner 2026-11-28, shown: the phone's spinner draws 30% of a circle (a still frame reads as \"(\"), the Mac's 70%; the nested step row was full size and cut off. Keep the glass-lab arc or match the Mac?"
+rule = "Departs from PHN-416 for these two only: the running spinner on both phones is the Mac's (a 70% arc, one turn in 0.9 s, round ends), everywhere it shows; a part's nested step rows are compact lines like the Mac's, under the part's label, the label kept whole before the words, with the step's preview circle while it runs."
+why = "On his phone the misplaced row cut its label and the short arc read as a bracket."

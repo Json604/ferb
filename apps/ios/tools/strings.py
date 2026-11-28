@@ -40,6 +40,12 @@ IOS = {
     "pair_reason_keys": "This phone's passcode or %@ changed, so it needs pairing again.",
     "answer_needs_pairing": "This answer needs %@, and %@ on this phone changed since it was paired. Answer on your Mac, or pair this phone again.",
     "needs_pairing_again": "This needs %@, and %@ on this phone changed since it was paired. Pair this phone again to do it here.",
+    # Update fingerprint (PHN-849): a changed Face ID / Touch ID is fixed from the Mac, without pairing again
+    "answer_needs_fingerprint": "This answer needs %@, and %@ on this phone changed. Answer on your Mac, or turn %@ checks back on: in FERB on your Mac, Settings → Phone → Update fingerprint.",
+    "needs_fingerprint_update": "This needs %@, and %@ on this phone changed. To do it here, turn %@ checks back on: in FERB on your Mac, Settings → Phone → Update fingerprint.",
+    "fingerprint_changed": "Your phone's %@ changed, so FERB turned off %@ checks from this phone. Chat still works. To turn them back on, open FERB on your Mac: Settings → Phone → Update fingerprint.",
+    "fingerprint_done": "Done. Your Mac can ask for %@ again.",
+    "fingerprint_none": "This iPhone has no Face ID or Touch ID set up. Add it in Settings, then scan the code again.",
     "files_key_place": "Asks for %@ each time",
     "files_not_opened": "Not opened: %@ was cancelled.",
     "settings_note": "Each change asks for %@. The lists of apps and sites are changed in FERB on your Mac.",

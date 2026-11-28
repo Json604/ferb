@@ -73,7 +73,10 @@ struct RootView: View {
                                 // the first run's asks come once, after the first unlock, before pairing or the app
                                 // (kb PHN-636)
                                 let asks = !shell.firstRun.pending.isEmpty && (gate == .pair || gate == .main)
-                                MotionSwitch(Screen(gate: gate, scan: gate == .pair && model.sheet == .scan && !model.ui.pairing, asks: asks,
+                                // Update fingerprint's scanner is a page of the chat's gate the same way (PHN-849)
+                                let scan = (gate == .pair && model.sheet == .scan && !model.ui.pairing)
+                                    || (gate == .main && model.sheet == .fingerprintScan)
+                                MotionSwitch(Screen(gate: gate, scan: scan, asks: asks,
                                                     macFirst: gate == .pair && model.ui.macFirst),
                                              instant: { $0.gate == .locked || $0.gate == .starting }) { s in
                                     if s.asks { AsksPage(asker: shell.firstRun, insets: insets) } else { page(s.gate, insets: insets, moment: moment) }
@@ -154,6 +157,8 @@ struct RootView: View {
                         other: model.ui.removedWords == nil ? nil : AnyView(OtherAccountPill(model: model).padding(.top, 4))) {
                 model.forget()
             }
+        case .main where model.sheet == .fingerprintScan:
+            ScanPage(model: model, insets: insets, update: true)
         case .main:
             // the connection control in every page's top bar (kb PHN-751)
             MainView(model: model, shell: shell, insets: insets, moment: moment).environment(\.connection, connection(model))
@@ -232,14 +237,16 @@ struct OtherAccountPill: View {
 struct ScanPage: View {
     @Bindable var model: AppModel
     let insets: PhoneInsets
+    /// Update fingerprint's code (PHN-849) rather than a pairing's: the same scanner, the code goes to the update.
+    var update = false
     @State private var access = CameraAccess.now
 
     var body: some View {
         ScanPageLayout(access: access, insets: insets,
                        onAllow: { Task { _ = await CameraAccess.ask(); access = CameraAccess.now } },
-                       onTypeCode: { model.show(.typeCode) },
+                       onTypeCode: { model.show(update ? .fingerprintTypeCode : .typeCode) },
                        onCancel: { model.show(nil) }) {
-            QRScanner { code in model.pair(code) }
+            QRScanner { code in if update { model.updateFingerprint(code) } else { model.pair(code) } }
         }
     }
 }

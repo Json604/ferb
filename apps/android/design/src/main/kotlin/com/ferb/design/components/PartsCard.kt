@@ -32,6 +32,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
+import com.ferb.design.FerbIcon
+import com.ferb.design.FerbIcons
 import com.ferb.design.FerbType
 import com.ferb.design.Ink
 
@@ -40,6 +42,8 @@ import com.ferb.design.Ink
 // StepChecklistView): one card on FERB's surface, no fill behind any row and no buttons. While a part runs or waits it
 // is one line: a thin spinner or a small hollow circle, its label, its state words in the quieter ink (cut with an
 // ellipsis; each of the two takes at most half the line when both are long), and its own round picture at the far right.
+// A step a waiting part waits on that no part answers is a smaller line under that part's label (FERB.app's feeder
+// lines, APP-895), with its own picture while it works.
 // A part that ended is its label as a small heading with its answer under it, hairlines between parts. The footer is
 // FERB.app's: the done line in bold with code's lines after it. A tap on a running part with no picture opens its task's
 // short view, where Watch live and Stop are.
@@ -61,6 +65,10 @@ fun PartsCard(
     pictures: List<ImageBitmap?> = emptyList(),
     onPicture: ((Int) -> Unit)? = null,
     onPart: ((Int) -> Unit)? = null,
+    /** Per part, which of its nested steps show their own live picture, and the pictures (FERB.app's feeder lines). */
+    subWatching: List<List<Boolean>> = emptyList(),
+    subPictures: List<List<ImageBitmap?>> = emptyList(),
+    onSubPicture: ((Int, Int) -> Unit)? = null,
     more: String = "Show more",
     less: String = "Show less",
 ) {
@@ -82,7 +90,13 @@ fun PartsCard(
             if (!ended) {
                 LiveLine(part, ink, picture = if (watch) Pic(pictures.getOrNull(i)) else null,
                     onPicture = onPicture?.let { { it(i) } }, onTap = if (!watch) onPart?.let { { it(i) } } else null)
-                for (s in part.sub) LiveLine(s, ink, indent = true, picture = null, onPicture = null, onTap = null)
+                if (part.sub.isNotEmpty()) Column(Modifier.fillMaxWidth().padding(start = NESTED_INDENT, end = 14.dp, bottom = 4.dp)) {
+                    part.sub.forEachIndexed { j, s ->
+                        val shows = subWatching.getOrNull(i)?.getOrElse(j) { false } ?: false
+                        NestedLine(s, ink, picture = if (shows) Pic(subPictures.getOrNull(i)?.getOrNull(j)) else null,
+                            onPicture = onSubPicture?.let { { it(i, j) } })
+                    }
+                }
             } else {
                 EndedPart(part, ink, more, less)
             }
@@ -113,15 +127,15 @@ private fun Hairline(ink: CardInk) {
 
 /** A running or waiting part: one line, its mark, label, state words and picture (FERB.app's RowStateLine). */
 @Composable
-private fun LiveLine(part: PlanPart, ink: CardInk, indent: Boolean = false, picture: Pic?, onPicture: (() -> Unit)?, onTap: (() -> Unit)?) {
+private fun LiveLine(part: PlanPart, ink: CardInk, picture: Pic?, onPicture: (() -> Unit)?, onTap: (() -> Unit)?) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 34.dp).pressable(onTap, label = part.title).semantics(mergeDescendants = true) {}
-            .padding(start = if (indent) 34.dp else 14.dp, end = 14.dp, top = 3.dp, bottom = 3.dp),
+            .padding(start = 14.dp, end = 14.dp, top = 3.dp, bottom = 3.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(14.dp), contentAlignment = Alignment.Center) {
-            if (part.kind == MarkKind.RUNNING) RunningArc(14.dp, ink.secondary, stroke = 1.6.dp)
+            if (part.kind == MarkKind.RUNNING) RunningArc(14.dp, ink.secondary, stroke = ROW_SPINNER_STROKE)
             else Canvas(Modifier.size(10.dp).semantics { contentDescription = MarkKind.WAITING.spoken }) {
                 drawCircle(ink.faint, radius = size.minDimension / 2 - 0.6.dp.toPx(), style = Stroke(1.2.dp.toPx()))
             }
@@ -133,12 +147,65 @@ private fun LiveLine(part: PlanPart, ink: CardInk, indent: Boolean = false, pict
             val words = part.detail
             if (!words.isNullOrEmpty()) PhoneText(words, 14f, color = part.tone.color(ink), modifier = Modifier.weight(1f, fill = false), maxLines = 1)
         }
-        if (picture != null) {
-            // its own live picture (FERB.app's RowPreview: a small circle with the amber ring)
-            Box(Modifier.size(24.dp).clip(CircleShape).background(Ink.darkFill).border(1.dp, Ink.amber.copy(alpha = 0.65f), CircleShape)
-                .pressable(onPicture, label = "Live preview of ${part.title}")) {
-                picture.image?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
-            }
+        if (picture != null) RowPicture(picture, part.title, onPicture)
+    }
+}
+
+// A nested step starts where its part's label starts (FERB.app's feeder lines sit at the row's own text edge): the
+// part's 14 of padding, its 14 mark and the 8 between.
+private val NESTED_INDENT = 36.dp
+
+// FERB.app's RowSpinner draws its 9 point circle with a 1.4 line; the card here is drawn about 1.2 times FERB.app's size.
+private val ROW_SPINNER_STROKE = 1.7.dp
+
+/** A part's own live picture (FERB.app's RowPreview: a small circle with the amber ring), the same size on a nested step. */
+@Composable
+private fun RowPicture(picture: Pic, label: String, onPicture: (() -> Unit)?) {
+    Box(Modifier.size(24.dp).clip(CircleShape).background(Ink.darkFill).border(1.dp, Ink.amber.copy(alpha = 0.65f), CircleShape)
+        .pressable(onPicture, label = "Live preview of $label")) {
+        picture.image?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+    }
+}
+
+/**
+ * A step a waiting part waits on (FERB.app's ChecklistLineView under a waiting row, APP-895): a compact line under the
+ * part's label, its small mark, its label (bold while it works, greyed once done) taking the room it needs first, what
+ * it is doing after it in the quieter ink, and its own picture while it works.
+ */
+@Composable
+private fun NestedLine(step: PlanPart, ink: CardInk, picture: Pic?, onPicture: (() -> Unit)?) {
+    val running = step.kind == MarkKind.RUNNING
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 26.dp).semantics(mergeDescendants = true) {}.padding(vertical = 1.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(14.dp), contentAlignment = Alignment.Center) { NestedMark(step.kind, ink) }
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            // FERB.app's layoutPriority(1): the label first, the words in what is left
+            PhoneText(step.title, 14f, if (running) FerbType.Semibold else FerbType.Regular,
+                when (step.kind) { MarkKind.DONE -> ink.faint; MarkKind.RUNNING, MarkKind.ASKING -> ink.primary; else -> ink.secondary },
+                maxLines = 1)
+            val words = step.detail
+            if (!words.isNullOrEmpty()) PhoneText(words, 13.5f, color = when (step.kind) {
+                MarkKind.ASKING -> ink.amberText; MarkKind.FAILED -> ink.red; else -> ink.secondary
+            }, modifier = Modifier.weight(1f, fill = false), maxLines = 1)
+        }
+        if (picture != null) RowPicture(picture, step.title, onPicture)
+    }
+}
+
+/** FERB.app's checklist marks, by the phone's five kinds: a tick, the spinner, a circle, an amber question, a cross. */
+@Composable
+private fun NestedMark(kind: MarkKind, ink: CardInk) {
+    val said = Modifier.semantics { contentDescription = kind.spoken }
+    when (kind) {
+        MarkKind.RUNNING -> RunningArc(14.dp, ink.secondary, said, stroke = ROW_SPINNER_STROKE)
+        MarkKind.DONE -> FerbIcon(FerbIcons.check, 9f, ink.secondary, said)
+        MarkKind.FAILED -> FerbIcon(FerbIcons.close, 9f, ink.red, said)
+        MarkKind.ASKING -> FerbIcon(FerbIcons.help, 10f, Ink.amber, said)
+        MarkKind.WAITING -> Canvas(Modifier.size(10.dp).then(said)) {
+            drawCircle(ink.faint, radius = size.minDimension / 2 - 0.6.dp.toPx(), style = Stroke(1.2.dp.toPx()))
         }
     }
 }

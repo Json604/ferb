@@ -263,8 +263,11 @@ struct HomeView: View {
                  // a new day with nothing said yet: earlier days are one tap away (kb PHN-626)
                  earlier: model.rows.contains { if case .older = $0 { return false }; return true } ? L.s("older_available") : nil,
                  onEarlier: { model.openChat() },
-                 // the memory import's live card shows on the home page too while one runs (the owner, kb MEM-457)
-                 live: homeImportCard(model.ui.status?.memoryImport))
+                 // the memory import's live card shows on the home page too while one runs (the owner, kb MEM-457); else
+                 // Update fingerprint's (PHN-849), as Android's home page
+                 live: homeImportCard(model.ui.status?.memoryImport) ?? model.ui.fingerprint.map { step in
+                     AnyView(FingerprintCard(step: step, busy: model.ui.busy.contains("fingerprint")) { model.scanForFingerprint() })
+                 })
     }
 }
 
@@ -331,6 +334,11 @@ struct ChatView: View {
             }
             if let need = model.ui.macNeed {
                 MacNeedCard(need: need, busy: model.ui.macLine != nil) { model.unlockMac() }
+            }
+            // Update fingerprint (PHN-849): the card while the Mac can't use this phone's Face ID / Touch ID key
+            if let step = model.ui.fingerprint, temporary == nil {
+                FingerprintCard(step: step, busy: model.ui.busy.contains("fingerprint")) { model.scanForFingerprint() }
+                    .padding(.horizontal, 16).padding(.top, 12)
             }
             // two places, as FERB.app separates days (kb PHN-696): today's chat (only today's rows, the way to earlier
             // days at its top) or the earlier days (one continuous chat with a day's start between days), never both
@@ -501,6 +509,9 @@ struct ChatRowView: View {
         case .task(let t):
             // each running part's own live picture (kb PHN-726; FERB.app's RowPreview), asked for while the card shows
             let keys = t.taskId.map { task in t.watch.map { $0.map { Thumbnails.key(task, $0) } } } ?? []
+            // and each running step's under a waiting part (FERB.app's feederLines, APP-895)
+            let subKeys = t.taskId.map { task in t.subWatch.map { $0.map { $0.map { Thumbnails.key(task, $0) } } } } ?? []
+            let wanted = keys.compactMap { $0 } + subKeys.flatMap { $0.compactMap { $0 } }
             // FERB.app's card (kb PHN-737): no buttons in it; a part's picture opens its short view, a running part with no
             // picture its task's (Watch live and Stop are there), and View tasks is under the chat
             PartsCard(headline: t.headline, progress: L.s("progress", t.done, t.total), parts: t.parts, tint: t.tint,
@@ -508,9 +519,14 @@ struct ChatRowView: View {
                       watching: keys.map { $0 != nil }, pictures: keys.map { $0.flatMap { model.thumbnails.pictures[$0] } },
                       onPicture: { i in if i < t.watch.count { model.showTask(t.taskId, worker: t.watch[i]) } },
                       onPart: { _ in model.showTask(t.taskId, worker: nil) },
+                      subWatching: subKeys.map { $0.map { $0 != nil } },
+                      subPictures: subKeys.map { $0.map { $0.flatMap { model.thumbnails.pictures[$0] } } },
+                      onSubPicture: { i, j in
+                          if i < t.subWatch.count, j < t.subWatch[i].count { model.showTask(t.taskId, worker: t.subWatch[i][j]) }
+                      },
                       more: L.s("show_more"), less: L.s("show_less"))
-                .onAppear { model.rowPictures(t.key, keys.compactMap { $0 }) }
-                .onChange(of: keys) { _, now in model.rowPictures(t.key, now.compactMap { $0 }) }
+                .onAppear { model.rowPictures(t.key, wanted) }
+                .onChange(of: wanted) { _, now in model.rowPictures(t.key, now) }
                 .onDisappear { model.rowPictures(t.key, []) }
         case .rich(let key, let blocks, let copy, let tail, let fold):
             FerbRichBubble(copy: copy) {
@@ -735,6 +751,50 @@ func hostOf(_ url: String) -> String {
     var s = url
     if let r = s.range(of: "://") { s = String(s[r.upperBound...]) }
     return String(s.prefix { $0 != "/" && $0 != "?" })
+}
+
+/// Update fingerprint (PHN-849; owner 2026-11-28): this phone's Face ID / Touch ID changed, so the Mac can't use its
+/// key; chat goes on. The lab's white card in MacNeedCard's place: what happened and where on the Mac to turn checks
+/// back on, with the scanner's button (and why the last try didn't work); while the Mac asks the owner, the six digits
+/// to compare, as the pairing's code page shows them. Never the pairing pages.
+struct FingerprintCard: View {
+    let step: FingerprintStep
+    let busy: Bool
+    var bio: Biometry = .current
+    let onScan: () -> Void
+
+    var body: some View {
+        Card(padding: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                switch step {
+                case .changed(let problem):
+                    Text(L.bio("fingerprint_changed", bio))
+                        .type(15, .regular, Ink.detail).fixedSize(horizontal: false, vertical: true)
+                    if let problem {
+                        Text(problem.text).type(15, .regular, Ink.red).fixedSize(horizontal: false, vertical: true)
+                            .accessibilityAddTraits(.updatesFrequently)
+                    }
+                    Pill(title: L.s("scan_title"), kind: .black, symbol: "qrcode.viewfinder", onClick: busy ? nil : onScan)
+                case .waiting(let code?):
+                    Text(L.s("fingerprint_compare"))
+                        .type(15, .regular, Ink.detail).fixedSize(horizontal: false, vertical: true)
+                    PairingCode(code).padding(.vertical, 6)
+                    waiting(L.s("fingerprint_waiting"))
+                case .waiting(nil):
+                    waiting(L.s("pair_reaching"))
+                }
+            }
+        }
+        .accessibilityIdentifier("fingerprint-card")
+    }
+
+    private func waiting(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            Mark(kind: .running, size: 20)
+            Text(text).type(15, .regular, Ink.detail).accessibilityAddTraits(.updatesFrequently)
+        }
+        .frame(maxWidth: .infinity)
+    }
 }
 
 /// The Mac's side needs the owner's Face ID once (kb PHN-649; Android's MacNeedCard): the lab's white card with what

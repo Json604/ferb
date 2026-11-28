@@ -175,6 +175,8 @@ fun FerbRoot(vm: FerbViewModel, activity: MainActivity) {
             val screen: Any = when {
                 asks.pending.isNotEmpty() && (gate == Gate.PAIR || gate == Gate.MAIN) -> AsksScreen
                 gate == Gate.PAIR && sheet == Sheet.Scan && !pairing -> ScanScreen
+                // Update fingerprint's code, over the paired app (never the pairing pages)
+                gate == Gate.MAIN && sheet == Sheet.Scan -> ScanScreen
                 // kb PHN-829: signed in with no Mac yet, the phone-first page; "pair now" goes on to the pairing page
                 // (a phone that was paired before, or a pairing under way, goes straight there)
                 gate == Gate.PAIR && !pairNow && pairReason == null && !pairing -> MacFirstScreen

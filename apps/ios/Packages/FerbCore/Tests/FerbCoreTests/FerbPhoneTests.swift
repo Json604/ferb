@@ -74,6 +74,12 @@ final class FakeUplink: Uplink, @unchecked Sendable {
         paired = true
     }
     func endpointId() -> String { "invented-endpoint-1" }
+    /// Update fingerprint's code and key as the link got them (PHN-849).
+    private(set) var updates: [(code: String, strongPub: String)] = []
+    func updateFingerprint(_ code: String, strongPub: String) throws {
+        if !paired { throw FerbError.Refused(detail: "This phone isn't paired.", linkCode: "not_paired") }
+        updates.append((code, strongPub))
+    }
     func status() -> LinkStatus? { nil }
     /// What the app told the link, in the order it arrived.
     private let l = NSLock()
@@ -106,8 +112,9 @@ final class FerbPhoneTests: XCTestCase {
 
     override func tearDown() async throws { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
 
-    private func phone(_ secrets: MemoryStore, _ uplinks: FakeUplinks) -> FerbPhone {
-        let keys = PhoneKeys(backend: SoftwareBackend(store: secrets), record: dir.appendingPathComponent("keys.made"))
+    private func phone(_ secrets: MemoryStore, _ uplinks: FakeUplinks, settings: FakeSettings? = nil) -> FerbPhone {
+        let backend = settings.map { s in SoftwareBackend(store: secrets, biometry: { s.faces }) } ?? SoftwareBackend(store: secrets)
+        let keys = PhoneKeys(backend: backend, record: dir.appendingPathComponent("keys.made"))
         return FerbPhone(vault: Vault(dir: dir, secrets: secrets, keys: keys), uplinks: uplinks,
                          identity: PhoneIdentity(name: "Invented iPhone", app: "com.ferb.phone test"))
     }
@@ -187,7 +194,7 @@ final class FerbPhoneTests: XCTestCase {
 
         let again = phone(secrets, uplinks)
         let s = await again.start()
-        XCTAssertEqual(s.keys, KeyHealth(device: .ok, lock: .ok, strong: .ok))
+        XCTAssertEqual(s.keys, KeyHealth(device: .ok, lock: .ok, strong: .ok, strongOnMac: true), "the Mac holds what the pairing gave it")
         XCTAssertEqual(uplinks.starts[1].state, Data("{\"invented\":\"link state\"}".utf8), "the kept state started the link")
         XCTAssertEqual(uplinks.starts[1].keys, pubs, "the same keys")
         await again.close()
@@ -226,5 +233,59 @@ final class FerbPhoneTests: XCTestCase {
         XCTAssertNotEqual(uplinks.starts.last?.keys.lock, before.lock, "new signing keys for the next pairing")
         XCTAssertTrue(p.state.isOpen)
         await p.close()
+    }
+
+    /// Update fingerprint (PHN-849): after the faces change, a new strong key goes to the link with the code; the Mac's
+    /// Done records it as the Mac's and the health reads OK again; the device and lock keys never change. A No leaves
+    /// the old key registered and the strong key reading as changed.
+    // decision: PHN-849
+    func testUpdateFingerprintGivesTheMacANewStrongKeyAndDoneRecordsIt() async throws {
+        let secrets = MemoryStore()
+        let uplinks = FakeUplinks()
+        let settings = FakeSettings()
+        let p = phone(secrets, uplinks, settings: settings)
+        await p.start()
+        let pairedNow = await p.pair("FERB-good", account: "fpa1.invented")
+        XCTAssertNotNil(pairedNow.value)
+        let paired = try XCTUnwrap(p.vault.registeredKeys())
+        XCTAssertEqual(p.vault.keyHealth().strong, .ok)
+
+        settings.faces = Data("faces-2".utf8)   // a face added: iOS made the strong key unusable
+        XCTAssertTrue(p.vault.keyHealth().fingerprintsChanged)
+        let first = await p.updateFingerprint("FERB-update")
+        XCTAssertNotNil(first.value)
+        let link = try XCTUnwrap(uplinks.made.last)
+        let sent = try XCTUnwrap(link.updates.last)
+        XCTAssertEqual(sent.code, "FERB-update")
+        XCTAssertNotEqual(sent.strongPub, paired.strong, "a new key")
+        XCTAssertEqual(p.vault.registeredKeys(), paired, "nothing is recorded before the Mac's Done")
+        XCTAssertTrue(p.vault.keyHealth().fingerprintsChanged, "the Mac still holds the old key")
+
+        // the owner said No: the link says why; the phone stays paired with the old key registered
+        link.listener.statusChanged(status: Self.status(.failed(problem: LinkProblem(code: "pair_denied", detail: "No.", allow: nil))))
+        XCTAssertEqual(p.vault.registeredKeys(), paired)
+
+        // a second try reuses the key made for the first; the owner's Yes
+        let second = await p.updateFingerprint("FERB-update-2")
+        XCTAssertNotNil(second.value)
+        XCTAssertEqual(link.updates.last?.strongPub, sent.strongPub, "made once")
+        link.listener.statusChanged(status: Self.status(.waiting(code: "123 456")))
+        XCTAssertEqual(p.vault.registeredKeys(), paired)
+        link.listener.statusChanged(status: Self.status(.done))
+        XCTAssertEqual(p.vault.registeredKeys(), PublicKeys(device: paired.device, lock: paired.lock, strong: sent.strongPub))
+        XCTAssertEqual(p.vault.keyHealth().strong, .ok)
+        await eventually { p.state.keys?.strong == .ok }
+        await p.close()
+    }
+
+    private func eventually(_ ok: @escaping @MainActor () -> Bool) async {
+        for _ in 0..<200 where !ok() { try? await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertTrue(ok())
+    }
+
+    static func status(_ update: FingerprintUpdate) -> LinkStatus {
+        LinkStatus(phase: .online, path: .direct, tierWords: nil, pairingCode: nil, paired: true, bulkAllowed: true, slow: false,
+                   ownRelayUrl: nil, ownRelayAlways: false, relay: nil, problem: nil, retryInS: nil, macOlder: false, macNewer: false,
+                   fingerprintUpdate: update)
     }
 }

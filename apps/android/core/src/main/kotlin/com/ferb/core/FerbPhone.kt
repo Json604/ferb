@@ -6,6 +6,7 @@ import android.provider.Settings
 import android.util.Log
 import com.ferb.mobile.Change
 import com.ferb.mobile.Clock
+import com.ferb.mobile.FingerprintUpdate
 import com.ferb.mobile.FerbException
 import com.ferb.mobile.Ids
 import com.ferb.mobile.LinkListener
@@ -138,6 +139,8 @@ class FerbPhone(
         override fun statusChanged(status: LinkStatus) {
             if (gen != linkGen.get()) return
             scope.launch { _link.value = status }
+            // the Mac took the new fingerprint key: it is now the one the Mac holds
+            if (status.fingerprintUpdate is FingerprintUpdate.Done) scope.launch(io) { fingerprintTaken() }
         }
 
         override fun persist(state: ByteArray) {
@@ -166,7 +169,7 @@ class FerbPhone(
             try {
                 nativeInit()
                 bringUp()
-                _state.value = PhoneState.Open(vault.keys.health(), wiped)
+                _state.value = PhoneState.Open(health(), wiped)
             } catch (e: FerbException) {
                 _state.value = PhoneState.Failed(e)
             }
@@ -213,6 +216,43 @@ class FerbPhone(
         }
     }
 
+    /** The fingerprint-only key offered in the update under way (null: none), recorded as the Mac's once it says Done. */
+    @Volatile private var offered: String? = null
+
+    /**
+     * Update fingerprint (PHN-133's replacement without pairing again): the fingerprint-only key Android destroyed when
+     * the fingerprints changed is made anew (a usable one the Mac doesn't hold yet is offered as it is) and handed to the
+     * paired Mac with [code], the code FERB on the Mac shows after Update fingerprint (scanned or typed). Returns once
+     * the link took it; [link]'s `fingerprintUpdate` then says Waiting (with the six digits), Done or Failed. The phone
+     * stays paired whatever the answer; on Done the key is recorded as the Mac's and [state] says the keys work again.
+     * Refused here with [NO_FINGERPRINT] when this phone has no strong biometric enrolled.
+     */
+    suspend fun updateFingerprint(code: String): Outcome<Unit> = withContext(io) {
+        serial.withLock {
+            try {
+                val u = uplink ?: throw FerbException.Closed("FERB is not open.", null)
+                val pub = vault.keys.strongForUpdate()
+                    ?: throw FerbException.NeedsSigner("This phone has no fingerprint set up.", NO_FINGERPRINT)
+                offered = pub
+                u.updateFingerprint(code, pub)
+                Outcome.Ok(Unit)
+            } catch (e: FerbException) {
+                Outcome.Failed(e)
+            } finally {
+                publishOpen()
+            }
+        }
+    }
+
+    /** The Mac said Done: the key offered (when it is still this phone's) is the one the Mac holds now. */
+    private suspend fun fingerprintTaken() = serial.withLock {
+        val pub = offered ?: return@withLock
+        val mac = vault.registeredKeys() ?: return@withLock
+        if (vault.keys.strongPublic() == pub && mac.strong != pub) vault.saveRegisteredKeys(mac.copy(strong = pub))
+        offered = null
+        publishOpen()
+    }
+
     /** This phone's link id (the account statement names it, kb PHN-828), or null before the link started. */
     suspend fun endpointId(): String? = withContext(io) {
         MainGuard.offMain("the link's endpoint id")
@@ -247,8 +287,8 @@ class FerbPhone(
     /**
      * Keys this phone holds that the Mac was never given: a fingerprint enrolled after a pairing made without one
      * makes the fingerprint-only key at the next start (or now: the missing keys the phone can hold are made here).
-     * Null when there is nothing to register. Only keys the Mac lacks: a strong key Android destroyed is replaced only
-     * by pairing again (PHN-133), so it never shows here.
+     * Null when there is nothing to register. Only keys the Mac lacks: a strong key Android destroyed is replaced by
+     * [updateFingerprint] (or pairing again), so it never shows here.
      */
     suspend fun unregisteredKeys(): PublicKeys? = withContext(io) {
         serial.withLock {
@@ -268,7 +308,7 @@ class FerbPhone(
     suspend fun registerKeys(signer: (KeyKind) -> Signer): Outcome<Boolean> {
         val fresh = unregisteredKeys() ?: return Outcome.Ok(false)
         val mac = withContext(io) { vault.registeredKeys() } ?: return Outcome.Ok(false)
-        val strongOk = withContext(io) { vault.keys.health().strong == KeyState.OK }
+        val strongOk = withContext(io) { health().strong == KeyState.OK }
         val kind = if (mac.strong != null && strongOk) KeyKind.STRONG else KeyKind.LOCK
         val r = call { it.registerKeys(fresh.device, fresh.strong, signer(kind)) }
         if (r is Outcome.Ok) {
@@ -394,8 +434,20 @@ class FerbPhone(
      */
     private fun publishOpen() {
         scope.launch(io) {
-            if (mobile != null && !closed.get()) _state.value = PhoneState.Open(vault.keys.health(), wiped)
+            if (mobile != null && !closed.get()) _state.value = PhoneState.Open(health(), wiped)
         }
+    }
+
+    /**
+     * The keys' health as the Mac sees them: the fingerprint-only key counts as GONE also when it isn't the one the Mac
+     * holds (made for an update the owner didn't approve), so everything that needs it waits for Update fingerprint.
+     */
+    private fun health(): KeyHealth {
+        val h = vault.keys.health()
+        val mac = runCatching { vault.registeredKeys() }.getOrNull()?.strong ?: return h
+        // a key the Mac doesn't hold, or none at all, can't answer the Mac's fingerprint checks
+        val strong = if (h.strong != KeyState.GONE && vault.keys.strongPublic() != mac) KeyState.GONE else h.strong
+        return h.copy(strong = strong, strongOnMac = true)
     }
 
     /** The link first (its kept state decides whether anything else is kept), then the store. */
@@ -476,6 +528,9 @@ class FerbPhone(
     companion object {
         /** How long "Forget this Mac" waits for the Mac to remove this phone before it wipes everything anyway. */
         const val FORGET_TELL_MS = 3_000L
+
+        /** The app's own code: Update fingerprint needs a fingerprint enrolled on this phone first. */
+        const val NO_FINGERPRINT = "no_fingerprint"
         /** The phone's object: its vault, the real link, its names. Then [start]. */
         fun create(context: Context): FerbPhone =
             FerbPhone(Vault.forPhone(context.applicationContext), LinkUplinks(), PhoneIdentity.of(context),

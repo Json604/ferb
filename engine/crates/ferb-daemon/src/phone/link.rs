@@ -209,15 +209,48 @@ impl Phones {
         Ok(out)
     }
 
-    /// `phone.pair_start`: a new pairing code (the QR's text, the text to type, the seconds it lasts), refused at the
-    /// daemon's limit before a code is made. Turns the phone feature on.
+    /// `phone.pair_start {update?}`: a new pairing code (the QR's text, the text to type, the seconds it lasts), refused
+    /// at the daemon's limit before a code is made. Turns the phone feature on. With `update` (a paired phone's id,
+    /// PHN-849) the code only lets that phone replace its fingerprint key: no limit applies, and it pairs no phone.
     pub async fn code_start(&self) -> HandlerResult {
+        self.code_start_for(&Params::new()).await
+    }
+    /// [`Self::code_start`] with the call's params (`update`).
+    pub async fn code_start_for(&self, params: &Params) -> HandlerResult {
+        let update = params
+            .get("update")
+            .and_then(Value::as_str)
+            .filter(|u| !u.is_empty());
         let live = {
             let db = lock(&self.inner.seams.db);
             ferb_store::phones::live(db.conn())
                 .map_err(|e| HandlerError::fault("OperationalError", e.to_string()))?
-                .len()
         };
+        if let Some(id) = update {
+            match live.iter().find(|p| p.endpoint == id) {
+                None => {
+                    return Err(HandlerError::coded(
+                        phone_gate::NOT_FOUND,
+                        "That phone is not paired with this Mac.",
+                    ))
+                }
+                Some(p) if p.strong_pub.is_none() => {
+                    return Err(HandlerError::coded(
+                        phone_gate::BAD_REQUEST,
+                        "That phone has no fingerprint key to update.",
+                    ))
+                }
+                Some(_) => {}
+            }
+            self.running().await?;
+            let v = self.ask("pair_start", json!({"update": id})).await?;
+            let mut out = Params::new();
+            for k in ["code", "url", "qr", "seconds"] {
+                out.insert(k.into(), v[k].clone());
+            }
+            return Ok(out);
+        }
+        let live = live.len();
         let max = self.inner.limits.devices_max;
         if live >= max {
             return Err(HandlerError::coded(
@@ -308,9 +341,9 @@ impl Phones {
             async move { me.link_status().await }
         });
         let me = self.clone();
-        server.register_unary("phone.pair_start", move |_s: Session, _a: Params| {
+        server.register_unary("phone.pair_start", move |_s: Session, a: Params| {
             let me = me.clone();
-            async move { me.code_start().await }
+            async move { me.code_start_for(&a).await }
         });
         let me = self.clone();
         server.register_unary("phone.pair_cancel", move |_s: Session, _a: Params| {

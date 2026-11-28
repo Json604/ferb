@@ -14,9 +14,11 @@ final class PhoneSettingsTests: XCTestCase {
         PhoneSettingsModel(service: RPCPhoneService(daemon: daemon, link: hasLink ? link : nil), now: { [unowned self] in date })
     }
 
-    private func phone(_ id: String, _ name: String, unused: Bool = false) -> [String: Any] {
-        ["id": id, "name": name, "app": "android", "paired_at": "2026-11-10T09:00:00+05:30",
-         "last_seen": "2026-11-16T09:00:00.250000+05:30", "unused_warning": unused]
+    private func phone(_ id: String, _ name: String, unused: Bool = false, fingerprintKey: Bool? = nil) -> [String: Any] {
+        var row: [String: Any] = ["id": id, "name": name, "app": "android", "paired_at": "2026-11-10T09:00:00+05:30",
+                                  "last_seen": "2026-11-16T09:00:00.250000+05:30", "unused_warning": unused]
+        if let fingerprintKey { row["fingerprint_key"] = fingerprintKey }
+        return row
     }
 
     private func list(_ phones: [[String: Any]], pairing: Any = NSNull()) -> [String: Any] {
@@ -143,6 +145,113 @@ final class PhoneSettingsTests: XCTestCase {
         daemon.failures["phone.pair_decide"] = DaemonRPCError.remote("FERB already has 5 paired phones", code: -32023)
         await page.decide(yes: true)
         XCTAssertEqual(page.pairing, .ended(PhoneWords.full(5)))
+    }
+
+    /// The owner decided (2026-11-28): a paired phone whose fingerprints changed gets a new fingerprint key without
+    /// pairing again. Update fingerprint shows a code for that phone only, even with the list full.
+    func testUpdateFingerprintShowsACodeForThatPhoneOnlyEvenWhenTheListIsFull() async throws {
+        let page = model()
+        daemon.replies["phone.list"] = list([phone("ep1", "Pixel 8", fingerprintKey: true), phone("ep2", "Old tablet", fingerprintKey: false)]
+                                            + (3...5).map { phone("ep\($0)", "Phone \($0)") })
+        link.replies["phone.pair_start"] = invite
+        await page.load()
+        XCTAssertTrue(page.isFull)
+        XCTAssertEqual(page.phones.map(\.fingerprintKey), [true, false, false, false, false])   // unsaid is false
+        await page.updateFingerprint("ep1")
+        guard case let .showing(shown, _) = page.pairing else { return XCTFail("\(page.pairing)") }
+        XCTAssertEqual(shown.rows, ["1010", "0101", "1010", "0101"])
+        XCTAssertEqual(link.params(of: "phone.pair_start").last?["update"] as? String, "ep1")
+        XCTAssertEqual(page.updating, "ep1")
+        XCTAssertEqual(page.updatingName, "Pixel 8")
+        XCTAssertTrue(page.showsUpdate)
+        // New code keeps the update; the countdown runs as a pairing's
+        date += 30
+        await page.newCode()
+        XCTAssertEqual(link.params(of: "phone.pair_start").last?["update"] as? String, "ep1")
+        XCTAssertEqual(page.secondsLeft, 120)
+        date += 121
+        await page.tick()
+        XCTAssertEqual(page.pairing, .ended(PhoneWords.updateExpired))
+        XCTAssertNil(page.updating)
+        XCTAssertFalse(page.showsUpdate)
+        // Cancel ends it; pairing a new phone afterwards sends no update and is refused by the limit again
+        await page.updateFingerprint("ep1")
+        await page.cancelPairing()
+        XCTAssertEqual(page.pairing, .idle)
+        XCTAssertNil(page.updating)
+        let starts = link.params(of: "phone.pair_start").count
+        await page.startPairing()
+        XCTAssertEqual(page.pairing, .ended(PhoneWords.full(5)))
+        XCTAssertEqual(link.params(of: "phone.pair_start").count, starts)
+        // a pairing's own code carries no update
+        daemon.replies["phone.list"] = list([phone("ep1", "Pixel 8", fingerprintKey: true)])
+        await page.load()
+        await page.startPairing()
+        XCTAssertNil(link.params(of: "phone.pair_start").last?["update"])
+        XCTAssertFalse(page.showsUpdate)
+    }
+
+    /// The question and its answers are the update's own words (owner-approved, exact), never a pairing's; only a reply
+    /// that says the update took effect says the fingerprint works again.
+    func testAnUpdateAsksInItsOwnWordsAndOnlyAYesThatTookEffectSaysItWorksAgain() async throws {
+        XCTAssertEqual(PhoneWords.updateTitle("Pixel 8"), "Update “Pixel 8”'s fingerprint?")
+        XCTAssertEqual(PhoneWords.updateCheckCode,
+                       "Its fingerprints changed. Say Yes only if you added the fingerprint yourself and the phone shows this code:")
+        XCTAssertEqual(PhoneWords.fingerprintUpdated("Pixel 8"), "“Pixel 8” can use your fingerprint again.")
+        var updating = asking
+        updating["request_id"] = "u1"; updating["phone"] = "ep1"; updating["update"] = true
+        let page = model()
+        daemon.replies["phone.list"] = list([phone("ep1", "Pixel 8", fingerprintKey: true)])
+        link.replies["phone.pair_start"] = invite
+        await page.load()
+        await page.updateFingerprint("ep1")
+        daemon.replies["phone.list"] = list([phone("ep1", "Pixel 8", fingerprintKey: true)], pairing: updating)
+        await page.tick(); await page.tick()
+        guard case let .asking(request, _) = page.pairing else { return XCTFail("\(page.pairing)") }
+        XCTAssertTrue(request.update)
+        XCTAssertEqual(request.code, "482 913")
+        XCTAssertTrue(page.showsUpdate)
+        XCTAssertFalse(daemon.methods().contains("phone.pair_decide"))   // nothing answers for the owner
+        daemon.replies["phone.pair_decide"] = ["phone": "ep1", "name": "Pixel 8", "paired": true, "update": true]
+        daemon.replies["phone.list"] = list([phone("ep1", "Pixel 8", fingerprintKey: true)])
+        await page.decide(yes: true)
+        XCTAssertEqual(daemon.params(of: "phone.pair_decide").last?["request_id"] as? String, "u1")
+        XCTAssertEqual(daemon.params(of: "phone.pair_decide").last?["yes"] as? Bool, true)
+        XCTAssertEqual(page.pairing, .ended(PhoneWords.fingerprintUpdated("Pixel 8")))
+        XCTAssertFalse(link.methods().contains("phone.pair_cancel"))
+
+        // a Yes the daemon didn't carry out (or answered as a pairing) is a failure, said plainly
+        for reply: [String: Any] in [["phone": "ep1", "paired": false, "update": true], ["phone": "ep1", "paired": true]] {
+            await page.receive(topic: "phone.pair_requested", data: updating)
+            daemon.replies["phone.pair_decide"] = reply
+            await page.decide(yes: true)
+            XCTAssertEqual(page.pairing, .ended(PhoneWords.updateFailed), "\(reply)")
+        }
+        // No
+        await page.receive(topic: "phone.pair_requested", data: updating)
+        daemon.replies["phone.pair_decide"] = ["phone": "ep1", "name": "Pixel 8", "paired": false, "update": true]
+        await page.decide(yes: false)
+        XCTAssertEqual(daemon.params(of: "phone.pair_decide").last?["yes"] as? Bool, false)
+        XCTAssertEqual(page.pairing, .ended(PhoneWords.notUpdated("Pixel 8")))
+        XCTAssertTrue(link.methods().contains("phone.pair_cancel"))
+        // unanswered, the phone gone, the request gone at the daemon: an update's words, never "wasn't paired"
+        await page.receive(topic: "phone.pair_requested", data: updating)
+        date += 121
+        await page.tick()
+        XCTAssertEqual(page.pairing, .ended(PhoneWords.updateNoAnswer))
+        await page.receive(topic: "phone.pair_requested", data: updating)
+        daemon.replies["phone.list"] = list([phone("ep1", "Pixel 8", fingerprintKey: true)])
+        await page.tick(); await page.tick()
+        XCTAssertEqual(page.pairing, .ended(PhoneWords.updateRequestEnded))
+        await page.receive(topic: "phone.pair_requested", data: updating)
+        daemon.failures["phone.pair_decide"] = DaemonRPCError.remote("no such request", code: -32018)
+        await page.decide(yes: true)
+        XCTAssertEqual(page.pairing, .ended(PhoneWords.updateRequestEnded))
+        for line in [PhoneWords.notUpdated("Pixel 8"), PhoneWords.updateFailed, PhoneWords.updateExpired,
+                     PhoneWords.updateNoAnswer, PhoneWords.updateRequestEnded] {
+            XCTAssertFalse(line.contains("pair"), line)
+            XCTAssertFalse(line.contains("AI"), line)
+        }
     }
 
     // decision: PHN-419
@@ -332,6 +441,19 @@ final class PhoneSettingsTests: XCTestCase {
         XCTAssertTrue(model.announcedAttentionIDs.contains("phone-pair:r1"))
         model.receiveBusEvent(["topic": "phone.pair_requested", "data": asking])     // once per request
         XCTAssertEqual(model.alerts.filter { $0.id == "phone-pair-r1" }.count, 1)
+
+        // a paired phone updating its fingerprint is announced as that, never as a phone wanting to pair
+        var updating = asking
+        updating["request_id"] = "u1"; updating["update"] = true
+        model.receiveBusEvent(["topic": "phone.pair_requested", "data": updating])
+        let update = try XCTUnwrap(model.alerts.first { $0.id == "phone-pair-u1" })
+        XCTAssertEqual(update.text, PhoneWords.notchAsksUpdate("Pixel 8"))
+        XCTAssertTrue(update.text.hasPrefix("Update “Pixel 8”'s fingerprint?"))
+        XCTAssertFalse(update.text.contains("wants to pair"))
+        XCTAssertFalse(update.text.contains("482"), "the notch's line carries no code")
+        XCTAssertEqual(update.card?.page, "phone")
+        XCTAssertTrue(OwnerAlerts.needsOwner(update))
+        XCTAssertTrue(model.announcedAttentionIDs.contains("phone-pair:u1"))
     }
 
     // decision: PHN-580

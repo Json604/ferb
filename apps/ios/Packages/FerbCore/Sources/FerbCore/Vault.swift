@@ -129,6 +129,18 @@ public final class Vault: @unchecked Sendable {
         write(Data([k.device, k.lock, k.strong].map { $0 ?? "-" }.joined(separator: "\n").utf8), to: registeredFile)
     }
 
+    /// Which keys work now, as the Mac sees them (PHN-849): a usable strong key that isn't the one the Mac holds (one
+    /// made for an update the owner didn't approve) counts as GONE, so nothing offers it and fingerprint checks wait
+    /// for Update fingerprint. A Mac that holds no strong key is [PhoneKeys]' health as it is (the key is registered
+    /// later, `registerKeys`).
+    public func keyHealth() -> KeyHealth {
+        var h = keys.health()
+        guard let held = registeredKeys()?.strong else { return h }
+        if h.strong == .ok, keys.strongPublic() != held { h.strong = .gone }
+        h.strongOnMac = true
+        return h
+    }
+
     /// "Forget this Mac" (PHN-408, PHN-646): the store, its key, the three signing keys and the link's state, its
     /// identity and pairing with it: a forgotten Mac is never dialled again, and the next pairing is a new phone to it.
     public func forget() {

@@ -27,6 +27,8 @@ public protocol PhoneApi: AnyObject {
     /// Pairs from a code; `account` is the server's signed assertion of this phone's FERB account for [endpointId],
     /// which the Mac's daemon checks against its own account before it asks the owner (PHN-828).
     func pair(_ code: String, account: String) async -> Outcome<Void>
+    /// Update fingerprint (PHN-849): a new Face ID / Touch ID key to the paired Mac with its code.
+    func updateFingerprint(_ code: String) async -> Outcome<Void>
     /// This phone's link id (its endpoint id), or nil before the link started: what the account's assertion names.
     func endpointId() async -> String?
     /// Binds a pairing made before sign-in existed to this phone's account (`phone.bind_account`, kb PHN-828): the
@@ -191,6 +193,7 @@ public final class LibraryPhone: PhoneApi {
     public func loadOlder(conversation: String) async -> Outcome<OlderState> { await phone.call { try $0.loadOlder(conversation: conversation) } }
     public func unlock(_ signer: Signer) async -> Outcome<Void> { await phone.unlock(signer) }
     public func pair(_ code: String, account: String) async -> Outcome<Void> { await phone.pair(code, account: account) }
+    public func updateFingerprint(_ code: String) async -> Outcome<Void> { await phone.updateFingerprint(code) }
     public func endpointId() async -> String? { await phone.endpointId() }
     public func bindAccount(assertion: String) async -> Outcome<Bool> { await phone.call { try $0.bindAccount(assertion: assertion) } }
     public func forget() async -> Outcome<Bool> { await phone.forgetThisMac() }

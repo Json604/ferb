@@ -1146,3 +1146,81 @@ async fn until_i_m_back_goes_only_with_a_yes_to_the_screen_question_from_an_unlo
         Some(("phone_removed".to_owned(), Some(P1.to_owned())))
     );
 }
+
+/// PHN-849: a paired phone's fingerprint key is replaced only through the owner's Yes to an update request, which is
+/// only for a paired phone the Mac already holds such a key for; a No, a phone not paired or one without that key
+/// changes nothing, and an update never adds a phone.
+// decision: PHN-849
+#[tokio::test]
+async fn an_update_replaces_only_a_paired_phone_s_fingerprint_key_on_the_owner_s_yes() {
+    let w = world(None).await;
+    let mut link = Conn::link(&w).await;
+    pair(&w, "with", &Keys::new(1), true, true).await;
+    pair(&w, "without", &Keys::new(2), false, true).await;
+    let fresh = spki(&Keys::new(9).strong);
+    let held = |endpoint: &str| {
+        let db = w.db.lock().unwrap();
+        ferb_store::phones::by_endpoint(db.conn(), endpoint)
+            .unwrap()
+            .and_then(|p| p.strong_pub)
+    };
+    let update = |endpoint: &str| json!({"endpoint": endpoint, "code": "123 456", "strong_pub": fresh, "update": true});
+    // not paired, or no key to replace: refused before the owner is asked
+    let asked = |w: &World| {
+        w.published
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(k, _)| k == "phone.pair_requested")
+            .count()
+    };
+    let before = asked(&w);
+    let (c, _) = link
+        .call("link.pair_request", update("stranger"), None)
+        .await
+        .unwrap_err();
+    assert_eq!(c, code::NOT_FOUND);
+    let (c, _) = link
+        .call("link.pair_request", update("without"), None)
+        .await
+        .unwrap_err();
+    assert_eq!(c, code::BAD_REQUEST);
+    assert_eq!(asked(&w), before);
+    // a No changes nothing
+    let r = link.ok("link.pair_request", update("with")).await;
+    let listed = w.phones.list(&app_session()).unwrap();
+    assert_eq!(listed["pairing"]["update"], true);
+    assert_eq!(listed["pairing"]["name"], "Phone with");
+    let mut no = ferb_rpc::Params::new();
+    no.insert("yes".into(), json!(false));
+    assert_eq!(w.phones.pair_decide(&no).unwrap()["update"], true);
+    assert_eq!(
+        link.ok("link.pair_wait", json!({"request_id": r["request_id"]}))
+            .await["paired"],
+        false
+    );
+    assert_eq!(held("with"), Some(spki(&Keys::new(1).strong)));
+    // the Yes replaces the key; the phone keeps its row and nothing is added
+    let r = link.ok("link.pair_request", update("with")).await;
+    let mut yes = ferb_rpc::Params::new();
+    yes.insert("yes".into(), json!(true));
+    let decided = w.phones.pair_decide(&yes).unwrap();
+    assert_eq!(
+        (decided["paired"].clone(), decided["update"].clone()),
+        (json!(true), json!(true))
+    );
+    assert_eq!(
+        link.ok("link.pair_wait", json!({"request_id": r["request_id"]}))
+            .await["paired"],
+        true
+    );
+    assert_eq!(held("with"), Some(fresh.clone()));
+    let devices = link.ok("link.devices", json!({})).await;
+    assert_eq!(devices["devices"].as_array().unwrap().len(), 2);
+    assert!(w
+        .published
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(k, v)| k == "phone.pair_ended" && v["update"] == true && v["paired"] == true));
+}

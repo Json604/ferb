@@ -475,13 +475,8 @@ public struct Mark: View {
                 Circle().fill(Ink.red)
                 Text("!").font(.system(size: size * 0.55, weight: .bold)).foregroundStyle(.white)
             case .running:
-                MotionClock { t in
-                    let turn = t.truncatingRemainder(dividingBy: 0.8) / 0.8
-                    Circle().trim(from: 0, to: 0.3)
-                        .stroke(onFerb ? Color.white : Ink.black, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                        .rotationEffect(.degrees(turn * 360))
-                        .padding(2)
-                }
+                // FERB.app's sweep and speed (RunningArc); the lab's width at this size
+                RunningArc(color: onFerb ? Color.white : Ink.black, width: 2.5).padding(2)
             case .waiting:
                 Circle().strokeBorder(LabColors.waitingRing, style: StrokeStyle(lineWidth: 2, dash: [3, 3]))
             }

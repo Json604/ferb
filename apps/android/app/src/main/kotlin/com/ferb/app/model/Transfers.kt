@@ -352,6 +352,7 @@ class Transfers(
         val note = when {
             phase == Phase.PAUSED -> null
             e.linkCode == Unlocker.PAIR_AGAIN -> Note(R.string.needs_pairing_again)
+            e.linkCode == Unlocker.UPDATE_FINGERPRINT -> Note(R.string.needs_fingerprint_update)
             else -> FerbViewModel.errorNote(e)
         }
         update(key) { t ->

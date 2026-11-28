@@ -201,6 +201,9 @@ struct Pending {
     code: String,
     made: f64,
     decided: Option<bool>,
+    /// PHN-849: a paired phone whose fingerprints changed asks to replace its fingerprint-only key (`new.strong_pub`)
+    /// instead of being added.
+    update: bool,
 }
 
 /// The daemon's phone area. Cheap to clone.
@@ -910,6 +913,9 @@ impl Phones {
     /// phone and the six digits both screens show. One pairing waits at a time: a new one replaces it (the old is a No).
     pub async fn pair_request(&self, params: &Params) -> HandlerResult {
         let (endpoint, code) = pair_request_shape(params)?;
+        if params.get("update").and_then(Value::as_bool) == Some(true) {
+            return self.update_request(params, endpoint, code);
+        }
         // the Mac's account may be read from the Keychain the first time: off the async runtime
         let check = self.inner.seams.account.clone();
         let mac = tokio::task::spawn_blocking(move || check.mac_account())
@@ -990,17 +996,9 @@ impl Phones {
             code: code.clone(),
             made: inner.mono(),
             decided: None,
+            update: false,
         };
-        // journaled and published once the pairing's lock is let go (both take the database)
-        let replaced = lock(&inner.pairing).replace(pending);
-        if let Some(old) = replaced {
-            if old.decided.is_none() {
-                inner.pair_ended(
-                    json!({"phone": old.new.endpoint, "paired": false, "why": "replaced"}),
-                );
-            }
-        }
-        inner.decided.notify_waiters();
+        inner.wait_for_answer(pending);
         let question = format!(
             "Pair the phone \"{}\"? Check that it shows the code {code}. It will be able to do everything FERB.app can: \
              send tasks, answer FERB's questions, see what FERB is doing, and, after its fingerprint or PIN, open and \
@@ -1018,6 +1016,73 @@ impl Phones {
         ev.insert("app".into(), json!(new.app));
         ev.insert("code".into(), json!(code));
         ev.insert("question".into(), json!(question));
+        (inner.seams.publish)("phone.pair_requested", ev);
+        let mut out = Params::new();
+        out.insert("request_id".into(), json!(id));
+        out.insert("seconds".into(), json!(inner.limits.pair_confirm_s));
+        Ok(out)
+    }
+
+    /// `link.pair_request {endpoint, code, strong_pub, update: true}` (PHN-849): a paired phone whose fingerprints
+    /// changed proved the one-time secret of a code the owner made for it ("Update fingerprint" on the Mac; the helper
+    /// checked that the code was made for this phone) and offers a new fingerprint-only key. The owner is asked on the
+    /// Mac with the six digits both screens show, as for a pairing, and his Yes replaces the key: the same proof a
+    /// new pairing needs, for a phone that keeps its name, history and settings. Only a phone the Mac holds such a key
+    /// for: one without registers its key with `phone.keys`.
+    fn update_request(&self, params: &Params, endpoint: String, code: String) -> HandlerResult {
+        let inner = &self.inner;
+        let bad = |why: &str| coded(refused(phone_gate::BAD_REQUEST, why));
+        let Some(strong_pub) = offered_key(params, "strong_pub") else {
+            return Err(bad("an update needs the phone's new fingerprint key"));
+        };
+        let phone = {
+            let db = lock(&inner.seams.db);
+            table::by_endpoint(db.conn(), &endpoint).map_err(store_fault)?
+        };
+        let Some(phone) = phone else {
+            return Err(coded(refused(
+                phone_gate::NOT_FOUND,
+                "This phone is not paired with this Mac.",
+            )));
+        };
+        if phone.strong_pub.is_none() {
+            return Err(bad("this phone has no fingerprint key to replace"));
+        }
+        let id = proof::b64u(&(inner.seams.nonce)());
+        let new = NewPhone {
+            endpoint: endpoint.clone(),
+            name: phone.name.clone(),
+            app: phone.app.clone(),
+            unlock_pub: None,
+            device_pub: None,
+            strong_pub: Some(strong_pub),
+            account_id: None,
+        };
+        inner.wait_for_answer(Pending {
+            id: id.clone(),
+            new,
+            code: code.clone(),
+            made: inner.mono(),
+            decided: None,
+            update: true,
+        });
+        (inner.seams.journal)(
+            "phone.pair_requested",
+            json!({"phone": endpoint, "name": phone.name, "app": phone.app, "update": true}),
+        );
+        let question = format!(
+            "Update \u{201c}{}\u{201d}'s fingerprint? Its fingerprints changed. Say Yes only if you added the \
+             fingerprint yourself and the phone shows this code: {code}",
+            phone.name
+        );
+        let mut ev = Map::new();
+        ev.insert("request_id".into(), json!(id));
+        ev.insert("phone".into(), json!(endpoint));
+        ev.insert("name".into(), json!(phone.name));
+        ev.insert("app".into(), json!(phone.app));
+        ev.insert("code".into(), json!(code));
+        ev.insert("question".into(), json!(question));
+        ev.insert("update".into(), json!(true));
         (inner.seams.publish)("phone.pair_requested", ev);
         let mut out = Params::new();
         out.insert("request_id".into(), json!(id));
@@ -1043,7 +1108,25 @@ impl Phones {
             )));
         };
         let mut paired = false;
-        if yes {
+        let update = p.update;
+        if yes && update {
+            // decision: PHN-849 — the Yes replaces the fingerprint-only key of a phone that keeps its row
+            let replaced = {
+                let db = lock(&inner.seams.db);
+                table::replace_strong(
+                    db.conn(),
+                    &p.new.endpoint,
+                    p.new.strong_pub.as_deref().unwrap_or_default(),
+                )
+                .map_err(store_fault)?
+            };
+            paired = replaced.is_some();
+            if paired {
+                let _ = inner
+                    .events
+                    .send(json!({"event": "device_keys", "id": p.new.endpoint}));
+            }
+        } else if yes {
             let added = {
                 let db = lock(&inner.seams.db);
                 table::add(&db, &p.new, &inner.now_iso(), inner.limits.devices_max)
@@ -1083,10 +1166,20 @@ impl Phones {
             );
         }
         inner.decided.notify_waiters();
-        inner.pair_ended(json!({"phone": endpoint, "paired": paired}));
+        let mut ended = json!({"phone": endpoint, "paired": paired});
+        if update {
+            ended["update"] = json!(true);
+        }
+        inner.pair_ended(ended);
+        // an update is the phone's own line in the audit ("Pixel updated its fingerprint"), a pairing the Mac's
+        let (who, method) = if update {
+            (endpoint.as_str(), "phone.fingerprint_update")
+        } else {
+            ("", "phone.pair_decide")
+        };
         inner.audit(
-            "",
-            "phone.pair_decide",
+            who,
+            method,
             "owner",
             if paired { "ok" } else { "denied" },
             json!({"phone": endpoint}),
@@ -1095,6 +1188,9 @@ impl Phones {
         out.insert("phone".into(), json!(endpoint));
         out.insert("name".into(), json!(name));
         out.insert("paired".into(), json!(paired));
+        if update {
+            out.insert("update".into(), json!(true));
+        }
         Ok(out)
     }
 
@@ -1126,7 +1222,7 @@ impl Phones {
                         .filter(|p| p.id == id && p.decided.is_none())
                         .map(|p| {
                             p.decided = Some(false);
-                            json!({"phone": p.new.endpoint, "paired": false, "why": "no answer"})
+                            ended_json(p, "no answer")
                         })
                 };
                 if let Some(ended) = ended {
@@ -1150,14 +1246,22 @@ impl Phones {
         let taken = if cancelled { pairing.take() } else { None };
         drop(pairing);
         if let Some(p) = taken {
-            inner
-                .pair_ended(json!({"phone": p.new.endpoint, "paired": false, "why": "phone left"}));
+            inner.pair_ended(ended_json(&p, "phone left"));
         }
         inner.decided.notify_waiters();
         let mut out = Params::new();
         out.insert("cancelled".into(), json!(cancelled));
         Ok(out)
     }
+}
+
+/// A pairing or update that ended without a Yes, as `phone.pair_ended` says it.
+fn ended_json(p: &Pending, why: &str) -> Value {
+    let mut v = json!({"phone": p.new.endpoint, "paired": false, "why": why});
+    if p.update {
+        v["update"] = json!(true);
+    }
+    v
 }
 
 /// `link.pair_request`'s endpoint and six digits, before anything else is looked at.
@@ -1261,6 +1365,23 @@ impl Inner {
         f(self, &mut st, &dev, &phone).map_err(coded)
     }
 
+    /// One pairing or update waits for the owner's answer at a time: a new one replaces it (the old is a No),
+    /// journaled and published once the pairing's lock is let go (both take the database).
+    fn wait_for_answer(&self, pending: Pending) {
+        let replaced = lock(&self.pairing).replace(pending);
+        if let Some(old) = replaced {
+            if old.decided.is_none() {
+                let mut ended =
+                    json!({"phone": old.new.endpoint, "paired": false, "why": "replaced"});
+                if old.update {
+                    ended["update"] = json!(true);
+                }
+                self.pair_ended(ended);
+            }
+        }
+        self.decided.notify_waiters();
+    }
+
     fn pending_json(&self) -> Value {
         let pairing = lock(&self.pairing);
         match pairing
@@ -1268,8 +1389,12 @@ impl Inner {
             .filter(|p| p.decided.is_none() && self.mono() - p.made < self.limits.pair_confirm_s)
         {
             Some(p) => {
-                json!({"request_id": p.id, "phone": p.new.endpoint, "name": p.new.name, "app": p.new.app,
-                               "code": p.code, "seconds_left": (self.limits.pair_confirm_s - (self.mono() - p.made)).ceil()})
+                let mut v = json!({"request_id": p.id, "phone": p.new.endpoint, "name": p.new.name, "app": p.new.app,
+                               "code": p.code, "seconds_left": (self.limits.pair_confirm_s - (self.mono() - p.made)).ceil()});
+                if p.update {
+                    v["update"] = json!(true);
+                }
+                v
             }
             None => Value::Null,
         }

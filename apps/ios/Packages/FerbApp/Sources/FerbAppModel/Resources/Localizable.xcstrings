@@ -177,6 +177,17 @@
         }
       }
     },
+    "answer_needs_fingerprint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This answer needs %@, and %@ on this phone changed. Answer on your Mac, or turn %@ checks back on: in FERB on your Mac, Settings → Phone → Update fingerprint."
+          }
+        }
+      }
+    },
     "answer_needs_pairing": {
       "extractionState": "manual",
       "localizations": {
@@ -1087,6 +1098,61 @@
           "stringUnit": {
             "state": "translated",
             "value": "Some of the files you picked couldn't be read, so they weren't sent."
+          }
+        }
+      }
+    },
+    "fingerprint_changed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your phone's %@ changed, so FERB turned off %@ checks from this phone. Chat still works. To turn them back on, open FERB on your Mac: Settings → Phone → Update fingerprint."
+          }
+        }
+      }
+    },
+    "fingerprint_compare": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac shows a code. Say Yes there only if it is this one:"
+          }
+        }
+      }
+    },
+    "fingerprint_done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done. Your Mac can ask for %@ again."
+          }
+        }
+      }
+    },
+    "fingerprint_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This iPhone has no Face ID or Touch ID set up. Add it in Settings, then scan the code again."
+          }
+        }
+      }
+    },
+    "fingerprint_waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for your Mac"
           }
         }
       }
@@ -2198,6 +2264,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Open FERB to allow this until you're back at your Mac."
+          }
+        }
+      }
+    },
+    "needs_fingerprint_update": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This needs %@, and %@ on this phone changed. To do it here, turn %@ checks back on: in FERB on your Mac, Settings → Phone → Update fingerprint."
           }
         }
       }
@@ -4489,6 +4566,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Type the code"
+          }
+        }
+      }
+    },
+    "type_code_update": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update fingerprint"
           }
         }
       }

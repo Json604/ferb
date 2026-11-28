@@ -34,8 +34,11 @@ public final class Unlocker {
     /// The Mac's codes for "this call needs the phone's own proof" (not "the window closed").
     public static let proofCodes: Set<String> = ["unlock_required", "unlock_invalid", "fresh_unlock_required"]
 
-    /// The app's own code: the key that would sign is gone (the enrolled faces or fingers changed): pair again.
+    /// The app's own code: the key that would sign is gone: pair again.
     public static let pairAgain = "pair_again"
+
+    /// The app's own code: the Face ID / Touch ID key changed and the Mac holds the old one: Update fingerprint (PHN-849).
+    public static let updateFingerprint = "update_fingerprint"
 
     private let api: PhoneApi
     private let keys: () -> KeyHealth?
@@ -47,7 +50,7 @@ public final class Unlocker {
         self.signer = signer
     }
 
-    /// The key for a fresh proof, or nil: this phone's keys changed and it must pair again.
+    /// The key for a fresh proof, or nil: this phone's keys changed (Update fingerprint, or pair again).
     public func freshKind() -> KeyKind? {
         guard let k = keys() else { return nil }
         if k.strong == .ok { return .strong }
@@ -56,7 +59,7 @@ public final class Unlocker {
         return nil
     }
 
-    /// A signer for a fresh proof, or nil (pair again; [pairAgain]).
+    /// A signer for a fresh proof, or nil ([updateFingerprint] or [pairAgain]).
     public func fresh(_ why: Why) -> Signer? { freshKind().flatMap { signer($0, why) } }
 
     /// `block`, and once more after the Mac's unlock when the Mac's window had closed.
@@ -73,15 +76,21 @@ public final class Unlocker {
     public func withProof<T>(_ upfront: Bool, _ why: Why, _ block: (Signer?) async -> Outcome<T>) async -> Outcome<T> {
         var proof: Signer?
         if upfront {
-            guard let s = fresh(why) else { return Self.pairAgainFailure() }
+            guard let s = fresh(why) else { return noKey() }
             proof = s
         }
         let first = proof
         let r = await run { await block(first) }
         guard proof == nil, case .failed(let e) = r, case .NeedsUnlock = e, Self.proofCodes.contains(e.linkCode ?? "") else { return r }
-        guard let s = fresh(why) else { return Self.pairAgainFailure() }
+        guard let s = fresh(why) else { return noKey() }
         return await run { await block(s) }
     }
 
-    static func pairAgainFailure<T>() -> Outcome<T> { .failed(.NeedsSigner(detail: "Pair this phone again.", linkCode: pairAgain)) }
+    /// No key can sign: the Face ID / Touch ID changed and the Mac can take a new key (Update fingerprint), else pair again.
+    func noKey<T>() -> Outcome<T> {
+        if keys()?.updateFingerprint == true {
+            return .failed(.NeedsSigner(detail: "Update this phone's fingerprint in FERB on your Mac.", linkCode: Self.updateFingerprint))
+        }
+        return .failed(.NeedsSigner(detail: "Pair this phone again.", linkCode: Self.pairAgain))
+    }
 }

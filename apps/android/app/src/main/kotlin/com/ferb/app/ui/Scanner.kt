@@ -51,8 +51,8 @@ import zxingcpp.BarcodeReader
 /**
  * The pairing code's scanner (kb PHN-447): CameraX's preview and analysis with zxing-cpp's reader, QR codes only,
  * normal and light-on-dark; no Google Play services and no ML Kit. The camera is asked for here, in context, and
- * only frames go to the reader: nothing is recorded or kept. The first FERB code read pairs; "Type code" is the way
- * without the camera.
+ * only frames go to the reader: nothing is recorded or kept. The first FERB code read pairs (on the paired app: Update
+ * fingerprint's code, [FerbViewModel.codeRead]); "Type code" is the way without the camera.
  */
 @Composable
 fun Scanner(vm: FerbViewModel, insets: PhoneInsets, close: () -> Unit) {
@@ -66,7 +66,7 @@ fun Scanner(vm: FerbViewModel, insets: PhoneInsets, close: () -> Unit) {
         onAllow = { ask.launch(Manifest.permission.CAMERA) },
         onTypeCode = { vm.show(Sheet.TypeCode) },
         onCancel = close,
-    ) { CameraPreview { code -> vm.pair(code) } }
+    ) { CameraPreview { code -> vm.codeRead(code) } }
 }
 
 /** Where the camera stands for FERB on this page. */

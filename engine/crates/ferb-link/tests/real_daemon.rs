@@ -727,3 +727,189 @@ async fn a_phone_of_another_account_is_refused_through_the_real_bridge() {
     );
     drop(w.server);
 }
+
+/// The phone's strong key as the daemon's table holds it.
+fn strong_held(w: &Real, endpoint: &str) -> Option<String> {
+    let db = ferb_store::Db::open(w._dir.join("ferb.db")).unwrap();
+    ferb_store::phones::by_endpoint(db.conn(), endpoint)
+        .unwrap()
+        .and_then(|p| p.strong_pub)
+}
+
+/// FERB.app's Update fingerprint for the phone `id`: the code (the phone limit is for new phones only).
+async fn update_code(w: &Real, id: &str) -> String {
+    let mut params = Params::new();
+    params.insert("update".into(), json!(id));
+    w.phones
+        .code_start_for(&params)
+        .await
+        .expect("an update code")["code"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+fn new_strong() -> String {
+    use p256::pkcs8::EncodePublicKey;
+    let k = p256::ecdsa::SigningKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+    b64(k.verifying_key().to_public_key_der().unwrap().as_bytes())
+}
+
+/// The phone's `fingerprint_update` state ("waiting", "done", "failed").
+fn update_state(p: &TestPhone) -> String {
+    p.phone.phase()["fingerprint_update"]["state"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// A paired phone whose fingerprints changed gets a new fingerprint key without pairing again (owner, 2026-11-28): the
+/// owner makes a code for that phone on the Mac, the phone proves it and offers its new key, the daemon asks with the
+/// six digits both screens show, and the Yes replaces the key; the phone keeps its row and stays paired. A No changes
+/// nothing and the phone goes on as before. An update code pairs no phone, and a pairing code updates none.
+// decision: PHN-849
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paired_phone_s_new_fingerprint_key_is_taken_on_the_owner_s_yes_to_the_code() {
+    let w = real(1).await;
+    let p = TestPhone::start("Pixel", &w.shared, false, None, true).await;
+    w.pair(&p).await;
+    let id = p.phone.id();
+    let old = strong_held(&w, &id).expect("paired with a strong key");
+
+    // a No: nothing changes, the phone stays paired and online
+    let key = new_strong();
+    let code = update_code(&w, &id).await;
+    p.phone.update_fingerprint(&code, &key).unwrap();
+    assert!(
+        wait(30, || w.published.lock().unwrap().iter().any(|(k, v)| k
+            == "phone.pair_requested"
+            && v["update"] == true))
+        .await,
+        "the daemon never asked; phone says {}",
+        p.phone.phase()
+    );
+    let asked = w
+        .published
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|(k, v)| k == "phone.pair_requested" && v["update"] == true)
+        .map(|(_, v)| v.clone())
+        .unwrap();
+    assert_eq!(asked["name"], "Pixel");
+    assert!(
+        wait(5, || p.phone.phase()["fingerprint_update"]["code"]
+            == asked["code"])
+        .await,
+        "the two screens differ: {}",
+        p.phone.phase()
+    );
+    assert_ne!(p.phase(), "pairing_wait_for_mac", "an update is no pairing");
+    assert_eq!(w.phones.list(&owner()).unwrap()["pairing"]["update"], true);
+    let mut no = Params::new();
+    no.insert("yes".into(), json!(false));
+    assert_eq!(w.phones.pair_decide(&no).unwrap()["paired"], false);
+    assert!(
+        wait(20, || update_state(&p) == "failed").await,
+        "{}",
+        p.phone.phase()
+    );
+    assert!(p.wait_phase("online", 20).await, "{}", p.phone.phase());
+    assert_eq!(strong_held(&w, &id).as_deref(), Some(old.as_str()));
+
+    // the Yes: the key is replaced, the phone keeps its row
+    let code = update_code(&w, &id).await;
+    p.phone.update_fingerprint(&code, &key).unwrap();
+    assert!(
+        wait(30, || w.phones.list(&owner()).unwrap()["pairing"]["update"]
+            == true)
+        .await,
+        "{}",
+        p.phone.phase()
+    );
+    let mut yes = Params::new();
+    yes.insert("yes".into(), json!(true));
+    let decided = w.phones.pair_decide(&yes).unwrap();
+    assert_eq!(
+        (decided["paired"].clone(), decided["update"].clone()),
+        (json!(true), json!(true))
+    );
+    assert!(
+        wait(20, || update_state(&p) == "done").await,
+        "{}",
+        p.phone.phase()
+    );
+    assert!(p.wait_phase("online", 20).await);
+    assert_eq!(strong_held(&w, &id).as_deref(), Some(key.as_str()));
+    let listed = w.phones.list(&owner()).unwrap();
+    assert_eq!(listed["phones"].as_array().unwrap().len(), 1);
+    assert_eq!(listed["phones"][0]["name"], "Pixel");
+
+    // an update code pairs no phone: a new phone is turned away and nothing is asked
+    let asks = |w: &Real| {
+        w.published
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(k, _)| k == "phone.pair_requested")
+            .count()
+    };
+    let before = asks(&w);
+    let code = update_code(&w, &id).await;
+    let stranger = TestPhone::start("Other", &w.shared, false, None, true).await;
+    stranger.phone.pair(&code).unwrap();
+    assert!(
+        stranger.wait_phase("stopped", 20).await,
+        "{}",
+        stranger.phone.phase()
+    );
+    assert_eq!(stranger.stop_code(), errors::UPDATE_CODE);
+    assert_eq!(asks(&w), before);
+    // and the code is still good for the phone it was made for
+    let key2 = new_strong();
+    p.phone.update_fingerprint(&code, &key2).unwrap();
+    assert!(
+        wait(30, || asks(&w) == before + 1).await,
+        "{}",
+        p.phone.phase()
+    );
+    w.phones.pair_decide(&no).unwrap();
+    assert!(wait(20, || update_state(&p) == "failed").await);
+    assert_eq!(strong_held(&w, &id).as_deref(), Some(key.as_str()));
+}
+
+/// A pairing code updates no phone: a paired phone that scans "Pair a phone"'s code is told so, nothing is asked, and it
+/// stays paired and online.
+// decision: PHN-849
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pairing_code_updates_no_phone() {
+    let w = real(2).await;
+    let p = TestPhone::start("Pixel", &w.shared, false, None, true).await;
+    w.pair(&p).await;
+    let asks = || {
+        w.published
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(k, _)| k == "phone.pair_requested")
+            .count()
+    };
+    let before = asks();
+    let code = w.phones.code_start().await.unwrap()["code"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    p.phone.update_fingerprint(&code, &new_strong()).unwrap();
+    assert!(
+        wait(20, || update_state(&p) == "failed").await,
+        "{}",
+        p.phone.phase()
+    );
+    assert_eq!(
+        p.phone.phase()["fingerprint_update"]["error"]["code"],
+        errors::UPDATE_CODE
+    );
+    assert_eq!(asks(), before);
+    assert!(p.wait_phase("online", 20).await, "{}", p.phone.phase());
+}

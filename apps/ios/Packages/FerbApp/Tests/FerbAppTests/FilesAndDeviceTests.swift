@@ -105,6 +105,8 @@ final class CatalogTests: XCTestCase {
             "n_public_question", "n_public_done", "n_question_title", "n_private_title", "n_private_text", "n_check_title",
             "n_check_text", "n_on_mac", "n_needs_fingerprint_text", "n_needs_fingerprint", "n_needs_unlock", "n_answer",
             "n_answer_hint", "n_needs_fingerprint_title", "n_not_answered_title",
+            "fingerprint_changed", "fingerprint_done", "fingerprint_compare", "fingerprint_waiting", "fingerprint_none",
+            "type_code_update", "scan_title", "pair_reaching", "answer_needs_fingerprint", "needs_fingerprint_update",
         ] + MacSettings.specs.map(\.titleKey) + Why.allCases.map(\.subtitleKey)
         let missing = keys.filter { !L.has($0) }
         XCTAssertEqual(missing, [], "keys the model names but the catalog lacks")

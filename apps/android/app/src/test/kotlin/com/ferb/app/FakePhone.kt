@@ -350,6 +350,12 @@ class FakePhone : PhoneApi {
         return Outcome.Ok(off)
     }
     override suspend fun unregisteredKeys(): PublicKeys? = newKeys
+    /** What Update fingerprint answers at once (null: the link took it). */
+    var updateRefusal: Outcome.Failed? = null
+    override suspend fun updateFingerprint(code: String): Outcome<Unit> {
+        calls += "update-fingerprint:$code"
+        return updateRefusal ?: Outcome.Ok(Unit)
+    }
     override suspend fun registerKeys(signer: (KeyKind) -> Signer): Outcome<Boolean> {
         val k = newKeys ?: return Outcome.Ok(false)
         signer(KeyKind.LOCK).sign("link.keys")?.let(signed::add) ?: return Outcome.Failed(FerbException.NotSigned("Nothing was sent.", null))
@@ -442,7 +448,7 @@ class FakePhone : PhoneApi {
 
     companion object {
         fun status(phase: LinkPhase = LinkPhase.ONLINE, paired: Boolean = true, path: LinkPath = LinkPath.DIRECT, code: String? = null, problem: com.ferb.mobile.LinkProblem? = null) =
-            LinkStatus(phase, path, null, code, paired, path != LinkPath.PUBLIC_RELAY, false, null, false, null, problem, null, false, false)
+            LinkStatus(phase, path, null, code, paired, path != LinkPath.PUBLIC_RELAY, false, null, false, null, problem, null, false, false, null)
 
         fun refused(linkCode: String) = Outcome.Failed(FerbException.NeedsUnlock("The Mac wants the phone's proof.", linkCode))
     }

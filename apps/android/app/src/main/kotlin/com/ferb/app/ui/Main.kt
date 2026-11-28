@@ -281,8 +281,47 @@ private fun Home(vm: FerbViewModel, ui: UiState, draft: String, insets: PhoneIns
             androidx.compose.runtime.CompositionLocalProvider(com.ferb.design.components.LocalOnFerb provides true) {
                 com.ferb.design.components.ImportCard(card.title, card.rows, m.testTag("memory-import"))
             }
-        } },
+        } } ?: if (fingerprintCardShows(ui)) ({ m -> FingerprintCard(vm, ui, m) }) else null,
     )
+}
+
+/** The fingerprints changed and the Mac can take a new key, or an update started here is under way. */
+internal fun fingerprintCardShows(ui: UiState): Boolean = ui.keys?.updateFingerprint == true || ui.fingerprintUpdating
+
+/**
+ * Update fingerprint (PHN-133's new key without pairing again): what changed and where on the Mac to turn the checks
+ * back on, with the scanner for the code it shows. While the Mac asks the owner, the six digits to compare; a failure
+ * in the link's words. Done is said once as a note, and the card goes with the changed fingerprints.
+ */
+@Composable
+private fun FingerprintCard(vm: FerbViewModel, ui: UiState, modifier: Modifier = Modifier) {
+    // while this update runs: the link's word, or reaching the Mac until it gives one (an earlier update's outcome isn't this one's)
+    val update = if (!ui.fingerprintUpdating) null
+        else ui.link?.fingerprintUpdate as? com.ferb.mobile.FingerprintUpdate.Waiting ?: com.ferb.mobile.FingerprintUpdate.Waiting(null)
+    Card(modifier.testTag("fingerprint-card"), padding = 16.dp) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            when (update) {
+                is com.ferb.mobile.FingerprintUpdate.Waiting -> {
+                    val code = update.code
+                    if (code != null) {
+                        PhoneText(stringResource(R.string.fingerprint_compare), 15f, color = Ink.detail, lineSpacing = 2f)
+                        com.ferb.design.components.PairingCode(code, Modifier.padding(vertical = 6.dp))
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Mark(MarkKind.RUNNING, 20.dp)
+                        PhoneText(stringResource(if (code != null) R.string.fingerprint_waiting else R.string.pair_reaching), 15f, color = Ink.detail)
+                    }
+                }
+                else -> {
+                    PhoneText(stringResource(R.string.fingerprint_changed), 15f, color = Ink.detail, lineSpacing = 2f)
+                    ui.fingerprintNote?.let { PhoneText(noteText(it), 15f, FerbType.Medium, Ink.red, lineSpacing = 2f) }
+                    Pill(stringResource(R.string.scan_title), icon = FerbIcons.qrScan,
+                        onClick = if ("fingerprint" in ui.busy) null else ({ vm.scanForFingerprint() }))
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -484,6 +523,7 @@ private fun ChatOf(vm: FerbViewModel, ui: UiState, temporary: com.ferb.app.Tempo
             StatusLine(text, tone, Modifier.padding(top = 10.dp).testTag("status-line"))
         }
         ui.macNeed?.let { need -> MacNeedCard(need, ui.macLine != null) { vm.unlockMac() } }
+        if (fingerprintCardShows(ui)) FingerprintCard(vm, ui, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
         // the chat's height as answers fold to it (FERB.app's CollapsePolicy): the tallest it has been, so the keyboard
         // coming up never folds or unfolds what is on screen
         var tallest by remember { mutableIntStateOf(0) }
@@ -631,7 +671,11 @@ private fun TaskRow(vm: FerbViewModel, row: ChatRow.Task) {
     val keys = remember(row.taskId, row.watch) {
         row.watch.map { step -> if (step != null && row.taskId != null) com.ferb.app.model.Thumbnails.key(row.taskId, step) else null }
     }
-    val wanted = remember(keys) { keys.filterNotNull() }
+    // a nested step's own picture (FERB.app's feeder lines)
+    val subKeys = remember(row.taskId, row.subWatch) {
+        row.subWatch.map { steps -> steps.map { step -> if (step != null && row.taskId != null) com.ferb.app.model.Thumbnails.key(row.taskId, step) else null } }
+    }
+    val wanted = remember(keys, subKeys) { (keys + subKeys.flatten()).filterNotNull().distinct() }
     DisposableEffect(row.key, wanted) {
         vm.rowPictures(row.key, wanted)
         onDispose { vm.rowPictures(row.key, emptyList()) }
@@ -639,6 +683,7 @@ private fun TaskRow(vm: FerbViewModel, row: ChatRow.Task) {
     // only this card's pictures are read: another task's picture arriving never recomposes it
     val all = vm.thumbnails.pictures.collectAsState()
     val pictures by remember(keys) { androidx.compose.runtime.derivedStateOf { keys.map { k -> k?.let { all.value[it] } } } }
+    val subPictures by remember(subKeys) { androidx.compose.runtime.derivedStateOf { subKeys.map { ks -> ks.map { k -> k?.let { all.value[it] } } } } }
     // FERB.app's card (kb PHN-737): no buttons in it; a part's picture opens its short view, a running part with no
     // picture its task's (Watch live and Stop are there), and View tasks is under the chat
     com.ferb.design.components.PartsCard(
@@ -647,6 +692,8 @@ private fun TaskRow(vm: FerbViewModel, row: ChatRow.Task) {
         watching = keys.map { it != null }, pictures = pictures,
         onPicture = { i -> vm.showTask(row.taskId, row.watch.getOrNull(i)) },
         onPart = { vm.showTask(row.taskId) },
+        subWatching = subKeys.map { ks -> ks.map { it != null } }, subPictures = subPictures,
+        onSubPicture = { i, j -> vm.showTask(row.taskId, row.subWatch.getOrNull(i)?.getOrNull(j)) },
         more = stringResource(R.string.show_more), less = stringResource(R.string.show_less),
     )
 }

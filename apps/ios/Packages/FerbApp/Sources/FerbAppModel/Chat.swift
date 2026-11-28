@@ -20,12 +20,17 @@ public struct ChatTask: Equatable, Sendable {
     public var footerLines: [String] = []
     /// Each part's own live picture, by its step task id while its step works (FERB.app's RowPreview.watch); nil: none.
     public var watch: [String?] = []
+    /// Per part, per step under it (`PlanPart.sub`): that step's task id while it runs and shows its own picture
+    /// (FERB.app's feederLines: once per step, under the first part that waits on it); nil: none.
+    public var subWatch: [[String?]] = []
     /// The card's colour as a whole (FERB.app's surfaceTint).
     public var tint: CardTint = .none
 
     public init(key: String, taskId: String?, headline: String, done: Int, total: Int, parts: [PlanPart],
-                status: String? = nil, footer: String? = nil, footerLines: [String] = [], watch: [String?] = [], tint: CardTint = .none) {
+                status: String? = nil, footer: String? = nil, footerLines: [String] = [], watch: [String?] = [],
+                subWatch: [[String?]] = [], tint: CardTint = .none) {
         self.watch = watch
+        self.subWatch = subWatch
         self.tint = tint
         self.status = status
         self.footer = footer
@@ -414,6 +419,14 @@ public enum ChatModel {
             p.sub = (feeders[r.row.part] ?? []).map { f in PlanPart(kind: markOf(f.line.kind), title: f.label, detail: f.line.words) }
             return p
         }
+        // FERB.app's feederLines: a step under a waiting row shows its picture while it runs or repeats (ChecklistLine.isRunning),
+        // under the first row only
+        var shownSteps = Set<String>()
+        let subWatch = c.rows.map { r -> [String?] in
+            (feeders[r.row.part] ?? []).map { f in
+                ["running", "loop"].contains(f.line.kind) && !f.stepTaskId.isEmpty && shownSteps.insert(f.step).inserted ? f.stepTaskId : nil
+            }
+        }
         // FERB.app's surfaceTint: amber while it asks, red when a part failed, blue when one was updated or paused
         let states = Set(c.rows.map(\.row.state))
         let tint: CardTint = !(live?.openQuestions ?? []).isEmpty || states.contains("asks") ? .asking
@@ -428,7 +441,7 @@ public enum ChatModel {
         }
         return ChatTask(key: "\(e):card", taskId: c.taskId.isEmpty ? t.taskId : c.taskId,
                         headline: c.headline ?? planLine ?? t.taskName ?? "", done: Int(c.done), total: Int(c.total), parts: parts,
-                        status: live?.cardLine, footer: c.line, footerLines: c.linesShown, watch: watch, tint: tint)
+                        status: live?.cardLine, footer: c.line, footerLines: c.linesShown, watch: watch, subWatch: subWatch, tint: tint)
     }
 
     /// One part of a card as FERB.app's CardRowView shows it (kb PHN-733): by what the row shows now (`display`, the

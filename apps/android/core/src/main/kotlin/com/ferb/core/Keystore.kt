@@ -148,6 +148,17 @@ class KeystoreKeys(private val context: Context) : PhoneKeys {
 
     override fun health() = KeyHealth(state(KeyKind.DEVICE), state(KeyKind.LOCK), state(KeyKind.STRONG))
 
+    override fun strongForUpdate(): String? {
+        val now = state(KeyKind.STRONG)
+        if (now == KeyState.OK) return publicKey(KeyKind.STRONG)
+        // no fingerprint enrolled: the destroyed key stays as it is, so the phone still says its fingerprints changed
+        if (!strongBiometric()) return null
+        if (now == KeyState.GONE) runCatching { Keystore.store().deleteEntry(KeyKind.STRONG.alias) }
+        return make(KeyKind.STRONG)
+    }
+
+    override fun strongPublic(): String? = if (state(KeyKind.STRONG) == KeyState.OK) publicKey(KeyKind.STRONG) else null
+
     /** Present, absent or destroyed, learnt without a prompt: initSign on a destroyed key throws at once. */
     fun state(kind: KeyKind): KeyState {
         MainGuard.offMain("keystore state ${kind.name}")

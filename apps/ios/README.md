@@ -123,6 +123,7 @@ The This phone sheet says so where Android shows Stay connected.
    - Speaking: hold the microphone in the message box; FERB's words first, then iOS's two questions; the words land in
      the box, nothing is sent until Send; with Settings → Accessibility → VoiceOver on, double-tap and hold works.
    - This phone → Forget this Mac: the chat goes, pairing starts over.
-   - Settings → Face ID → add an appearance: the strong key reads as changed (checks need pairing again); turn the
-     passcode off: FERB asks to pair again.
+   - Settings → Face ID → add an appearance: the chat shows the Update fingerprint card (chat still works; checks wait);
+     on the Mac, Settings → Phone → Update fingerprint, scan its code from the card, the six digits match, the Mac's Yes:
+     "Done. Your Mac can ask for Face ID again." and checks work (PHN-849). Turn the passcode off: FERB asks to pair again.
 3. The live checks are LIVE-1100..1111 with the iPhone in place of the Android phone.

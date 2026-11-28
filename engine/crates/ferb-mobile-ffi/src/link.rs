@@ -95,6 +95,17 @@ pub enum RelayStatus {
     OwnFallback { problem: Option<LinkProblem> },
 }
 
+/// How the phone's fingerprint update is going (PHN-849): `Link::update_fingerprint`'s outcome.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum FingerprintUpdate {
+    /// Reaching the Mac (`code` none), or the Mac is asking the owner and both screens show `code` ("123 456").
+    Waiting { code: Option<String> },
+    /// The Mac took the new fingerprint key: fingerprint checks work from this phone again.
+    Done,
+    /// The Mac didn't take it (a No, no answer, a code no longer valid, a Mac too old): why. The phone stays paired.
+    Failed { problem: LinkProblem },
+}
+
 /// Everything the app shows about the link.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct LinkStatus {
@@ -124,6 +135,8 @@ pub struct LinkStatus {
     /// The Mac's link is older or newer than this app's (a feature may be missing until both are updated).
     pub mac_older: bool,
     pub mac_newer: bool,
+    /// The last fingerprint update since the link started (PHN-849), none before one.
+    pub fingerprint_update: Option<FingerprintUpdate>,
 }
 
 /// What the link says the app must know: its status changed, or its state (with the phone's private link key) must
@@ -206,6 +219,22 @@ fn problem(v: &Value) -> Option<LinkProblem> {
         detail: v["message"].as_str().unwrap_or_default().to_string(),
         allow: v["allow"].as_str().map(str::to_string),
     })
+}
+
+fn fingerprint_update(v: &Value) -> Option<FingerprintUpdate> {
+    match v["state"].as_str()? {
+        "waiting" => Some(FingerprintUpdate::Waiting {
+            code: v["code"].as_str().map(str::to_string),
+        }),
+        "done" => Some(FingerprintUpdate::Done),
+        _ => Some(FingerprintUpdate::Failed {
+            problem: problem(&v["error"]).unwrap_or(LinkProblem {
+                code: "link_closed".into(),
+                detail: "The fingerprint update didn't finish.".into(),
+                allow: None,
+            }),
+        }),
+    }
 }
 
 fn path_of(tier: &Value) -> LinkPath {
@@ -297,6 +326,7 @@ impl LinkInner {
             retry_in_s: phase["retry_in_s"].as_u64(),
             mac_older: phase["mac"]["older"] == json!(true),
             mac_newer: phase["mac"]["newer"] == json!(true),
+            fingerprint_update: fingerprint_update(&phase["fingerprint_update"]),
         }
     }
 
@@ -645,6 +675,20 @@ impl Link {
         })
     }
 
+    /// PHN-849: this paired phone's fingerprints changed, so Android or iOS destroyed its fingerprint-only key. `code`
+    /// is the code FERB on the Mac shows after Update fingerprint (scanned or typed), `strong_pub` the phone's new
+    /// fingerprint-only key (P-256, SubjectPublicKeyInfo DER, base64). Returns at once; `LinkStatus.fingerprint_update`
+    /// then says how it goes: Waiting (with the six digits once the Mac asks the owner), Done or Failed. The phone stays
+    /// paired whatever the answer. Refused at once (`refused`, link code `not_paired`) for a phone not paired, and
+    /// (`other_mac`) for a code from another Mac.
+    pub fn update_fingerprint(&self, code: String, strong_pub: String) -> Result<(), FerbError> {
+        guard(|| {
+            self.inner
+                .command(json!({"cmd": "update_fingerprint", "qr": code, "strong_pub": strong_pub}))
+                .map(|_| ())
+        })
+    }
+
     /// The link's status now.
     pub fn status(&self) -> LinkStatus {
         let inner = self.inner.clone();
@@ -663,6 +707,7 @@ impl Link {
             retry_in_s: None,
             mac_older: false,
             mac_newer: false,
+            fingerprint_update: None,
         })
     }
 

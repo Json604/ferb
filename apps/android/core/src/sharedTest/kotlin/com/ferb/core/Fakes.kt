@@ -216,6 +216,14 @@ class FakeUplink(val mac: FakeMac = FakeMac(), private val online: Boolean = tru
         paired.add(code)
         accounts.add(account)
     }
+
+    /** Each Update fingerprint as (code, the new fingerprint-only key); [refuseUpdate] throws it instead. */
+    val updates = CopyOnWriteArrayList<Pair<String, String>>()
+    @Volatile var refuseUpdate: com.ferb.mobile.FerbException? = null
+    override fun updateFingerprint(code: String, strongPub: String) {
+        refuseUpdate?.let { throw it }
+        updates.add(code to strongPub)
+    }
     override fun endpointId(): String = FAKE_ENDPOINT
     override fun status(): LinkStatus? = null
     override fun setActive(on: Boolean) {
@@ -292,6 +300,21 @@ class SoftwareKeys(var lockScreen: Boolean = true, var fingerprint: Boolean = tr
     }
 
     override fun health() = KeyHealth(state(KeyKind.DEVICE), state(KeyKind.LOCK), state(KeyKind.STRONG))
+
+    override fun strongForUpdate(): String? {
+        pub(KeyKind.STRONG)?.let { return it }
+        if (!fingerprint) return null
+        if (KeyKind.STRONG in gone) {
+            gone.remove(KeyKind.STRONG)
+            pairs.remove(KeyKind.STRONG)
+        }
+        pub(KeyKind.STRONG)?.let { return it }
+        if (!fingerprint) return null
+        pairs[KeyKind.STRONG] = make()
+        return pub(KeyKind.STRONG)
+    }
+
+    override fun strongPublic(): String? = pub(KeyKind.STRONG)
 
     override fun deviceSign(payload: String): String? = sign(KeyKind.DEVICE, payload)
 

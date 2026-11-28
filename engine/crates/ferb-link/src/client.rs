@@ -184,6 +184,12 @@ struct PInner {
     /// The server's signed statement of this phone's FERB account (`/api/app/assertion`), sent in the pairing hello for
     /// the Mac's daemon to check (PHN-828); with the invite, used once.
     pair_account: Mutex<Option<String>>,
+    /// PHN-849: the new fingerprint-only key the invite's code is to register, for a paired phone (with the invite,
+    /// used once).
+    update_key: Mutex<Option<String>>,
+    /// PHN-849: how the last fingerprint update went (`{"state": "waiting", "code"?}`, `done`, or `failed` with
+    /// `error`), in every phase as `fingerprint_update`; none since the link started.
+    update_state: Mutex<Option<Value>>,
     online: Mutex<Option<Online>>,
     active: Mutex<bool>,
     stopped: Mutex<Option<LinkError>>,
@@ -325,6 +331,8 @@ impl Phone {
             calls: Default::default(),
             invite: Mutex::new(None),
             pair_account: Mutex::new(None),
+            update_key: Mutex::new(None),
+            update_state: Mutex::new(None),
             online: Mutex::new(None),
             active: Mutex::new(true),
             stopped: Mutex::new(None),
@@ -461,10 +469,20 @@ impl Phone {
             .as_ref()
             .and_then(|m| m.own.as_ref())
             .map(|o| o.url.clone());
+        let update = self.inner.update_state.lock().unwrap().clone();
         if let Some(m) = v.as_object_mut() {
             m.insert("own_relay".into(), json!(own));
+            if let Some(u) = update {
+                m.insert("fingerprint_update".into(), u);
+            }
         }
         v
+    }
+    /// How the fingerprint update is going, told to the app at once (with the phase it is in).
+    fn set_update(&self, state: Value) {
+        *self.inner.update_state.lock().unwrap() = Some(state);
+        let now = self.inner.phase.lock().unwrap().clone();
+        self.set_phase(now);
     }
     pub fn is_online(&self) -> bool {
         self.inner.online.lock().unwrap().is_some()
@@ -555,6 +573,7 @@ impl Phone {
             });
         }
         *self.inner.invite.lock().unwrap() = Some(invite);
+        *self.inner.update_key.lock().unwrap() = None;
         *self.inner.pair_account.lock().unwrap() = account
             .map(str::trim)
             .filter(|a| !a.is_empty() && a.len() <= 4096)
@@ -564,10 +583,56 @@ impl Phone {
         self.inner.wake.notify_one();
         Ok(())
     }
+    /// PHN-849: the paired phone's fingerprints changed, so its fingerprint-only key is gone; `qr` is the code the
+    /// owner made for this phone with Update fingerprint on the Mac, `strong_pub` the phone's new key. The link
+    /// connects again proving the code and offering the key; the Mac asks the owner with the six digits both screens
+    /// show (`fingerprint_update` in the phase: `waiting` with `code`, then `done` or `failed`). Whatever the answer the
+    /// phone stays paired; a phone not paired, or a code of another Mac, is refused here.
+    pub fn update_fingerprint(&self, qr: &str, strong_pub: &str) -> LinkResult<()> {
+        let invite = Invite::parse(qr)?;
+        if strong_pub.trim().is_empty() || strong_pub.len() > 4096 {
+            return Err(LinkError::new(
+                errors::BAD_REQUEST,
+                "The new fingerprint key is missing.",
+            ));
+        }
+        {
+            let s = self.inner.state.lock().unwrap();
+            let Some(mac) = s.mac.as_ref().filter(|m| m.paired) else {
+                return Err(LinkError::new(
+                    errors::NOT_PAIRED,
+                    "This phone isn't paired with a Mac, so there is no fingerprint to update.",
+                )
+                .allow("Pair this phone with your Mac instead"));
+            };
+            if mac.id != invite.mac.to_string() {
+                return Err(LinkError::new(
+                    errors::OTHER_MAC,
+                    "This code is from another Mac than the one this phone is paired with.",
+                )
+                .allow("Scan the code on the Mac this phone is paired with"));
+            }
+        }
+        *self.inner.invite.lock().unwrap() = Some(invite);
+        *self.inner.pair_account.lock().unwrap() = None;
+        *self.inner.update_key.lock().unwrap() = Some(strong_pub.trim().to_string());
+        *self.inner.stopped.lock().unwrap() = None;
+        self.set_update(json!({"state": "waiting"}));
+        self.drop_conn();
+        self.inner.wake.notify_one();
+        Ok(())
+    }
+    /// The fingerprint update under way ended without a Yes: the code is given up and the link goes on as before.
+    fn update_failed(&self, err: &LinkError) {
+        *self.inner.invite.lock().unwrap() = None;
+        *self.inner.update_key.lock().unwrap() = None;
+        self.set_update(json!({"state": "failed", "error": err}));
+    }
     /// Forget the Mac on this phone. (The Mac's list keeps the phone until the owner removes it there.)
     pub fn forget(&self) {
         self.inner.state.lock().unwrap().mac = None;
         *self.inner.invite.lock().unwrap() = None;
+        *self.inner.update_key.lock().unwrap() = None;
         self.drop_conn();
         self.persist();
         self.set_phase(json!({"phase": "idle"}));
@@ -1160,6 +1225,22 @@ impl Phone {
             } else {
                 err
             };
+            // PHN-849: an update the Mac turned down (or a code it no longer knows) ends only the update; the phone
+            // stays paired and connects again at once
+            if target.paired
+                && self.inner.update_key.lock().unwrap().is_some()
+                && self.inner.invite.lock().unwrap().is_some()
+                && (err.is_final()
+                    || err.code == errors::UPDATE_CODE
+                    || err.code == errors::BAD_REQUEST)
+                && !matches!(
+                    err.code.as_str(),
+                    errors::NOT_PAIRED | errors::DEVICE_REVOKED
+                )
+            {
+                self.update_failed(&err);
+                continue;
+            }
             if err.is_final() {
                 if matches!(
                     err.code.as_str(),
@@ -1317,9 +1398,15 @@ impl Phone {
         let account = invite
             .as_ref()
             .and_then(|_| self.inner.pair_account.lock().unwrap().clone());
-        let hello = json!({"v": self.inner.cfg.version.0, "min_v": self.inner.cfg.version.1, "name": self.inner.cfg.name,
+        let update = invite
+            .as_ref()
+            .and_then(|_| self.inner.update_key.lock().unwrap().clone());
+        let mut hello = json!({"v": self.inner.cfg.version.0, "min_v": self.inner.cfg.version.1, "name": self.inner.cfg.name,
                            "app": self.inner.cfg.app, "level": self.inner.cfg.level, "build": crate::build(), "pair": proof, "unlock_pub": self.inner.cfg.unlock_pub, "device_pub": self.inner.cfg.device_pub, "strong_pub": self.inner.cfg.strong_pub,
                            "account": account});
+        if let Some(key) = &update {
+            hello["update_fingerprint"] = json!(key);
+        }
         if let Err(e) = wire::write_json(&mut tx, K_HELLO, &hello).await {
             return Err(why_closed(conn, e).await);
         }
@@ -1342,7 +1429,12 @@ impl Phone {
                         let code = invite.as_ref().map(|i| {
                             pairing::code(&pairing::proof(&i.secret, i.mac, self.ep().id()))
                         });
-                        self.set_phase(json!({"phase": "pairing_wait_for_mac", "code": code}));
+                        if update.is_some() {
+                            // a paired phone stays as it is: the six digits travel with the update
+                            self.set_update(json!({"state": "waiting", "code": code}));
+                        } else {
+                            self.set_phase(json!({"phase": "pairing_wait_for_mac", "code": code}));
+                        }
                     }
                 }
                 Ok(Some((K_ERROR, b))) => {
@@ -1368,7 +1460,20 @@ impl Phone {
         let l = self.limits();
         let stall = Duration::from_secs(l.stall_s);
         // paired (or still paired): remember where the Mac is and which relay to use
-        *self.inner.invite.lock().unwrap() = None;
+        let invited = self.inner.invite.lock().unwrap().take().is_some();
+        if invited && self.inner.update_key.lock().unwrap().take().is_some() {
+            if welcome["fingerprint_updated"] == json!(true) {
+                self.set_update(json!({"state": "done"}));
+            } else {
+                // a Mac from before updates (PHN-849) lets a paired phone in and never looks at the code
+                let e = LinkError::new(
+                    errors::MAC_LINK_OLDER,
+                    "FERB on your Mac is older than this app and can't update the fingerprint yet.",
+                )
+                .allow("Update FERB on the Mac, then try again");
+                self.set_update(json!({"state": "failed", "error": e}));
+            }
+        }
         if let Ok(lim) = serde_json::from_value::<Limits>(welcome["limits"].clone()) {
             *self.inner.limits.lock().unwrap() = lim;
         }

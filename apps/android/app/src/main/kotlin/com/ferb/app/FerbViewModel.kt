@@ -268,6 +268,10 @@ data class UiState(
     val settings: List<SettingRow>? = null,
     /** A fingerprint enrolled after pairing that the Mac doesn't know yet (PHN-133). */
     val newKeys: Boolean = false,
+    /** An Update fingerprint was started here and hasn't ended: its card shows how it goes (the link's fingerprintUpdate). */
+    val fingerprintUpdating: Boolean = false,
+    /** Why the last Update fingerprint didn't start (no fingerprint on this phone, the link's refusal), or null. */
+    val fingerprintNote: Note? = null,
     /** The temporary chat while it is on: the chat tab shows only it (null: the normal chat). */
     val temporary: TemporaryUi? = null,
     /** FERB's account on this phone (kb PHN-827): signed in or not, the sign-in page's line. */
@@ -521,6 +525,7 @@ class FerbViewModel(
         viewModelScope.launch {
             combine(api.state, api.link, session.locked) { s, l, locked -> Triple(s, l, locked) }.collect { (s, l, locked) ->
                 _ui.update { gateOf(it.copy(link = l, keys = s.keys), s, l, locked) }
+                fingerprintHeard(l?.fingerprintUpdate)
                 showPending()
                 if (s is PhoneState.Open && l?.paired == true && prefs.pairedSince == 0L) {
                     prefs.pairedSince = now()
@@ -1344,6 +1349,57 @@ class FerbViewModel(
         }
     }
 
+    // ---- Update fingerprint (PHN-133: a new fingerprint-only key without pairing again) ------------------------------
+
+    /**
+     * A code read by the scanner or typed: on the paired app (the main page) it is FERB on the Mac's Update fingerprint
+     * code; anywhere else a pairing's. An update never shows the pairing pages: the link stays paired and online.
+     */
+    fun codeRead(code: String) = if (_ui.value.gate == Gate.MAIN) updateFingerprint(code) else pair(code)
+
+    /** The card's Scan the code: the scanner, over the main page. */
+    fun scanForFingerprint() {
+        _ui.update { it.copy(fingerprintNote = null) }
+        show(Sheet.Scan)
+    }
+
+    fun updateFingerprint(code: String) = busy("fingerprint") {
+        val text = code.trim()
+        if (text.isEmpty()) return@busy
+        _sheet.value = null
+        fingerprintUnderWay = false
+        _ui.update { it.copy(fingerprintUpdating = true, fingerprintNote = null) }
+        when (val r = api.updateFingerprint(text)) {
+            is Outcome.Ok -> Unit
+            is Outcome.Failed -> _ui.update {
+                it.copy(fingerprintUpdating = false, fingerprintNote = if (r.error.linkCode == com.ferb.core.FerbPhone.NO_FINGERPRINT) {
+                    Note(R.string.fingerprint_none)
+                } else errorNote(r.error))
+            }
+        }
+    }
+
+    /**
+     * The link said Waiting since this update started: only then is a Done or a failure this update's (the link keeps
+     * the last update's outcome until the next one starts, and the keys' health can move before the link's word).
+     */
+    private var fingerprintUnderWay = false
+
+    /** The link's word on the update this app started: Done says so once; a failure stays on the card in its words. */
+    private fun fingerprintHeard(f: com.ferb.mobile.FingerprintUpdate?) {
+        if (!_ui.value.fingerprintUpdating) return
+        if (f is com.ferb.mobile.FingerprintUpdate.Waiting) fingerprintUnderWay = true
+        if (!fingerprintUnderWay) return
+        when (f) {
+            is com.ferb.mobile.FingerprintUpdate.Done -> {
+                _ui.update { it.copy(fingerprintUpdating = false, fingerprintNote = null) }
+                note(Note(R.string.fingerprint_done))
+            }
+            is com.ferb.mobile.FingerprintUpdate.Failed -> _ui.update { it.copy(fingerprintUpdating = false, fingerprintNote = fingerprintFailed(f.problem)) }
+            else -> Unit
+        }
+    }
+
     // ---- pairing (PHN-442, PHN-447) ---------------------------------------------------------------------------------
 
     fun pair(code: String) = busy("pair") {
@@ -1789,7 +1845,8 @@ class FerbViewModel(
         when (r) {
             Answered.Sent -> refresh()
             Answered.NotSent -> Unit
-            Answered.NeedsPairingAgain -> note(Note(R.string.answer_needs_pairing))
+            Answered.NeedsPairingAgain ->
+                note(Note(if (_ui.value.keys?.updateFingerprint == true) R.string.answer_needs_fingerprint else R.string.answer_needs_pairing))
             is Answered.Failed -> failed(r.error)
         }
     }
@@ -2179,7 +2236,10 @@ class FerbViewModel(
                 is Outcome.Failed -> { if (r.error !is FerbException.NotSigned) failed(r.error); return null }
             }
         }
-        val kind = unlocker.freshKind() ?: run { note(Note(R.string.needs_pairing_again)); return null }
+        val kind = unlocker.freshKind() ?: run {
+            note(Note(if (_ui.value.keys?.updateFingerprint == true) R.string.needs_fingerprint_update else R.string.needs_pairing_again))
+            return null
+        }
         return { p.signer(kind, why) }
     }
 
@@ -2437,8 +2497,16 @@ class FerbViewModel(
         /** The Mac no longer knows this phone: pair again. */
         val REMOVED_CODES = setOf("device_revoked", "not_paired", "unknown_phone")
 
+        /** Why an Update fingerprint didn't take, in the link's words (what stopped it, then what would allow it). */
+        fun fingerprintFailed(p: com.ferb.mobile.LinkProblem): Note = when (p.code) {
+            // a Mac whose FERB doesn't know updates yet (kb PHN-656: said, never silent)
+            "mac_link_older" -> Note(R.string.err_mac_older)
+            else -> Note(R.string.err_mac_said, listOfNotNull(p.detail, p.allow).filter { it.isNotBlank() }.joinToString(" "))
+        }
+
         fun errorNote(e: FerbException): Note = when {
             e.linkCode == Unlocker.PAIR_AGAIN -> Note(R.string.needs_pairing_again)
+            e.linkCode == Unlocker.UPDATE_FINGERPRINT -> Note(R.string.needs_fingerprint_update)
             // a feature the paired Mac's FERB doesn't have yet: said, never a silent failure (kb PHN-656)
             e.linkCode == "mac_link_older" || e.linkCode == "method_not_allowed" -> Note(R.string.err_mac_older)
             e.linkCode == "app_older" -> Note(R.string.err_app_older)

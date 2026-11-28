@@ -226,6 +226,15 @@ impl LinkClient {
                     Err(e) => err(e),
                 };
             }
+            "update_fingerprint" => {
+                return match phone.update_fingerprint(
+                    c["qr"].as_str().unwrap_or_default(),
+                    c["strong_pub"].as_str().unwrap_or_default(),
+                ) {
+                    Ok(()) => json!({"ok": true}).to_string(),
+                    Err(e) => err(e),
+                };
+            }
             "active" => phone.set_active(c["on"].as_bool() != Some(false)),
             "retry" => phone.retry_now(),
             "forget" => phone.forget(),

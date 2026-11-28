@@ -42,6 +42,28 @@ struct MotionClock<Content: View>: View {
     }
 }
 
+/// Every running spinner turns as FERB.app's RowSpinner (TurnCardView.swift): an arc of 0.7 of the circle with round
+/// ends, one turn in 0.9 s. The owner chose the Mac's over the lab's (Mobile.swift Mark(.running): a 0.3 arc in 0.8 s,
+/// which a still frame shows as "("), 2026-11-28; Android's RunningArc has the same numbers (Motion.kt RUNNING_SWEEP,
+/// RUNNING_TURN_MS). The line is FERB.app's 1.4 unless a piece asks for its own (the card's 1.7 at its size, the lab's
+/// mark 2.5). Still under Reduce Motion and in pictures (MotionClock).
+public struct RunningArc: View {
+    public static let sweep = 0.7
+    public static let period = 0.9
+    let color: Color
+    var width: CGFloat = 1.4
+
+    public init(color: Color, width: CGFloat = 1.4) { self.color = color; self.width = width }
+
+    public var body: some View {
+        MotionClock { t in
+            Circle().trim(from: 0, to: Self.sweep)
+                .stroke(color, style: StrokeStyle(lineWidth: width, lineCap: .round))
+                .rotationEffect(.degrees(t.truncatingRemainder(dividingBy: Self.period) / Self.period * 360))
+        }
+    }
+}
+
 // Not from the lab: its still screens never hold more than fits. A list longer than the screen scrolls; one that
 // fits is drawn as the lab draws it, top-aligned with no scroll view (so a picture made with ImageRenderer, which
 // leaves scroll views out, shows it too).

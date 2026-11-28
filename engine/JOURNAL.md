@@ -15249,3 +15249,56 @@ parts (the hang decision with a held lock; the report and note files). Insomnia'
 lock (no reverse edge found). A lock held across a long blocking call remains in places the audit ranked low: the
 Turn lock over area A's `call_blocking` (turn.rs), the steering lock over a stdin write, `task.evidence` and
 `trace.get` holding the database through long reads, the owner-secrets write lock across the helper process.
+
+## 2026-11-28 · 282 · A phone whose fingerprints changed gets its fingerprint key back without pairing again; the phone's spinner and nested steps
+
+**Why (owner, 2026-11-28).** He added a fingerprint to his phone. Android destroyed its fingerprint-only key
+(`setInvalidatedByBiometricEnrollment`), and the app's only way back was to pair again, losing the phone's row. Shown a
+design where the Mac shows a code for that phone, the phone scans it, and his Yes to the six digits takes the new key,
+he said "yes build it" (PHN-849). Shown that the phone's spinner draws 30% of a circle (a still frame reads as "(")
+and that a part's nested step row was drawn full size and cut off, he said "correct it" (PHN-851).
+
+**What.**
+- The protocol (PHN-850). The helper's one-time window serves an update:
+  - FERB.app calls `phone.pair_start {update: <phone id>}`; no phone limit applies, and the window is for that phone
+    only (`PairState.update_for`). A pairing code updates nothing and an update code pairs nothing: both are refused
+    as `update_code`, and neither code is used up.
+  - The phone's hello carries the code's proof and `update_fingerprint`. The bridge (`Bridge::update`) checks the
+    window (`take_window`, shared with pairing), asks `link.pair_request {update: true}` and waits `link.pair_wait`.
+  - The daemon (`update_request`) asks only for a paired phone that holds a strong key: `phone.pair_requested` and
+    `phone.list`'s `pairing` carry `update`. His Yes in `pair_decide` calls `phones::replace_strong`.
+  - The welcome says `fingerprint_updated`. The phone's audit line is `phone.fingerprint_update`.
+  - A No, a timeout or a wrong code ends only the update (`Phone::update_failed`): the phone stays paired and online,
+    and its old key stays registered. A Mac from before this lets the phone in without `fingerprint_updated`, and the
+    phone says the Mac is older.
+- FFI: `Link.updateFingerprint(code, strongPub)` and `LinkStatus.fingerprintUpdate`
+  (`Waiting{code}` / `Done` / `Failed{problem}`). New link codes: `update_code` and `other_mac`.
+- FERB.app: Update fingerprint on each phone row whose Mac-side strong key exists, the update's code view and
+  question, and the result lines.
+- Android and iPhone:
+  - `strongForUpdate`: a destroyed key is deleted and a new one made; a usable one the Mac doesn't hold is offered
+    again.
+  - Key health counts the strong key as gone when it isn't the Mac's, so every refusal keeps working.
+  - The card with "Scan the code"; the six digits while the Mac asks; Done once.
+  - The "pair again" words for the fingerprint case point at Update fingerprint. The screen-lock case is unchanged.
+- PHN-133's "replaced only by pairing again" now also names the update.
+- PHN-851: the phones' shared running spinner is the Mac's `RowSpinner` (70%, 0.9 s a turn, round ends), everywhere it
+  shows. A waiting part's step rows are compact lines starting under the part's label, the label kept whole, with the
+  running step's own preview circle (`ChatRow.Task.subWatch`).
+
+**Checked.**
+- ferb-link `real_daemon`: an update through the real bridge and daemon (a No keeps the key and the phone online; a
+  Yes replaces it and keeps the row; an update code pairs no one and stays good for its phone); a pairing code
+  updates no phone.
+- ferb-daemon `phone.rs`: refusals (a phone not paired, one without a strong key), a No, a Yes, nothing added.
+- FERB.app `swift test` (all of NotchCoreTests).
+- Android JVM suites (core, app, design; goldens re-recorded for the spinner).
+- iPhone package tests (see below).
+
+**Unverified.**
+- Nothing ran on a real phone or against the owner's Mac.
+- `KeystoreKeys.strongForUpdate` and the Secure Enclave counterpart only ran against the tests' software keys.
+- The instrumented Android tests were compiled, not run.
+- LIVE-1224 is the owner's check.
+- Found, not fixed: in Android's `ParityShotsTest` a state change after a test's first shot is drawn only at the next
+  one, so `card-states-dawn.png` and `card-states-noon.png` are the same picture.

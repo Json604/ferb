@@ -648,6 +648,76 @@ class ViewModelTest {
         assertEquals(R.string.pair_wrong_code, FerbViewModel.pairNote("pair_secret_wrong", null).res)
     }
 
+    /** The link online and paired, with how an Update fingerprint goes. */
+    private fun updating(f: com.ferb.mobile.FingerprintUpdate?) = FakePhone.status().copy(fingerprintUpdate = f)
+
+    // decision: PHN-849
+    @Test
+    fun changed_fingerprints_offer_update_fingerprint_on_the_paired_app_never_the_pairing_pages() {
+        session.unlocked()
+        val vm = vm()
+        phone.state.value = PhoneState.Open(KeyHealth(KeyState.OK, KeyState.OK, KeyState.GONE, strongOnMac = true))
+        assertEquals("chat still works", Gate.MAIN, vm.ui.value.gate)
+        assertTrue(vm.ui.value.keys!!.updateFingerprint)
+        assertTrue(com.ferb.app.ui.fingerprintCardShows(vm.ui.value))
+        // the card's button opens the scanner over the app; the code read goes to Update fingerprint, never a pairing
+        vm.scanForFingerprint()
+        assertEquals(Sheet.Scan, vm.sheet.value)
+        vm.codeRead("FERB-UPDATE")
+        assertEquals(listOf("update-fingerprint:FERB-UPDATE"), phone.calls.filter { it.startsWith("update") || it.startsWith("pair") })
+        assertNull(vm.sheet.value)
+        assertFalse(vm.ui.value.pairing)
+        assertTrue(vm.ui.value.fingerprintUpdating)
+        // the Mac asks the owner: the app stays on its pages with the six digits on the card
+        phone.link.value = updating(com.ferb.mobile.FingerprintUpdate.Waiting("123 456"))
+        assertEquals(Gate.MAIN, vm.ui.value.gate)
+        assertEquals(com.ferb.mobile.FingerprintUpdate.Waiting("123 456"), vm.ui.value.link?.fingerprintUpdate)
+        // Done: said once; the card goes with the changed fingerprints
+        phone.link.value = updating(com.ferb.mobile.FingerprintUpdate.Done)
+        assertEquals(R.string.fingerprint_done, vm.ui.value.note?.res)
+        assertFalse(vm.ui.value.fingerprintUpdating)
+        phone.state.value = PhoneState.Open(KeyHealth(KeyState.OK, KeyState.OK, KeyState.OK, strongOnMac = true))
+        assertFalse(com.ferb.app.ui.fingerprintCardShows(vm.ui.value))
+    }
+
+    // decision: PHN-849, PHN-302
+    @Test
+    fun a_failed_update_says_why_and_keeps_the_card() {
+        session.unlocked()
+        val vm = vm()
+        phone.state.value = PhoneState.Open(KeyHealth(KeyState.OK, KeyState.OK, KeyState.GONE, strongOnMac = true))
+        // an earlier update's outcome, still in the link's status, isn't this one's
+        phone.link.value = updating(com.ferb.mobile.FingerprintUpdate.Done)
+        vm.codeRead("FERB-UPDATE")
+        phone.link.value = updating(com.ferb.mobile.FingerprintUpdate.Done).copy(slow = true) // the link says something else
+        assertTrue(vm.ui.value.fingerprintUpdating)
+        assertNull(vm.ui.value.note)
+        phone.link.value = updating(com.ferb.mobile.FingerprintUpdate.Waiting(null))
+        phone.link.value = updating(com.ferb.mobile.FingerprintUpdate.Failed(LinkProblem("pair_denied", "Your Mac said no.", null)))
+        assertEquals(Gate.MAIN, vm.ui.value.gate)
+        assertEquals(R.string.err_mac_said, vm.ui.value.fingerprintNote?.res)
+        assertEquals("Your Mac said no.", vm.ui.value.fingerprintNote?.words)
+        assertTrue(com.ferb.app.ui.fingerprintCardShows(vm.ui.value))
+        // a Mac whose FERB doesn't know updates yet says so
+        assertEquals(R.string.err_mac_older, FerbViewModel.fingerprintFailed(LinkProblem("mac_link_older", "older", null)).res)
+        // no fingerprint on the phone: said before anything goes to the Mac
+        phone.updateRefusal = Outcome.Failed(FerbException.NeedsSigner("none", com.ferb.core.FerbPhone.NO_FINGERPRINT))
+        vm.codeRead("FERB-UPDATE")
+        assertEquals(R.string.fingerprint_none, vm.ui.value.fingerprintNote?.res)
+        assertFalse(vm.ui.value.fingerprintUpdating)
+    }
+
+    // decision: PHN-849
+    @Test
+    fun a_code_read_before_pairing_still_pairs() {
+        session.unlocked()
+        phone.link.value = FakePhone.status(LinkPhase.IDLE, paired = false)
+        val vm = vm()
+        vm.codeRead("FERB-ABC")
+        assertTrue("pair:FERB-ABC" in phone.calls)
+        assertTrue(phone.calls.none { it.startsWith("update-fingerprint") })
+    }
+
     // decision: PHN-133, PHN-497
     @Test
     fun a_mac_that_removed_this_phone_or_lost_keys_asks_to_pair_again() {
