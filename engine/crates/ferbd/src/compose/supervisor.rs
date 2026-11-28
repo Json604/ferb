@@ -86,6 +86,11 @@ pub trait Reads: Send + Sync {
     fn answer_before_close(&self) -> bool {
         true
     }
+    /// ORCH-760: a worker run past the size goes on in a fresh run. Off for FERB.app (these reads) until a replay on
+    /// a real model; the stand-ins' daemon has it on unless its script says `"fresh_run": false`.
+    fn fresh_run(&self) -> bool {
+        false
+    }
     /// ORCH-735: the front door decides a chat turn (on since its replay of the recorded chats, tests/front_door_replay.rs,
     /// compares every effect, journal 265); a run that fails in its runtime falls back to the planner (ORCH-740). A
     /// replay of a Python recording (the stand-ins' script) keeps the planner.
@@ -759,6 +764,11 @@ impl Daemon for SupDaemon {
     fn check_middle_path(&self) -> bool {
         false
     }
+    // decision: ORCH-760 — off in FERB.app until a replay on a real model shows the work holds across a fresh run
+    // (owner 2026-11-28: faster only if the work doesn't get worse); the stand-ins' daemon (the tests) has it on
+    fn fresh_run(&self) -> bool {
+        self.reads.fresh_run()
+    }
     fn reads_card_replies(&self) -> bool {
         self.reads.reads_card_replies()
     }
@@ -848,6 +858,12 @@ impl Daemon for SupDaemon {
     }
     fn calls_refused(&self, watch_id: &str) -> u64 {
         self.gateway.calls_refused(watch_id)
+    }
+    fn calls_run(&self, worker_id: &str) -> u64 {
+        self.gateway.calls_run(worker_id)
+    }
+    fn run_holds(&self, ids: &BTreeSet<String>) -> bool {
+        self.gateway.run_holds(ids)
     }
     fn stuck(&self, watch_id: &str) -> Option<String> {
         self.gateway

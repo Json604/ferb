@@ -433,6 +433,11 @@ impl Approvals {
         self.sealed.remove(approval_id)
     }
 
+    /// ORCH-760: whether a hidden input's answer still waits for its call to take it.
+    pub fn has_sealed(&self, approval_id: &str) -> bool {
+        self.sealed.contains_key(approval_id)
+    }
+
     /// Drop a hidden input's answer nobody took (its question ended): zeroed now.
     pub fn drop_sealed(&mut self, approval_id: &str) {
         self.sealed.remove(approval_id);

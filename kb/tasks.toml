@@ -807,15 +807,6 @@ status = "open"
 why = "ORCH-719 (owner 2026-11-25); the design and its numbers are in kb/plans/context.md, step order there."
 decisions = ["ORCH-719"]
 
-[T-1335]
-title = "Context step 6: the fresh run at 200k or 70% of the window, with a code-built hand-off note"
-area = "orchestration"
-kind = "build"
-status = "open"
-why = "ORCH-719 (owner 2026-11-25); the design and its numbers are in kb/plans/context.md, step order there."
-decisions = ["ORCH-719"]
-after = ["T-1333"]
-
 [T-1339]
 title = "Front door step 2: use the answer on arrival, close after; fix Claude's doubled answer"
 area = "runtimes"

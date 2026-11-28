@@ -15841,3 +15841,96 @@ are in no line until the month closes (chat.history finds them; unchanged from 2
 go with any one of their records, as in 272. Live check on his build next.
 
 **kb.** Agent: ORCH-758, ORCH-759. T-1337 deleted (T-1346 and T-1347 no longer wait on it).
+
+## 2026-11-28 · 291 · The fresh run: a worker run past the size goes on fresh with a hand-off note code builds (T-1335)
+
+**Why (ORCH-719 item 4, owner 2026-11-25; kb/plans/context.md build step 6).** A long worker run resends its whole
+conversation on every step; the owner's numbers: when it passes 200k tokens, or 70% of a smaller model's window, FERB
+ends it and starts a new run of the same task with a hand-off note built by code from its records, at most 1,500
+tokens; never while a question, confirmation or sealed fill is open; not an attempt; at least 10 tool calls between
+fresh runs; an alarm past 5 in one attempt. The owner's rule of 2026-11-28 (faster or cheaper never at the cost of
+the work) puts it behind a switch, off in FERB.app, as ORCH-756 and ORCH-757.
+
+**What (ORCH-760, agent).**
+- One shape for every runtime: `RunControl::context_tokens` (ferb-runtimes run.rs and ferb-worker ports.rs, None by
+  default; `WorkerControl` forwards it): the newest model request's whole prompt as the runtime reported it. Codex:
+  the last `thread/tokenUsage/updated`'s `inputTokens` (`CodexRun`, already kept as `context_tokens`; OpenAI counts the
+  cached part in it). Claude Code: FERB's relay keeps each run's newest request's input + cache read + cache write as
+  the answer passes (`Book::context`, `ToolProxy::context_tokens`, read not taken). The API loop: its newest call's
+  `Usage::input_tokens` (`Run::context_tokens`). No event or record changes bytes.
+- The decision is the worker's (ferb-worker `fresh_run.rs`, worker.rs `run_once`), the same for every runtime: at each
+  event other than the final one of a run whose hooks allow it (a worker's own run of a tree with the switch on; never
+  the checker, a fix turn or a call without a tree), when the size reaches `threshold` = min(200,000, 70% of the
+  limits' `context_window`), the run has `MIN_CALLS` (10) tool calls the gateway admitted (`Gateway::calls_run`, a new
+  per-run count of every admitted call, gone at `forget_calls`), and `WorkerHost::fresh_run_held` says nothing is open,
+  the run ends with `Error::FreshRun`. Held: a call of the task or its tree still running, a question of theirs
+  pending, a hidden answer not yet taken (`Gateway::run_holds`, `Approvals::has_sealed`), a wait on the owner
+  (`Activity::waits`), a pause. Ten calls per run is "at least 10 between": each fresh run is a new worker id.
+- `Worker::run_worker` → `run_fresh`: the ended run's worker span says `status: "fresh_run"` with the facts, and a new
+  run starts at once with the same task, a new token of the same grant, the same instructions and context, plus the
+  note as a protected block ("fresh run hand-off"). The supervisor sees one attempt (its attempt count, the check, the
+  previous-attempts block are untouched). Each end is a `worker.fresh_run` span (sizes, calls, note tokens and
+  characters, `alarm`); the sixth in one attempt journals `worker.fresh_run_alarm` once and every later one is marked;
+  the attempt goes on. The new run's looks go whole (ORCH-753 keeps looks per run) and its tool core is chosen again
+  (ORCH-756, per run).
+- The note (ferb-orchestrator `hand_off.rs`, built by the supervisor's host, no model call): `HEAD`, the task's goal,
+  its success conditions, then inside one untrusted-data wrapper: the latest page, Mac app window and file (with the
+  span id of the newest look there), the ledger's unsettled actions of the task, the ended run's last words (ORCH-640,
+  redacted), and one line per call of the attempt's runs (`check_evidence::gather` from the first run's span; number,
+  time, tool, place, a failure or a look's title or an action's other arguments, cut). Over 1,500 o200k tokens the
+  oldest lines give way about a tenth at a time, counted by tool on one line; then the goal and conditions shorten.
+  task.evidence and tools.find calls are not listed. The records are read before anything is called (ENG-24).
+- The switch: `WorkerConfig::fresh_run`, from the supervisor's `Daemon::fresh_run` (true by default and in the
+  supervisor's tests); ferbd's `SupDaemon` reads `Reads::fresh_run`: false for `RealReads` (FERB.app), true for the
+  stand-ins' `ScriptReads` unless the script says `"fresh_run": false`. No recording reports a size, so no replay
+  changes.
+- `ferb stats` ends, when such records exist in the range, with "Fresh runs …": the count, the attempts, the median size
+  reached, and the attempts past 5 with the newest's `ferb trace` id. `ferb trace` writes the ended run's line as
+  "ended for a fresh run at N tokens (the size T), after C of its calls".
+- The stand-ins (`standins_chat.rs`): a call's `context_tokens` (reported once its tool calls are made),
+  `tools_background` (the calls go on beside the events, as parallel calls do) and an event's `hold`; tests/life's
+  `Model::script` adds keys to the script file.
+
+**Model-facing text (new; to be shown to the owner).** `hand_off::HEAD`: "FERB ended your earlier run of this step
+because its conversation had grown long, and started this one. This is not a new attempt: carry on from where that run
+stopped. Below is FERB's own record of it; don't redo what it did unless a fresh look shows it is needed. Pages, apps
+and files may have changed since: look again before acting on one." Then "Your goal: …", "Still to achieve (the step's
+conditions; FERB's check looks at each):", "From FERB's records (task_evidence span_id=<id> opens one;
+task_evidence query=<words> searches them all):", and inside the wrapper "The latest of each:", "page: …", "app: …",
+"file: …", "Actions not settled (look before trying one again):", "The earlier run's last words: …", "What the earlier
+runs did, oldest first (N calls):", "Calls 1-K, not listed one by one: tool ×n, …". No prompt file changed; no
+owner-facing text (the stats and trace lines are the developer's).
+
+**Checked.**
+- ferbd `tests/fresh_run.rs` (5, the composed daemon with stand-ins, real gateway and supervisor): past the size after
+  10 calls one fresh run whose note names the goal and the 10 calls with a span id, within 1,500 o200k tokens, one
+  check, the ended run's answer never read, the records and the trace line; 9 calls: no fresh run; a write waiting on
+  FERB's question while the run reports past the size: held, then fresh once he answered and the write ran (shown
+  failing with the holds ignored); six fresh runs: the alarm once, every note within 1,500 tokens, one check, `ferb
+  stats`' lines; the switch off: one run to its own answer, no record.
+- ferb-orchestrator `tests/hand_off.rs` (3): 400 invented calls fit (1,387 tokens), the newest kept, the oldest counted
+  by tool, the latest page, app and file with the span id of the newest look, the records inside the wrapper; a short
+  attempt lists every call; a 5,000-word goal is cut to fit.
+- Unchanged with the switch on in the stand-ins: ferbd `chat_replay` (10, 2 ignored), `usage_stats`, `stats`,
+  `task_trace`, `tool_core`; ferb-supervisor `replay`, `workers`, `lean_check`; ferb-worker `close_after`, `replay`,
+  `chat_prompts`; ferb-trace `parity`, `first_word_and_relay`, `front_door`; ferb-runtimes `relay_usage`,
+  `claude_usage`. `cargo fmt --all`, clippy `-D warnings` on ferb-worker, ferb-orchestrator, ferb-gateway,
+  ferb-runtimes, ferb-supervisor, ferb-trace and ferbd with their tests; `git diff --check`.
+
+**Unverified.**
+- No model run: whether a model carries on well from the note (and doesn't redo or lose work) is untested; that is the
+  real-model replay the switch waits for. The note's lines are an agent's choice of facts; key facts found only in a
+  page's text are one task.evidence read away, not in the note.
+- The size per runtime is read from what each already reported; no live Codex, Claude Code or API run was checked
+  against it. Claude's count is the relay's newest request; a request the relay couldn't read (compressed, too large)
+  leaves the earlier size.
+- A run is checked only at its events: a run silent inside one long tool call is not ended until its next event.
+- The fresh run gets the owner's start image again (L12), as the tools-not-loaded rerun does; not measured.
+- Not run: `./gate.sh test`, `./gate.sh portable` (ferb-worker and ferb-runtimes gained only std code), the whole
+  workspace's clippy. A push gate was running in this checkout during the first focused builds (found late); its
+  `chat_replay` failed then, and passed alone afterwards on the finished tree.
+
+**Found, not built.** The runtime's own compaction as the safety net at 245k or 60% of a smaller window is not set:
+Codex workers keep Codex's own default (`NO_AUTO_COMPACT` is set only for supervisor runs, codex/mod.rs:369) and Claude
+Code its own; setting it changes FERB.app's runs today, so it waits for the coordinator. The plan's numbers cross for a
+smaller window: 60% (the net) is below 70% (the fresh run), so on such a model the net would fire first.

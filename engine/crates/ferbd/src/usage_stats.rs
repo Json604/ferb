@@ -656,6 +656,73 @@ pub fn first_words(c: &Connection, range: &Range, out: &mut dyn Write) -> Res<()
     Ok(())
 }
 
+/// ORCH-760, a section of `ferb stats`: the worker runs FERB ended for a fresh one in the range (their
+/// `worker.fresh_run` records), the attempts they were in, the median size they had reached, and the attempts that
+/// passed 5 (the alarm), the newest named for `ferb trace`. Printed only when such runs were recorded.
+pub fn fresh_runs(c: &Connection, range: &Range, out: &mut dyn Write) -> Res<()> {
+    let tables: HashSet<String> =
+        query(c, "SELECT name FROM sqlite_master WHERE type='table'", &[])?
+            .into_iter()
+            .map(|r| text(&r[0]))
+            .collect();
+    if !tables.contains("spans") {
+        return Ok(());
+    }
+    let (clause, params) = range.clause();
+    let rows = query(
+        c,
+        &format!(
+            "SELECT coalesce(u.task_id, ''), coalesce(u.parent_id, ''),              json_extract(u.input_json, '$.context_tokens'), json_extract(u.output_json, '$.alarm')              FROM spans u WHERE u.kind = 'worker.fresh_run' AND {clause} ORDER BY u.started_at, u.rowid"
+        ),
+        &params,
+    )?;
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let attempts: HashSet<(String, String)> =
+        rows.iter().map(|r| (text(&r[0]), text(&r[1]))).collect();
+    let sizes: Vec<i64> = rows
+        .iter()
+        .filter_map(|r| match r[2] {
+            Sql::Integer(n) => Some(n),
+            _ => None,
+        })
+        .collect();
+    let alarmed: Vec<&Vec<Sql>> = rows
+        .iter()
+        .filter(|r| matches!(r[3], Sql::Integer(1)))
+        .collect();
+    let alarm_attempts: HashSet<(String, String)> =
+        alarmed.iter().map(|r| (text(&r[0]), text(&r[1]))).collect();
+    say(
+        out,
+        &format!(
+            "Fresh runs {} (worker runs FERB ended past the size and went on with a hand-off note):",
+            range.label()
+        ),
+    )?;
+    say(
+        out,
+        &format!(
+            "  {} fresh runs in {} attempts, median size reached {} tokens",
+            thousands(rows.len() as i64),
+            thousands(attempts.len() as i64),
+            thousands(median(sizes).unwrap_or(0))
+        ),
+    )?;
+    if let Some(last) = alarmed.last() {
+        say(
+            out,
+            &format!(
+                "  past 5 in one attempt (the alarm): {} attempts; the newest: ferb trace {}",
+                thousands(alarm_attempts.len() as i64),
+                text(&last[0])
+            ),
+        )?;
+    }
+    Ok(())
+}
+
 fn say(out: &mut dyn Write, line: &str) -> Res<()> {
     writeln!(out, "{line}").map_err(|e| format!("BrokenPipeError: {e}"))
 }

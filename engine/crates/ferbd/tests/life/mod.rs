@@ -177,6 +177,8 @@ pub fn with_tools(mut c: Value, calls: &[(&str, Value)]) -> Value {
 #[derive(Default, Clone)]
 pub struct Model {
     pub roles: BTreeMap<String, Vec<Value>>,
+    /// More of the script file (`fresh_run`, ...).
+    pub script: BTreeMap<String, Value>,
 }
 
 impl Model {
@@ -193,6 +195,11 @@ impl Model {
     }
     pub fn checker(mut self, c: Value) -> Self {
         self.roles.entry("checker".into()).or_default().push(c);
+        self
+    }
+    /// The script file's `key` (read by the stand-ins: `fresh_run`, ...).
+    pub fn script(mut self, key: &str, value: Value) -> Self {
+        self.script.insert(key.into(), value);
         self
     }
 }
@@ -227,7 +234,10 @@ fn with(mut cfg: Value, extra: &Value) -> Value {
 }
 
 fn write_model(path: &Path, model: &Model, questions_from: u64) {
-    let file = json!({"by_role": model.roles, "calls": [], "questions_from": questions_from});
+    let mut file = json!({"by_role": model.roles, "calls": [], "questions_from": questions_from});
+    for (k, v) in &model.script {
+        file[k.as_str()] = v.clone();
+    }
     std::fs::write(path, file.to_string()).unwrap();
 }
 

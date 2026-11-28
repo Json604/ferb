@@ -474,7 +474,7 @@ impl Inner {
     }
 
     /// supervisor.py:5697 `_span_cursor`: a span's place in the record (its rowid).
-    fn span_cursor(&self, span_id: &str) -> i64 {
+    pub(crate) fn span_cursor(&self, span_id: &str) -> i64 {
         self.db()
             .conn()
             .query_row("SELECT rowid FROM spans WHERE id = ?", [span_id], |r| {

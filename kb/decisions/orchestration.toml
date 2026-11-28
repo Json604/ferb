@@ -2943,3 +2943,13 @@ rule = "Off in FERB.app until a real replay. For ORCH-719 item 3, ORCH-752. Gate
 why = "Every tool in full was 29.8k o200k tokens on each worker step, 10.9k on each checker step; the core and lines are 15.0k and 4.9k (fixed_part.rs). The records name no kind of work beyond the runtime, so similarity comes from the targets the planner wrote."
 evidence = "ferbd tests/tool_core.rs (composed daemon: default core, same bytes across steps and via tools.list, similar tasks, checker 10, direct and bad calls, tools.find), tool_guard.rs, fixed_part.rs; ferb-gateway tests/catalog.rs (a line per tool, the owner's numbers per grant)."
 paths = ["engine/crates/ferb-gateway/src/tool_core.rs", "engine/crates/ferb-gateway/src/gateway/run_tools.rs", "engine/crates/ferb-gateway/src/tool_lines.json", "engine/crates/ferb-gateway/src/catalog_additions.json", "engine/crates/ferbd/src/compose/rpc.rs", "engine/crates/ferbd/src/tool_guard.rs"]
+
+[ORCH-760]
+title = "The fresh run: a worker run past the size goes on fresh with a hand-off note code builds"
+by = "agent"
+date = 2026-11-28
+status = "active"
+rule = "Off in FERB.app until a real replay. For ORCH-719 item 4. Each runtime reports its size as RunControl::context_tokens (newest request's whole prompt). The worker ends a worker's own run at an event when it reaches min(200k, 70% of context_window), after 10 admitted calls, with nothing open (a call running, a pending question, an untaken hidden answer, an owner wait, a pause); run_worker goes on in the same attempt with the same context plus hand_off.rs's note from the records, at most 1,500 o200k tokens. worker.fresh_run records each; past 5, worker.fresh_run_alarm."
+why = "The owner's numbers and the plan's step 6. The decision lives in the worker so every runtime ends and restarts the same way; only the size comes from each runtime, which already reported it."
+evidence = "ferbd tests/fresh_run.rs (composed daemon, stand-ins: the note, 9 calls not enough, held while a question is open, the alarm with ferb stats, the switch off); ferb-orchestrator tests/hand_off.rs (the budget on 400 calls, latest places)."
+paths = ["engine/crates/ferb-worker/src/fresh_run.rs", "engine/crates/ferb-worker/src/worker.rs", "engine/crates/ferb-orchestrator/src/hand_off.rs", "engine/crates/ferb-supervisor/src/flow/host.rs", "engine/crates/ferb-gateway/src/gateway.rs", "engine/crates/ferb-runtimes/src/run.rs", "engine/crates/ferbd/src/compose/supervisor.rs", "engine/crates/ferbd/src/usage_stats.rs"]

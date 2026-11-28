@@ -121,6 +121,7 @@ async fn worker_and_checker_prompts_match_the_recorded_daemon() {
                     prompts: PromptRoot::new(repo().join("engine/runtime")).unwrap(),
                     approach: "orchestrator/prompts".into(),
                     answer_before_close: false,
+                    fresh_run: false,
                 },
             ));
             let _ = host.worker.set(Arc::downgrade(&worker));

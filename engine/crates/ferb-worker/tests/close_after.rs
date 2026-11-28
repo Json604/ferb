@@ -38,6 +38,7 @@ fn config(answer_before_close: bool) -> WorkerConfig {
         prompts: PromptRoot::new(repo().join("engine/runtime")).unwrap(),
         approach: "orchestrator/prompts".into(),
         answer_before_close,
+        fresh_run: false,
     }
 }
 

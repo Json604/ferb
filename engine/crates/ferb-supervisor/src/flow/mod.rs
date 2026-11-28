@@ -159,6 +159,13 @@ pub trait Daemon: Send + Sync {
     fn check_middle_path(&self) -> bool {
         true
     }
+    /// ORCH-760 (ORCH-719 item 4): whether a worker run whose conversation passes the size is ended and its attempt
+    /// goes on in a fresh run with a hand-off note code builds (ferb-worker `WorkerConfig::fresh_run`). True here and
+    /// in the tests; the real daemon keeps it off until a replay on a real model shows the work holds (owner
+    /// 2026-11-28: faster only if the work doesn't get worse).
+    fn fresh_run(&self) -> bool {
+        true
+    }
     /// GATE-609: whether the words typed in a safety check's box are read by the planner for the sites they name
     /// (true). A replay of a Python recording, whose card replies reached the task with no planner call, says false
     /// (the named difference).
@@ -221,6 +228,15 @@ pub trait Daemon: Send + Sync {
     }
     /// ORCH-691 `gateway.keep_trying(task_id)`: the owner said "keep trying": the step's counts start again.
     fn keep_trying(&self, _task_id: &str) {}
+    /// ORCH-760 `gateway.calls_run(worker_id)`: the tool calls this run made that the gateway admitted.
+    fn calls_run(&self, _worker_id: &str) -> u64 {
+        0
+    }
+    /// ORCH-760 `gateway.run_holds(ids)`: one of these tasks has a call running, a question pending or a hidden
+    /// answer not yet taken.
+    fn run_holds(&self, _ids: &BTreeSet<String>) -> bool {
+        false
+    }
     fn lookups_made(&self, holder: &str) -> usize;
     fn initial_image_given(&self, task_id: &str);
     /// `gateway.ledger.unresolved(root)`.
@@ -1226,6 +1242,7 @@ impl Supervisor {
             prompts: inner.deps.prompts.clone(),
             approach: crate::prompts::APPROACH.to_string(),
             answer_before_close: inner.deps.daemon.answer_before_close(),
+            fresh_run: inner.deps.daemon.fresh_run(),
         };
         let worker = Arc::new(Worker::new(host, inner.runs.clone(), config));
         let _ = inner.worker.set(worker);

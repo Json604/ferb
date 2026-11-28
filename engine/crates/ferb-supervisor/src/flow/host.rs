@@ -96,6 +96,64 @@ impl WorkerHost for Host {
             crate::words::PAUSED_BY_FERB.to_string()
         })
     }
+    fn calls_run(&self, worker_id: &str) -> u64 {
+        self.sup().deps.daemon.calls_run(worker_id)
+    }
+    // decision: ORCH-760 — never while a question, confirmation or sealed fill is open: a call of the step's task or
+    // its tree still running, a question of theirs pending, a hidden answer not yet taken, a wait on the owner, a pause
+    fn fresh_run_held(&self, task_id: &str, tree_id: &str, worker_id: &str) -> bool {
+        let sup = self.sup();
+        let ids: BTreeSet<String> = [task_id.to_string(), tree_id.to_string()].into();
+        let paused = sup.live().pauses.contains_key(tree_id);
+        paused || self.activity.waits(worker_id) > 0 || sup.deps.daemon.run_holds(&ids)
+    }
+    // decision: ORCH-760 — the hand-off is code's, from FERB's records: the goal, the step's conditions, the attempt's
+    // calls (the span store), the ledger's unsettled actions and the run's last words; no model call
+    fn fresh_run_note(
+        &self,
+        task: &Task,
+        tree_id: &str,
+        since_span: &str,
+        last_words: Option<&str>,
+    ) -> String {
+        let sup = self.sup();
+        let unsettled: Vec<String> = sup
+            .deps
+            .daemon
+            .unresolved(tree_id)
+            .iter()
+            .filter(|row| row.get("task_id").and_then(Value::as_str) == Some(task.id.as_str()))
+            .map(|row| {
+                let field = |k: &str| row.get(k).map(ferb_py::value::py_str).unwrap_or_default();
+                let target = row
+                    .get("target")
+                    .map(ferb_py::json::dumps_utf8)
+                    .unwrap_or_default();
+                format!("{} ({}) {target}", field("capability"), field("state"))
+            })
+            .collect();
+        let since = sup.span_cursor(since_span).saturating_sub(1);
+        // the records are read first; nothing is called while the store is held (ENG-24)
+        let calls = sup
+            .with_spans(|s| ferb_orchestrator::check_evidence::gather(s, &task.id, tree_id, since))
+            .map(|(calls, _)| calls)
+            .unwrap_or_default();
+        let daemon = sup.deps.daemon.clone();
+        let tokenizer = sup.deps.tokenizer;
+        ferb_orchestrator::hand_off::note(
+            &ferb_orchestrator::hand_off::HandOff {
+                goal: &task.goal,
+                conditions: &task.success_conditions,
+                calls: &calls,
+                unsettled: &unsettled,
+                last_words,
+            },
+            &|tool: &str| daemon.observes(tool),
+            &|text: &str| sup.wrap(text),
+            &|text: &str| tokenizer.count(text),
+            ferb_worker::fresh_run::NOTE_TOKENS,
+        )
+    }
     fn issue_token(
         &self,
         task: &Task,

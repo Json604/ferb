@@ -90,6 +90,8 @@ struct Book {
     refused: HashMap<String, usize>,
     /// T-1338: each run's model steps since they were last taken.
     steps: HashMap<String, Steps>,
+    /// ORCH-760: each run's newest model request's whole prompt, in tokens.
+    context: HashMap<String, i64>,
 }
 
 pub struct ToolListProxy {
@@ -197,6 +199,7 @@ impl ToolProxy for ToolListProxy {
         book.usage.remove(run_id);
         book.refused.remove(run_id);
         book.steps.remove(run_id);
+        book.context.remove(run_id);
     }
 
     fn compact(&self, run_id: &str, policy: Policy) {
@@ -224,6 +227,11 @@ impl ToolProxy for ToolListProxy {
     fn take_steps(&self, run_id: &str) -> Option<Steps> {
         let mut book = self.book.lock().unwrap_or_else(|e| e.into_inner());
         book.steps.remove(run_id).filter(|s| !s.is_empty())
+    }
+
+    fn context_tokens(&self, run_id: &str) -> Option<i64> {
+        let book = self.book.lock().unwrap_or_else(|e| e.into_inner());
+        book.context.get(run_id).copied()
     }
 }
 
@@ -511,6 +519,9 @@ async fn serve(
         };
         if let Some(t) = tally {
             let mut b = book.lock().unwrap_or_else(|e| e.into_inner());
+            // ORCH-760: one request's whole prompt is the conversation's size as of that step
+            b.context
+                .insert(run_id.to_string(), t.input + t.cache_read + t.cache_write);
             b.usage.entry(run_id.to_string()).or_default().add(&t);
         }
         if let (Some(t), Some(answer)) = (timing, answer) {

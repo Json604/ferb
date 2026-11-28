@@ -98,6 +98,10 @@ impl ferb_worker::ports::RunControl for WorkerControl {
     fn unreported_usage(&self) -> Vec<serde_json::Map<String, Value>> {
         self.0.unreported_usage()
     }
+
+    fn context_tokens(&self) -> Option<i64> {
+        self.0.context_tokens()
+    }
 }
 
 /// One built adapter as the worker's `ModelRuntime`, with the two facts the worker reads off it by attribute: its

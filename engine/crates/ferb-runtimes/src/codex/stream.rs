@@ -1667,6 +1667,11 @@ impl RunControl for CodexRun {
             })
             .collect()
     }
+
+    /// ORCH-760: the newest call's `inputTokens` (Codex counts the cached part in it), as its token usage said.
+    fn context_tokens(&self) -> Option<i64> {
+        self.lock().context_tokens.as_i64()
+    }
 }
 
 impl Drop for CodexRun {

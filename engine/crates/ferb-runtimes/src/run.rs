@@ -35,6 +35,12 @@ pub trait RunControl: Send + Sync {
     fn unreported_usage(&self) -> Vec<Map<String, Value>> {
         Vec::new()
     }
+    /// ORCH-760 (ORCH-719 item 4): the size of the run's conversation as its runtime last reported it, in tokens:
+    /// the newest model request's whole prompt (cached, uncached and newly cached), None before any report. Codex
+    /// from its token usage, Claude Code from FERB's relay per request, FERB's API loop from its own usage.
+    fn context_tokens(&self) -> Option<i64> {
+        None
+    }
 }
 
 pub struct Started {

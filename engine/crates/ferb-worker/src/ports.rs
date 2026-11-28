@@ -83,6 +83,11 @@ pub trait RunControl: Send + Sync {
     fn unreported_usage(&self) -> Vec<Map<String, Value>> {
         Vec::new()
     }
+    /// ORCH-760: the run's conversation size as its runtime last reported it (the newest model request's whole
+    /// prompt, in tokens); None before any report or for a runtime that reports none.
+    fn context_tokens(&self) -> Option<i64> {
+        None
+    }
 }
 
 /// A started run's events, pulled one at a time (Python's async generator). An `Err` is what the generator raised;
@@ -184,6 +189,28 @@ pub trait WorkerHost: Send + Sync {
     /// you"); None while it isn't. A run a pause interrupted ends as that, never as a failure.
     fn paused(&self, _tree_id: &str) -> Option<String> {
         None
+    }
+    /// ORCH-760 `gateway.calls_run(worker_id)`: the tool calls this run made that the gateway admitted.
+    fn calls_run(&self, _worker_id: &str) -> u64 {
+        0
+    }
+    /// ORCH-760: whether ending this run now would cut something open: a question, a confirmation or a sealed fill
+    /// of its task (a call still running, a question pending, a hidden answer not yet taken), a wait on the owner,
+    /// or a pause. A host that can't tell says held (true): its runs are never ended for a fresh one.
+    fn fresh_run_held(&self, _task_id: &str, _tree_id: &str, _worker_id: &str) -> bool {
+        true
+    }
+    /// ORCH-760: the fresh run's hand-off note, built by code from FERB's records (the goal, what the attempt's runs
+    /// did from `since_span`, the first of them, on, what is left, the facts that stand, the latest page, app and
+    /// file), at most [`crate::fresh_run::NOTE_TOKENS`] tokens, with the ended run's `last_words`. No model is called.
+    fn fresh_run_note(
+        &self,
+        task: &Task,
+        _tree_id: &str,
+        _since_span: &str,
+        _last_words: Option<&str>,
+    ) -> String {
+        task.goal.clone()
     }
 
     // --- run tokens (auth.py `RunTokens`) ---

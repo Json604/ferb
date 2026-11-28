@@ -60,6 +60,11 @@ impl Activity {
         }
     }
 
+    /// ORCH-760: how many waits on the owner this worker has open now (a question, a hand-off, a hidden input).
+    pub fn waits(&self, worker: &str) -> u32 {
+        self.beats().get(worker).map_or(0, |b| b.waits)
+    }
+
     pub fn stalled(&self, worker: &str, stall_s: f64) -> bool {
         let now = (self.now)();
         self.beats()

@@ -765,6 +765,7 @@ impl Inner {
                 Arc::new(move |m: Map<String, Value>| t.lock().unwrap().extend(m))
             }),
             on_tool_event: Some(on_tool_event),
+            fresh_run: false,
         };
         let ctx = self.context_final(&rid, ctx);
         let worker = self.worker.get().expect("the worker").clone();

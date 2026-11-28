@@ -104,6 +104,7 @@ fn config(stall_s: f64) -> WorkerConfig {
         approach: "orchestrator/prompts".into(),
         // the recorded calls closed their run before they returned (ORCH-731's switch off)
         answer_before_close: false,
+        fresh_run: false,
     }
 }
 

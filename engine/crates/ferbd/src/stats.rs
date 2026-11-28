@@ -412,7 +412,9 @@ fn run(
     };
     crate::usage_stats::report(&c, &range, out)?;
     // ORCH-726 step 1: how long the owner waited for the first word of each chat turn
-    crate::usage_stats::first_words(&c, &range, out)
+    crate::usage_stats::first_words(&c, &range, out)?;
+    // ORCH-760: the runs ended for a fresh one, and the attempts past 5
+    crate::usage_stats::fresh_runs(&c, &range, out)
 }
 
 /// `status_label`: a task status as the owner reads it: done_unverified is "not confirmed" (V5); the others as

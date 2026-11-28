@@ -171,6 +171,11 @@ pub trait ToolProxy: Send + Sync {
     fn take_steps(&self, _run_id: &str) -> Option<steps::Steps> {
         None
     }
+    /// ORCH-760: the run's newest model request's whole prompt (uncached, read from cache and newly cached), as
+    /// Anthropic reported it through the relay; None before any. Read, not taken.
+    fn context_tokens(&self, _run_id: &str) -> Option<i64> {
+        None
+    }
 }
 
 /// What the daemon lends every Claude run: how programs start, the daemon's environment, random ids, the date.
@@ -1437,6 +1442,10 @@ impl RunControl for ClaudeRun {
 
     fn unreported_usage(&self) -> Vec<Map<String, Value>> {
         self.unreported()
+    }
+
+    fn context_tokens(&self) -> Option<i64> {
+        self.rt.proxy.context_tokens(&self.id)
     }
 }
 

@@ -29,6 +29,8 @@ pub mod episodes;
 #[cfg(feature = "store")]
 pub mod evidence;
 pub mod guards;
+#[cfg(feature = "store")]
+pub mod hand_off;
 pub mod language;
 #[cfg(feature = "store")]
 pub mod ledger;

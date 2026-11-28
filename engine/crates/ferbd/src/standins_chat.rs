@@ -42,7 +42,7 @@
 
 use std::collections::{BTreeSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use ferb_core::interfaces::IdSource;
@@ -799,6 +799,11 @@ impl Reads for ScriptReads {
     fn answer_before_close(&self) -> bool {
         false
     }
+    // decision: ORCH-760 — on for the stand-ins (no recording reports a conversation's size, so no replay changes);
+    // a test's script turns it off
+    fn fresh_run(&self) -> bool {
+        self.0.file["fresh_run"].as_bool().unwrap_or(true)
+    }
     // decision: ORCH-735 (the Python recordings' planner answered with its form): only a test's script turns the front
     // door on (`front_door`, tests/front_door_replay.rs)
     fn front_door(&self) -> bool {
@@ -1027,6 +1032,8 @@ impl Reads for ScriptReads {
                 .cloned()
                 .unwrap_or_default(),
             shown: json!({"system": call["system"], "parts": call["parts"]}),
+            context_tokens: call["context_tokens"].as_i64(),
+            tools_background: call["tools_background"] == json!(true),
         }))
     }
 }
@@ -1041,6 +1048,10 @@ struct ScriptRuntime {
     bridge: Vec<Value>,
     /// What the recorded call was shown (its instructions and input), for journal 265's pairs.
     shown: Value,
+    /// ORCH-760: a test's script: the conversation's size the run reports once its tool calls are made (no
+    /// recording has one).
+    context_tokens: Option<i64>,
+    tools_background: bool,
 }
 
 impl ModelRuntime for ScriptRuntime {
@@ -1102,6 +1113,7 @@ impl ScriptRuntime {
                 "images": request.images.len()}));
             let cancelled = Arc::new(AtomicBool::new(false));
             let woken = Arc::new(tokio::sync::Notify::new());
+            let context = Arc::new(AtomicI64::new(-1));
             Ok(StartedRun {
                 handle: RunHandle {
                     id: format!("run-{}", task.id),
@@ -1122,8 +1134,15 @@ impl ScriptRuntime {
                     token: token.to_string(),
                     bridge: Some(self.bridge.clone()),
                     front_pending: None,
+                    context: context.clone(),
+                    context_tokens: self.context_tokens,
+                    tools_background: self.tools_background,
                 }),
-                control: Arc::new(ScriptControl { cancelled, woken }),
+                control: Arc::new(ScriptControl {
+                    cancelled,
+                    woken,
+                    context,
+                }),
             })
         })
     }
@@ -1132,6 +1151,8 @@ impl ScriptRuntime {
 struct ScriptControl {
     cancelled: Arc<AtomicBool>,
     woken: Arc<tokio::sync::Notify>,
+    /// ORCH-760: the size the run reported (-1: none yet).
+    context: Arc<AtomicI64>,
 }
 
 impl RunControl for ScriptControl {
@@ -1143,6 +1164,9 @@ impl RunControl for ScriptControl {
             self.cancelled.store(true, Ordering::SeqCst);
             self.woken.notify_waiters();
         })
+    }
+    fn context_tokens(&self) -> Option<i64> {
+        Some(self.context.load(Ordering::SeqCst)).filter(|n| *n >= 0)
     }
 }
 
@@ -1164,12 +1188,41 @@ struct ScriptEvents {
     bridge: Option<Vec<Value>>,
     /// ORCH-736: a test's `front_call` event reported as started, made through the socket when the next event is read.
     front_pending: Option<Value>,
+    /// ORCH-760: where the size is reported, and the script's size, reported once the tool calls are made.
+    context: Arc<AtomicI64>,
+    context_tokens: Option<i64>,
+    /// ORCH-760's test: the tool calls are made beside the events, not before them.
+    tools_background: bool,
 }
 
 impl ScriptEvents {
     /// The recorded tool calls, as the tool bridge makes them: `auth.hello` as `mcp_shim` with this run's token, then
     /// each `tools.call`; each reply compared with the recorded line.
     async fn call_tools(&self, lines: &[Value]) {
+        call_tools(
+            self.script.clone(),
+            self.n,
+            self.token.clone(),
+            lines.to_vec(),
+        )
+        .await
+    }
+}
+
+/// [`ScriptEvents::call_tools`] for call `n` of the script, with its run's token.
+async fn call_tools(script: Arc<Script>, n: usize, token: String, lines: Vec<Value>) {
+    Bridge { script, n, token }.call(&lines).await
+}
+
+/// The tool bridge of call `n` of the script, with its run's token.
+struct Bridge {
+    script: Arc<Script>,
+    n: usize,
+    token: String,
+}
+
+impl Bridge {
+    async fn call(&self, lines: &[Value]) {
         let sent: Vec<Value> = lines
             .iter()
             .filter_map(|l| l.get("send").and_then(Value::as_str))
@@ -1351,7 +1404,21 @@ impl EventSource for ScriptEvents {
             }
             if let Some(lines) = self.bridge.take() {
                 let lines: Vec<Value> = lines.iter().map(|l| self.script.with_tree(l)).collect();
-                self.call_tools(&lines).await;
+                if self.tools_background {
+                    // ORCH-760's test: the calls go on beside the run's events (a call that waits on the owner
+                    // while the run reports more), as a runtime's parallel calls do
+                    tokio::spawn(call_tools(
+                        self.script.clone(),
+                        self.n,
+                        self.token.clone(),
+                        lines,
+                    ));
+                } else {
+                    self.call_tools(&lines).await;
+                }
+                if let Some(n) = self.context_tokens {
+                    self.context.store(n, Ordering::SeqCst);
+                }
                 if self.ends_at_cancel && self.cancelled.load(Ordering::SeqCst) {
                     self.cancel_end().await;
                     return None;
@@ -1385,6 +1452,32 @@ impl EventSource for ScriptEvents {
                     .position(|m| m["key"] == "worker.verify");
                 if first_check == Some(self.n) {
                     self.script.apply_note();
+                }
+            }
+            // ORCH-760's test: an event held until the control socket's `release` of its name
+            if let Some(name) = self
+                .events
+                .get(self.at)
+                .and_then(|e| e["hold"].as_str())
+                .map(str::to_string)
+            {
+                loop {
+                    let opened = self.script.released_now.notified();
+                    let woken = self.woken.notified();
+                    tokio::pin!(opened, woken);
+                    opened.as_mut().enable();
+                    woken.as_mut().enable();
+                    if self.script.hold_released(&name) {
+                        break;
+                    }
+                    if self.cancelled.load(Ordering::SeqCst) {
+                        self.cancel_end().await;
+                        return None;
+                    }
+                    tokio::select! {
+                        _ = opened => {}
+                        _ = woken => {}
+                    }
                 }
             }
             // journal 265: a recorded answer or front call names this run's ids (in the front door replay)

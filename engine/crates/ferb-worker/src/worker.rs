@@ -33,6 +33,7 @@ use crate::errors::{
     too_large_problem, words, AnswerMissing, Error, MissingKind, RuntimeViolation, ServiceError,
     ServiceKind, ACCOUNT_PROBLEMS, WRONG_CALLS_CAP,
 };
+use crate::fresh_run::{self, FreshEnd};
 use crate::ports::{ModelRuntime, RunControl, StartedRun, TaskRecord, WorkerHost, WorkerTree};
 use crate::runs::{ActiveRun, ConnectionNotice, Runs, Tell};
 
@@ -61,6 +62,10 @@ pub struct WorkerConfig {
     /// span. False: every call returns only once its run closed, as Python's did (the recorded replays keep it
     /// off: the late close changes the order of their records).
     pub answer_before_close: bool,
+    /// ORCH-760 (ORCH-719 item 4): a worker run whose conversation passes [`fresh_run::threshold`] is ended and the
+    /// attempt goes on in a fresh run with a hand-off note code builds ([`Worker::run_worker`]). False: every run
+    /// goes on until it answers, as before (FERB.app until a replay on a real model shows the work holds).
+    pub fresh_run: bool,
 }
 
 /// What one attempt handed back (worker.py `run_worker`'s first value).
@@ -136,6 +141,8 @@ pub struct CallHooks {
     pub on_tool_event: Option<OnEvent>,
     /// The call's timing when it ends, however it ends (ORCH-526).
     pub on_timing: Option<OnRecord>,
+    /// ORCH-760: the run may be ended for a fresh one (a worker's run of a tree, with the switch on).
+    pub fresh_run: bool,
 }
 
 /// One model call through `_run`.
@@ -471,7 +478,7 @@ impl Worker {
         options: &RunOptions,
     ) -> Result<(Attempt, String), Error> {
         let (result, worker_id) = self
-            .run_worker_once(tree, task, prompt, ctx.clone(), schema, span, options)
+            .run_fresh(tree, task, prompt, &ctx, schema, span, options)
             .await?;
         let seen = self.runs.take_tools_seen(&worker_id);
         let offered = self.runs.take_tools_offered(&worker_id);
@@ -498,7 +505,7 @@ impl Worker {
                 let mut ctx = ctx;
                 ctx.push(fact);
                 let (result, worker_id) = self
-                    .run_worker_once(tree, task, prompt, ctx, schema, span, options)
+                    .run_fresh(tree, task, prompt, &ctx, schema, span, options)
                     .await?;
                 self.runs.take_tools_seen(&worker_id);
                 self.runs.take_tools_offered(&worker_id);
@@ -506,6 +513,71 @@ impl Worker {
             }
         }
         Ok((result, worker_id))
+    }
+
+    /// ORCH-760 (ORCH-719 item 4): one attempt's runs. A run FERB ended for a fresh one (its conversation passed the
+    /// size, [`fresh_run`]) is followed at once by a new run of the same task, grant, instructions and context plus
+    /// the hand-off note the host builds from its records; it is not one of the step's attempts (the supervisor sees
+    /// one). Each such end is a `worker.fresh_run` record; past [`fresh_run::ALARM_PAST`] in one attempt, an alarm.
+    #[allow(clippy::too_many_arguments)]
+    async fn run_fresh(
+        &self,
+        tree: &Arc<dyn WorkerTree>,
+        task: &Task,
+        prompt: &str,
+        ctx: &[ContextBlock],
+        schema: &Value,
+        span: &str,
+        options: &RunOptions,
+    ) -> Result<(Attempt, String), Error> {
+        let mut since: Option<String> = None;
+        let mut note: Option<ContextBlock> = None;
+        let mut fresh_runs: u32 = 0;
+        loop {
+            let mut run_ctx = ctx.to_vec();
+            run_ctx.extend(note.take());
+            let (result, worker_id, run_span, ended) = self
+                .run_worker_once(tree, task, prompt, run_ctx, schema, span, options)
+                .await?;
+            let Some(end) = ended else {
+                return Ok((result, worker_id));
+            };
+            let since = since.get_or_insert(run_span.clone()).clone();
+            self.runs.take_tools_seen(&worker_id);
+            self.runs.take_tools_offered(&worker_id);
+            fresh_runs += 1;
+            let host = self.host();
+            let text = host.fresh_run_note(task, &tree.id(), &since, end.last_words.as_deref());
+            let alarm = fresh_runs > fresh_run::ALARM_PAST;
+            let mut input = Map::new();
+            input.insert("ended_worker_id".into(), json!(worker_id));
+            input.insert("ended_span".into(), json!(run_span));
+            input.insert("fresh_runs".into(), json!(fresh_runs));
+            if let Value::Object(facts) = end.as_json() {
+                input.extend(facts);
+            }
+            let s = host.span_start("worker.fresh_run", Some(&task.id), Some(span), None, input);
+            host.span_finish(
+                &s,
+                Some(obj(
+                    json!({"note_tokens": self.config.tokenizer.count(&text),
+                                "note_chars": text.chars().count(), "alarm": alarm}),
+                )),
+                None,
+                None,
+            );
+            if fresh_runs == fresh_run::ALARM_PAST + 1 {
+                // past 5 in one attempt: the records say so (`ferb stats`, the trace); the attempt goes on
+                host.journal(
+                    "worker.fresh_run_alarm",
+                    json!({"task_id": task.id, "tree_id": tree.id(), "fresh_runs": fresh_runs,
+                           "span_id": s}),
+                );
+            }
+            let mut block = ContextBlock::new(text, "fresh run hand-off");
+            block.protected = true;
+            note = Some(block);
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -518,13 +590,15 @@ impl Worker {
         schema: &Value,
         span: &str,
         options: &RunOptions,
-    ) -> Result<(Attempt, String), Error> {
+    ) -> Result<(Attempt, String, String, Option<FreshEnd>), Error> {
         let host = self.host();
         let stop = tree.stop();
         if !stop.is_empty() {
             return Ok((
                 plain(task, OutcomeStatus::Cancelled, stop, vec![]),
                 String::new(),
+                String::new(),
+                None,
             ));
         }
         let worker_id = format!("w-{}", host.new_id());
@@ -680,6 +754,10 @@ impl Worker {
                     on_timing: Some(Arc::new(move |facts| {
                         sink.lock().unwrap_or_else(|e| e.into_inner()).extend(facts)
                     })),
+                    // decision: ORCH-760 — a worker's own run (never the checker's, never a fix turn's)
+                    fresh_run: self.config.fresh_run
+                        && task.role == TaskRole::Worker
+                        && !options.observe_only,
                     ..CallHooks::default()
                 },
                 retry_silent: true,
@@ -700,8 +778,16 @@ impl Worker {
         }
         .await;
         cleanup.armed = false;
+        let mut fresh: Option<FreshEnd> = None;
         let (result, failure) = match outcome {
             Ok(report) => (Attempt::Report(report), None),
+            Err(Error::FreshRun(end)) => {
+                fresh = Some(end);
+                (
+                    plain(task, OutcomeStatus::Unknown, String::new(), vec![]),
+                    None,
+                )
+            }
             Err(e) => self.classify(tree, task, &worker_id, e),
         };
         self.runs.unmark_stalled(&worker_id);
@@ -729,12 +815,18 @@ impl Worker {
                 );
             }
         }
+        if let Some(end) = &fresh {
+            // ORCH-760: not a result: the attempt goes on in a fresh run
+            output.insert("result".into(), json!(""));
+            output.insert("status".into(), json!("fresh_run"));
+            output.insert("fresh_run".into(), end.as_json());
+        }
         let timing = timing.lock().unwrap_or_else(|e| e.into_inner()).clone();
         if !timing.is_empty() {
             output.insert("timing".into(), Value::Object(timing));
         }
         host.span_finish(&wspan, Some(output), failure.as_deref(), None);
-        Ok((result, worker_id)) // `task.finished` is the tree's, published once when it ends
+        Ok((result, worker_id, wspan, fresh)) // `task.finished` is the tree's, published once when it ends
     }
 
     /// worker.py:446-488: an attempt's failure as the outcome code writes, and the failure the records keep.
@@ -1037,6 +1129,8 @@ impl Worker {
             other => Error::from(other),
         })?;
         let budget = limits.context_budget();
+        // ORCH-760: the size at which this run is ended for a fresh one (when its hooks allow it)
+        let fresh_at = fresh_run::threshold(&limits);
         let reserved = reserve_tokens(
             self.config.tokenizer,
             &call.system,
@@ -1567,6 +1661,30 @@ impl Worker {
                         );
                         host.span_finish(&s, Some(obj(json!({"why": words}))), Some("stopped by FERB's guard"), None);
                         return Err(Error::AnswerMissing(AnswerMissing::stuck(&name, &words)));
+                    }
+                }
+                // decision: ORCH-760 — the conversation as its runtime reports it passed the size, the run made its
+                // 10 calls and nothing is open that its end would cut: it ends, and the attempt goes on fresh
+                if hooks.fresh_run && kind != RuntimeEventKind::Final {
+                    if let (Some(t), Some(size)) = (tree, control.context_tokens()) {
+                        if size >= fresh_at {
+                            let calls = host.calls_run(worker_id);
+                            if calls >= fresh_run::MIN_CALLS
+                                && !host.fresh_run_held(&task.id, &t.id(), worker_id)
+                            {
+                                let last_words = self
+                                    .runs
+                                    .latest_words(&t.id())
+                                    .and_then(|w| w.get("text").and_then(Value::as_str).map(str::to_string));
+                                return Err(Error::FreshRun(FreshEnd {
+                                    context_tokens: size,
+                                    threshold: fresh_at,
+                                    context_window: limits.context_window,
+                                    calls,
+                                    last_words,
+                                }));
+                            }
+                        }
                     }
                 }
             }

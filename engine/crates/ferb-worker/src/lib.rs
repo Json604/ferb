@@ -11,6 +11,7 @@
 //!   `_worker_runs`, `_tree_of`, `_stalled`, `_retrying`, `_connection`, `_live`, `_last_steps`) and the
 //!   connection notice.
 //! - [`bursts`]: what one poll of a producer tells a tree's live line goes onto it as one burst.
+//! - [`fresh_run`]: ORCH-760's numbers and the facts of a run FERB ended for a fresh one (ORCH-719 item 4).
 //! - [`errors`]: the classes a run fails with and the owner's words for each (`reason`, `couldnt`, ...).
 //! - [`ports`]: the seams (the host, the model runtime, the task tree).
 //!
@@ -23,6 +24,7 @@
 
 pub mod bursts;
 pub mod errors;
+pub mod fresh_run;
 pub mod ports;
 pub mod progress;
 pub mod runs;

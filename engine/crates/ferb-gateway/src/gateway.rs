@@ -395,6 +395,8 @@ struct Inner {
     waiting: HashMap<String, usize>,
     undelivered: HashMap<(String, String, String), (String, Reply)>,
     calls_made: HashMap<String, u64>,
+    /// ORCH-760: each run's admitted tool calls (every tool), until the run ends (`forget_calls`).
+    run_calls: HashMap<String, u64>,
     refused_over: HashMap<String, u64>,
     /// ORCH-691: each running step's failed on-screen actions and time without progress.
     steps: crate::stuck::Steps,
@@ -1387,6 +1389,31 @@ impl Gateway {
             .unwrap_or(0)
     }
 
+    /// ORCH-760: the tool calls this run made that the gateway admitted, of every tool.
+    pub fn calls_run(&self, worker_id: &str) -> u64 {
+        lock(&self.inner)
+            .run_calls
+            .get(worker_id)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// ORCH-760: whether one of these tasks has something open that a run's end would cut: a tool call still running
+    /// (a confirmation or question it waits on, a sealed fill), a question still pending, or a hidden input's answer
+    /// not yet taken by its call.
+    pub fn run_holds(&self, task_ids: &BTreeSet<String>) -> bool {
+        let i = lock(&self.inner);
+        let mine = |a: &crate::questions::Approval| task_ids.contains(&a.task_id);
+        i.in_flight
+            .iter()
+            .any(|(_, t, c, _)| task_ids.contains(t) && !c.is_cancelled())
+            || i.approvals.pending().into_iter().any(mine)
+            || i.approvals
+                .all()
+                .into_iter()
+                .any(|a| mine(a) && i.approvals.has_sealed(&a.id))
+    }
+
     pub fn calls_refused(&self, worker_id: &str) -> u64 {
         lock(&self.inner)
             .refused_over
@@ -1465,6 +1492,7 @@ impl Gateway {
         let mut i = lock(&self.inner);
         i.steps.forget_worker(worker_id);
         i.calls_made.remove(worker_id);
+        i.run_calls.remove(worker_id);
         i.refused_over.remove(worker_id);
         i.last_act.remove(worker_id);
         i.lookup_answers.retain(|k, _| k.0 != worker_id);
@@ -1518,11 +1546,12 @@ impl Gateway {
                 false,
             ));
         }
-        if grant.max_calls > 0 {
-            *lock(&self.inner)
-                .calls_made
-                .entry(grant.worker_id.clone())
-                .or_insert(0) += 1;
+        {
+            let mut i = lock(&self.inner);
+            if grant.max_calls > 0 {
+                *i.calls_made.entry(grant.worker_id.clone()).or_insert(0) += 1;
+            }
+            *i.run_calls.entry(grant.worker_id.clone()).or_insert(0) += 1;
         }
         let (rec, tool) = (rec.expect("admitted"), tool.expect("admitted"));
         let mut c = match self

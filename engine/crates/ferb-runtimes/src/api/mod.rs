@@ -467,6 +467,8 @@ struct Run {
     plain_calls: u64,
     answer_tool: bool,
     compactor: Option<crate::compact::Compactor>,
+    /// ORCH-760: the newest model call's whole prompt, as its usage said.
+    context_tokens: Option<i64>,
 }
 
 /// One live direct-API run.
@@ -595,6 +597,7 @@ pub async fn start(
                 .compaction
                 .filter(|_| !rt.supervisor)
                 .map(|p| crate::compact::Compactor::new(p, rt.clock.clone())),
+            context_tokens: None,
         }),
         deadline,
         client,
@@ -804,6 +807,7 @@ async fn event_loop(run: &Arc<ApiRun>, y: &mut Yielder) -> Result<(), Exit> {
                 follow = "asked";
             }
         }
+        run.lock().context_tokens = Some(turn.usage.input_tokens);
         let mut data = turn.usage.as_dict();
         data.insert("timing".into(), Value::Object(run.lock().timer.done()));
         if !typed.is_empty() {
@@ -1450,6 +1454,10 @@ impl RunControl for ApiRun {
     fn cancel(&self) -> ferb_core::interfaces::BoxFuture<'_, ()> {
         ApiRun::cancel(self);
         Box::pin(async {})
+    }
+
+    fn context_tokens(&self) -> Option<i64> {
+        self.lock().context_tokens
     }
 }
 

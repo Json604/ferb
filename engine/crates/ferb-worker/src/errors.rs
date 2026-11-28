@@ -272,6 +272,9 @@ pub enum Error {
     Other { class: String, message: String },
     /// An adapter's own exception (`ProtocolError`, `AccountError`, `ProviderError`) with its marked facts.
     Adapter(AdapterError),
+    /// ORCH-760: FERB ended the worker's run for a fresh one (its conversation passed the size); never a failure,
+    /// [`crate::Worker::run_worker`] starts the next run of the same attempt.
+    FreshRun(crate::fresh_run::FreshEnd),
 }
 
 /// `ValueError` subclasses an adapter or a decoder may let travel, read by class: Python's own, and the runtimes'
@@ -328,6 +331,7 @@ impl Error {
             Error::Os(o) => o.class.clone(),
             Error::Other { class, .. } => class.clone(),
             Error::Adapter(a) => a.class_name().into(),
+            Error::FreshRun(_) => "FreshRun".into(),
         }
     }
 
@@ -437,6 +441,7 @@ impl fmt::Display for Error {
             Error::Os(o) => f.write_str(&o.message),
             Error::Other { message, .. } => f.write_str(message),
             Error::Adapter(a) => f.write_str(&a.message),
+            Error::FreshRun(_) => f.write_str("ended for a fresh run"),
         }
     }
 }

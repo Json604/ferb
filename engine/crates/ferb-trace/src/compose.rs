@@ -369,8 +369,17 @@ fn worker_text(n: &Value) -> (&'static str, String) {
         String::new()
     };
     let status_text = str_of(status);
+    let fresh = obj(out, "fresh_run");
     let claim = if status.as_str() == Some("cancelled") {
         "stopped: ".to_owned()
+    } else if status.as_str() == Some("fresh_run") {
+        // ORCH-760: FERB ended the run past the size; the attempt went on in a fresh run
+        format!(
+            "ended for a fresh run at {} tokens (the size {}), after {} of its calls",
+            str_of(g(fresh, "context_tokens")),
+            str_of(g(fresh, "threshold")),
+            str_of(g(fresh, "calls"))
+        )
     } else if truthy(status) {
         format!("worker reported {status_text}: ")
     } else {
