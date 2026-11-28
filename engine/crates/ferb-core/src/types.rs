@@ -623,6 +623,9 @@ pub struct ToolResult {
     pub facts: Option<ActionFacts>,
     /// How long the call's own steps took (ms): its span only, never the model (HAND-436).
     pub timing: Option<Dict>,
+    /// ORCH-753: a look's earlier element ids that still work in this one, as {earlier id: id in this look}: for
+    /// the gateway's what-changed view alone, never the model or the record.
+    pub carried: Option<Dict>,
 }
 
 impl fmt::Debug for ToolResult {
@@ -638,6 +641,7 @@ impl fmt::Debug for ToolResult {
             .field("evidence", &self.evidence)
             .field("facts", &self.facts)
             .field("timing", &self.timing)
+            .field("carried", &self.carried)
             .finish()
     }
 }

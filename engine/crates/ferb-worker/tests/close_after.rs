@@ -203,6 +203,8 @@ struct Run {
     reads: usize,
     /// What `on_tool_event` was told, in order.
     tool_events: Vec<Value>,
+    /// ORCH-753: the runs whose looks the gateway was told to reset.
+    looks_reset: Vec<String>,
 }
 
 impl Run {
@@ -245,6 +247,7 @@ struct Setup {
     schema: Option<Value>,
     ends_on: Vec<String>,
     read_s: f64,
+    worker_id: &'static str,
 }
 
 impl Setup {
@@ -256,6 +259,7 @@ impl Setup {
             schema: None,
             ends_on: Vec::new(),
             read_s: 0.0,
+            worker_id: "",
         }
     }
 }
@@ -278,6 +282,7 @@ async fn run_with(setup: Setup) -> Run {
         schema,
         ends_on,
         read_s,
+        worker_id,
     } = setup;
     let host = TestHost::new(&json!({}), &json!({}));
     let worker = Arc::new(Worker::new(
@@ -311,7 +316,7 @@ async fn run_with(setup: Setup) -> Run {
         token: "",
         parent_span: "span-turn",
         tree: tree.as_ref(),
-        worker_id: "",
+        worker_id,
         images: Vec::new(),
         hooks: CallHooks {
             on_timing: Some(Arc::new(move |t| sink.lock().unwrap().push(t))),
@@ -339,12 +344,14 @@ async fn run_with(setup: Setup) -> Run {
     let (out, ()) = tokio::join!(called, release);
     let timing = timing.lock().unwrap().clone();
     let tool_events = tool_events.lock().unwrap().clone();
+    let looks_reset = host.looks_reset.lock().unwrap().clone();
     Run {
         log: host.take_log(),
         out,
         timing,
         reads: reads.load(Ordering::SeqCst),
         tool_events,
+        looks_reset,
     }
 }
 
@@ -645,4 +652,32 @@ async fn a_made_up_call_reported_in_two_phases_counts_once() {
     let r = run_with(Setup::new(true, events)).await;
     assert_eq!(r.out.as_deref().unwrap(), "done", "{:?}", r.out);
     assert_eq!(r.tool_events.len(), 12);
+}
+
+/// ORCH-753: a run whose memory the runtime compacted has the gateway reset its looks (its next look at each place is
+/// sent whole), once per compaction; a run without one resets nothing.
+// decision: ORCH-753
+#[tokio::test(start_paused = true)]
+async fn a_compaction_resets_the_runs_looks_in_the_gateway() {
+    let mut events = answered();
+    events.insert(
+        0,
+        event(
+            RuntimeEventKind::Compacted,
+            json!({"by": "ferb", "removed_tokens": 900}),
+        ),
+    );
+    let r = run_with(Setup {
+        worker_id: "w-1",
+        ..Setup::new(true, events)
+    })
+    .await;
+    assert_eq!(r.out.as_deref().unwrap(), "the answer");
+    assert_eq!(r.looks_reset, ["w-1"]);
+    let r = run_with(Setup {
+        worker_id: "w-2",
+        ..Setup::new(true, answered())
+    })
+    .await;
+    assert!(r.looks_reset.is_empty());
 }

@@ -103,6 +103,15 @@ pub fn apply_changes(text: &str) -> String {
         .fold(text.to_string(), |t, c| swap(&t, &c.old, &c.new))
 }
 
+/// A recorded text of one tool (its row's schema, description or argument checks) with that tool's changes applied:
+/// a change's old text may sit in other tools' rows too (ORCH-753's `whole` follows the `tab` every browser tool has).
+pub fn apply_changes_for(tool: &str, text: &str) -> String {
+    changes()
+        .iter()
+        .filter(|c| c.tool == tool)
+        .fold(text.to_string(), |t, c| swap(&t, &c.old, &c.new))
+}
+
 /// A text of today's catalog with every change taken out: what Python wrote.
 pub fn revert_changes(text: &str) -> String {
     changes()

@@ -623,6 +623,8 @@ pub struct TestHost {
     me: Weak<TestHost>,
     /// RUN-465: who paused the tree, while it is paused (a scripted `pause` step sets it).
     pub paused: Mutex<Option<String>>,
+    /// ORCH-753: the runs whose looks the worker reset (kept apart from the log the fixtures compare).
+    pub looks_reset: Mutex<Vec<String>>,
 }
 
 impl TestHost {
@@ -663,6 +665,7 @@ impl TestHost {
             policy: TestPolicy,
             me: me.clone(),
             paused: Mutex::default(),
+            looks_reset: Mutex::default(),
         })
     }
 
@@ -780,6 +783,9 @@ impl WorkerHost for TestHost {
     }
     fn forget_calls(&self, worker_id: &str) {
         self.rec("gateway.forget_calls", json!(worker_id));
+    }
+    fn looks_reset(&self, worker_id: &str) {
+        self.looks_reset.lock().unwrap().push(worker_id.to_string());
     }
     fn calls_refused(&self, watch_id: &str) -> u64 {
         self.rec("gateway.calls_refused", json!(watch_id));

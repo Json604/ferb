@@ -825,6 +825,9 @@ impl Daemon for SupDaemon {
     fn forget_calls(&self, worker_id: &str) {
         self.gateway.forget_calls(worker_id)
     }
+    fn looks_reset(&self, worker_id: &str) {
+        self.gateway.looks_reset(worker_id)
+    }
     fn calls_refused(&self, watch_id: &str) -> u64 {
         self.gateway.calls_refused(watch_id)
     }

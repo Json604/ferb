@@ -480,6 +480,23 @@ impl Driver {
         self.update(alias, |t| carry(t, gen, nav, old));
     }
 
+    /// ORCH-753: the earlier ids the latest snapshot carried, each with the id it now names ({earlier: now}), for the
+    /// gateway's what-changed view; empty when nothing carried (a first look, or the page loaded since).
+    pub fn carried_ids(&self, alias: &str) -> Map<String, Value> {
+        let Some(t) = self.tab(alias) else {
+            return Map::new();
+        };
+        let mut ids: Vec<&String> = t.carried.iter().collect();
+        ids.sort();
+        ids.into_iter()
+            .filter_map(|old| {
+                t.elements
+                    .get(old)
+                    .map(|h| (old.clone(), Value::String(h.3.id.clone())))
+            })
+            .collect()
+    }
+
     /// `point`: a point in a recent screenshot to an element of the latest snapshot.
     pub async fn point(&self, tab: &TabRef, shot: &str, x: f64, y: f64) -> Result<PageElement> {
         let t = self.live_tab(tab)?;

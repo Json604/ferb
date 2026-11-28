@@ -98,6 +98,48 @@
       "part": "description",
       "old": "Close a task-created tab (FERB's own browser), or release a borrowed/kept tab without closing it.",
       "new": "Close a tab this task opened (FERB's own browser), or let go of a borrowed or kept tab without closing it; with owner_asked, close the owner's tab too."
+    },
+    {
+      "decision": "ORCH-753",
+      "tool": "browser.snapshot",
+      "part": "input_schema",
+      "old": "{\"properties\": {\"tab\": {\"description\": \"Tab id from open (e.g. t1)\", \"title\": \"Tab\", \"type\": \"string\"}",
+      "new": "{\"properties\": {\"tab\": {\"description\": \"Tab id from open (e.g. t1)\", \"title\": \"Tab\", \"type\": \"string\"}, \"whole\": {\"default\": false, \"description\": \"true sends the whole page, not only what changed since your last look at it\", \"title\": \"Whole\", \"type\": \"boolean\"}"
+    },
+    {
+      "decision": "ORCH-753",
+      "tool": "browser.snapshot",
+      "part": "description",
+      "old": "Ids are valid until the page changes or you take a newer snapshot.",
+      "new": "Ids are valid until the page loads again; a newer snapshot keeps the ids of the elements it finds again."
+    },
+    {
+      "decision": "ORCH-753",
+      "tool": "ferb_browser.snapshot",
+      "part": "input_schema",
+      "old": "{\"properties\": {\"tab\": {\"description\": \"Tab id from open (e.g. t1)\", \"title\": \"Tab\", \"type\": \"string\"}",
+      "new": "{\"properties\": {\"tab\": {\"description\": \"Tab id from open (e.g. t1)\", \"title\": \"Tab\", \"type\": \"string\"}, \"whole\": {\"default\": false, \"description\": \"true sends the whole page, not only what changed since your last look at it\", \"title\": \"Whole\", \"type\": \"boolean\"}"
+    },
+    {
+      "decision": "ORCH-753",
+      "tool": "ferb_browser.snapshot",
+      "part": "description",
+      "old": "Ids are valid until the page changes or you take a newer snapshot.",
+      "new": "Ids are valid until the page loads again; a newer snapshot keeps the ids of the elements it finds again."
+    },
+    {
+      "decision": "ORCH-753",
+      "tool": "mac.snapshot",
+      "part": "input_schema",
+      "old": "omitted only for a sole reachable window\", \"title\": \"Window\"}",
+      "new": "omitted only for a sole reachable window\", \"title\": \"Window\"}, \"whole\": {\"default\": false, \"description\": \"true sends the whole window, not only what changed since your last look at it\", \"title\": \"Whole\", \"type\": \"boolean\"}"
+    },
+    {
+      "decision": "ORCH-753",
+      "tool": "mac.snapshot",
+      "part": "description",
+      "old": "Ids are valid until the next snapshot of that app.",
+      "new": "Ids are valid until the next snapshot of that app; one of the same window keeps the ids of the elements it finds again."
     }
   ]
 }

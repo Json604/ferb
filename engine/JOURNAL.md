@@ -15302,3 +15302,56 @@ and that a part's nested step row was drawn full size and cut off, he said "corr
 - LIVE-1224 is the owner's check.
 - Found, not fixed: in Android's `ParityShotsTest` a state change after a test's first shot is drawn only at the next
   one, so `card-states-dawn.png` and `card-states-noon.png` are the same picture.
+
+## 2026-11-28 · 283 · A repeated look reaches the worker as what changed; the record keeps the whole look (T-1332)
+
+**Why (ORCH-719 item 2, owner 2026-11-25).** Old page snapshots resent on every later step were about 45% of worker
+input. The coordinator's offline replay of the owner's November runs (205 tasks, read only) measured the plan's rules
+first: looks carried through later calls 32% smaller for the browser, 29% for Mac, every repeated look rebuildable.
+Two facts set the design: an element must be compared without its id and position fields (with them about 40% of
+repeated looks counted as more than half changed), and 457 of 783 looks were a page's first.
+
+**What (ORCH-753, agent).**
+- The hands carry ids. `browser.snapshot` / `ferb_browser.snapshot` now run HAND-488's `carry` as the screenshot did,
+  when the tab hasn't loaded since. A Mac snapshot of the same app and window (not a subtree, not a menu's listing)
+  maps each earlier node to the new one with an equal `AxNode::identity()`, unique on both sides, and follows ids an
+  earlier snapshot had carried (`carried_nodes`); `MacDriver::node` and `element_identity` resolve a carried id.
+- `ToolResult.carried` ({earlier id: id now}) is a machine field: the gateway reads it, the model and the record never
+  see it. The tools' content and every Python fixture are unchanged.
+- The view (`ferb-gateway/src/look_view.rs`, `Gateway::run`'s reply, after the record): per model run (worker id),
+  per place (a tab and its URL without the fragment; a Mac bundle and its current window, offset 0, no subtree or
+  `full`), the last look the run can rebuild. Whole on a first look, `whole: true`, the 6th in a row, or when more
+  than half the elements or text lines changed; otherwise the page's own fields, `changed_since` (the last whole
+  look's span), `unchanged`, `note`, `elements` (new, changed or not carried, with new ids), `gone` ({earlier id:
+  label}), `moved` (earlier id and position fields), `text_changes` ({line, removed, added}). The listing's steady
+  fields (truncation notes, media, the Mac's windows, headings, open, profile...) go only when they changed, null when
+  gone; every other field (news, call facts) always goes.
+- A compaction resets the run's looks: the worker's `model.compacted` calls `looks_reset` (ferb-worker port →
+  supervisor → ferbd → gateway); a run's end clears them (`forget_calls`); a fresh run has a new worker id.
+- Catalog (named in `tool_changes.json`, ORCH-753): the three snapshot tools take `whole`; their id sentence now says
+  a newer snapshot keeps the ids of what it finds again. `catalog::apply_changes_for` applies one tool's changes in the
+  row tests (the new `whole` follows the `tab` field every browser tool shares).
+
+**Checked.**
+- ferb-gateway `tests/look_view.rs`: a sequence through the real gateway with stand-in hands (first whole, what
+  changed, more than half, the 6th, `whole: true`, a reset, a fragment-only change, a new URL, an ended run; a Mac
+  window, a later page untouched, another window), each record whole, each view rebuilt (`rebuild`, `same_look`).
+- ferb-browser `tests/carried_ids.rs` (fake extension): carried ids resolve over two snapshots, a replaced node's and
+  every id after a load are refused; shown failing with the carry removed.
+- ferb-mac-hands: `element_actions.rs` (an earlier id presses the same button; a menu listing refuses them) and
+  `driver::carried_tests` (unique identity only, chains, a dropped node).
+- ferb-worker `close_after.rs`: a Compacted event resets that run's looks once.
+- Tests of ferb-core, ferb-gateway (catalog, validation), ferb-browser, ferb-mac-hands, ferb-worker, ferb-supervisor,
+  ferb-runtimes, ferb-daemon and ferbd (`every_tool_through_the_program`, `catalog_mcp`); fmt and workspace clippy.
+- The replay as built (scratchpad `replay_built.py`: the note, the steady fields, gone with ids): browser 30% less
+  carried (422.2M → 295.3M characters), Mac 25% (48.9M → 36.9M).
+
+**Unverified.**
+- No live run: whether models read the view well (use earlier ids, ask `whole` when they need it) is untested.
+- The replay assumes every element found again by content carried its id: the records hold no carried map, so the
+  live saving is lower where the hands don't carry (a load, a Mac identity that isn't unique, a subtree or offset read
+  in between).
+- A compaction's event reaches the gateway through the worker's event stream; a look the runtime sends right after a
+  compaction, before the worker read that event, would still be a diff (not seen in tests, not measured).
+- The phone crates' clippy (gate.sh lint's first three) wasn't run; they don't use `ToolResult`.
+- The `look_view.rs` path in ORCH-753 fails `kb check` until the file is tracked.

@@ -1842,3 +1842,65 @@ async fn full_lists_what_the_default_leaves_out_and_the_default_says_what_it_lef
         );
     }
 }
+
+// ---------- ORCH-753: a snapshot of the same window keeps the earlier ids ----------
+
+// decision: ORCH-753
+#[tokio::test]
+async fn a_snapshot_of_the_same_window_keeps_the_earlier_ids_and_says_which() {
+    let m = mac();
+    let first = m.run("mac.snapshot", json!({"app": "Chat"})).await;
+    assert_eq!(
+        first.carried,
+        Some(serde_json::Map::new()),
+        "a first look carries nothing"
+    );
+    let send_1 = Mac::id(&Value::Object(first.content.clone())["elements"], "Send");
+    let second = m.run("mac.snapshot", json!({"app": "Chat"})).await;
+    let send_2 = Mac::id(&Value::Object(second.content.clone())["elements"], "Send");
+    assert_ne!(send_1, send_2, "a new generation");
+    let carried = second.carried.clone().unwrap();
+    assert_eq!(carried[&send_1], json!(send_2), "{carried:?}");
+    assert!(
+        !second.content.contains_key("carried"),
+        "the model's content is as before"
+    );
+    // the earlier id works for the same element
+    let r = m
+        .run(
+            "mac.act",
+            json!({"app": "Chat", "action": "press", "element": send_1}),
+        )
+        .await;
+    assert!(!r.is_error, "{:?}", r.content);
+    assert_eq!(m.calls().last().unwrap(), "AXPress send");
+    assert_eq!(
+        m.driver.element_identity(CHAT_ID, &send_1),
+        m.driver.element_identity(CHAT_ID, &send_2)
+    );
+    // a third look: the first look's ids still follow their nodes
+    let third = m.run("mac.snapshot", json!({"app": "Chat"})).await;
+    let send_3 = Mac::id(&Value::Object(third.content.clone())["elements"], "Send");
+    assert_eq!(third.carried.unwrap()[&send_1], json!(send_3));
+    // the open menu's listing renumbers the app without carrying: the earlier ids are refused
+    let doc = Mac::id(
+        &Value::Object(third.content.clone())["elements"],
+        "Document bubble",
+    );
+    let r = m
+        .run(
+            "mac.act",
+            json!({"app": "Chat", "action": "menu", "element": doc}),
+        )
+        .await;
+    assert!(!r.is_error, "{:?}", r.content);
+    for old in [&send_1, &send_3] {
+        let r = m
+            .run(
+                "mac.act",
+                json!({"app": "Chat", "action": "press", "element": old}),
+            )
+            .await;
+        assert!(r.is_error, "{old}: {:?}", r.content);
+    }
+}

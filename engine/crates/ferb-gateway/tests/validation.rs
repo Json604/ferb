@@ -94,7 +94,8 @@ fn every_refused_argument_reads_as_pydantic_wrote_it() {
         // decision: HAND-551: a tool's deliberate changes (mac.act's two new actions) applied to its recorded texts
         let changed = catalog::changes().iter().any(|c| c.tool == *name);
         let t = if changed {
-            serde_json::from_str(&catalog::apply_changes(&ferb_py::json::dumps(t))).unwrap()
+            serde_json::from_str(&catalog::apply_changes_for(name, &ferb_py::json::dumps(t)))
+                .unwrap()
         } else {
             t.clone()
         };

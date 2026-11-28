@@ -170,6 +170,9 @@ pub trait WorkerHost: Send + Sync {
     fn initial_image_given(&self, task_id: &str);
     /// `gateway.forget_calls(worker_id)`: a run ended; its grant's counts go.
     fn forget_calls(&self, worker_id: &str);
+    /// ORCH-753 `gateway.looks_reset(worker_id)`: the run's memory was compacted; its next look at each place is
+    /// sent whole.
+    fn looks_reset(&self, _worker_id: &str) {}
     /// `gateway.calls_refused(watch_id)`: lookups refused after they were spent (RUN-445).
     fn calls_refused(&self, watch_id: &str) -> u64;
     /// ORCH-691 `gateway.stuck(watch_id)`: the guard's stop for this run, in plain words, once; None while it may

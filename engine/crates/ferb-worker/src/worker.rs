@@ -1428,6 +1428,10 @@ impl Worker {
                             .map(|(k, v)| (k.clone(), v.clone()))
                             .collect();
                         host.span_finish(&s, Some(kept), None, None);
+                        // ORCH-753: what the run was shown before is gone from its memory: its next looks go whole
+                        if !worker_id.is_empty() {
+                            host.looks_reset(worker_id);
+                        }
                         // RUN-478: the provider refused FERB's edited history and FERB stopped editing it: journaled
                         // with its owner-facing line
                         if data.get("stopped").and_then(Value::as_str) == Some("history_refused") {

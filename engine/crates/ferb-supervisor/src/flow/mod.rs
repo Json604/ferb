@@ -200,6 +200,8 @@ pub trait Daemon: Send + Sync {
     fn validate_token(&self, token: &str) -> Option<Grant>;
     fn revoke_worker(&self, worker_id: &str);
     fn forget_calls(&self, worker_id: &str);
+    /// ORCH-753 `gateway.looks_reset(worker_id)`: the run's memory was compacted; its next looks are sent whole.
+    fn looks_reset(&self, _worker_id: &str) {}
     fn calls_refused(&self, watch_id: &str) -> u64;
     /// ORCH-691 `gateway.stuck(watch_id)`: the guard's stop for this run in plain words, once; None while it may
     /// go on.

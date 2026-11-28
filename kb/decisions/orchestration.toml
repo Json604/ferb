@@ -2866,3 +2866,24 @@ words_source = "Owner 2026-11-28, to the sentence shown to him after a plan that
 rule = "waits.rs's repair note for a wait on an event FERB never publishes ends with that sentence, word for word."
 paths = ["engine/crates/ferb-orchestrator/src/waits.rs"]
 untestable = "Exact model-facing wording is not tested (TEST-500); the note's start and event list are."
+
+
+[ORCH-752]
+title = "Every tool outside a worker's core is listed skill-style; the core is picked at the task's start"
+by = "owner"
+date = 2026-11-28
+status = "active"
+words = "why not write every short description like there is in a skill file??? and tools to call etcetc?? so they knwo what ll is there an what do they wanna use?? / sounds better. continue"
+words_source = "Owner 2026-11-28 on ORCH-719's tool core (T-1334), shown: one-liners saying what and when, the full core kept, the core chosen at the start from the worker type and what similar tasks used."
+rule = "Refines ORCH-719 item 3. Each tool outside the full core is listed by name and one line saying what it does and when to use it, like a skill's description; tools.find gives the full one. The core (at most 25) is chosen when the task's run starts, from its worker type and the tools similar earlier tasks used, and never changes during the run."
+why = "The model chooses tools from the short lines, so they say when; a task gets the tools it will need in full without a lookup turn."
+
+[ORCH-753]
+title = "A repeated look reaches the worker as what changed; the record keeps it whole"
+by = "agent"
+date = 2026-11-28
+status = "active"
+rule = "For ORCH-719 item 2. Each look's span keeps it whole. Per model run the gateway keeps the last look at each place the run can rebuild (a tab at its URL without fragment; a Mac window at offset 0) and sends it whole on a first look there, when over half its elements (content without id or position) or text lines changed, every 6th look in a row, after model.compacted and on whole: true; else the page facts and what changed. An element is left out only when the hand carried its earlier id; browser and Mac snapshots now carry ids."
+why = "Replay of the owner's November runs (205 tasks, read only): looks carried through later calls shrink 32% (browser) and 29% (Mac), 30% and 25% as built, and every look rebuilds. Matching with position fields made about 40% of repeated looks over half changed; 457 of 783 looks were a page's first."
+evidence = "ferb-gateway tests/look_view.rs (through the real gateway, nothing lost), ferb-browser tests/carried_ids.rs, ferb-mac-hands element_actions.rs and carried_tests, ferb-worker close_after.rs; the catalog changes are named in engine/fixtures/catalog/tool_changes.json."
+paths = ["engine/crates/ferb-gateway/src/look_view.rs", "engine/crates/ferb-gateway/src/gateway.rs", "engine/crates/ferb-browser/src/tools.rs", "engine/crates/ferb-browser/src/capture.rs", "engine/crates/ferb-mac-hands/src/driver/mod.rs", "engine/crates/ferb-worker/src/worker.rs", "engine/fixtures/catalog/tool_changes.json"]

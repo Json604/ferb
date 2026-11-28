@@ -1569,7 +1569,16 @@ impl Tools {
             "snapshot" => {
                 let a: args::Tab = parse(args)?;
                 let tab = self.owned(&a.tab, ctx)?;
+                // ORCH-753: the earlier ids of the elements this snapshot finds again keep working (HAND-488's
+                // carry, as the screenshot's own snapshot does), and the gateway is told which
+                let earlier = d
+                    .tab(&tab.tab_id)
+                    .map(|b| (b.snap_gen, b.snap_nav, b.elements.clone()));
                 let snap = d.snapshot(&tab).await?;
+                if let Some((gen, nav, old)) = earlier {
+                    d.carry(&tab.tab_id, gen, nav, &old);
+                }
+                let carried = d.carried_ids(&tab.tab_id);
                 let mut sources = vec![web(Some(snap.url.clone()))];
                 if owner {
                     sources.push((
@@ -1587,6 +1596,7 @@ impl Tools {
                 sources.extend(more);
                 Ok(ToolResult {
                     timing: d.timing(&tab)?,
+                    carried: Some(carried),
                     ..result(out, sources)
                 })
             }

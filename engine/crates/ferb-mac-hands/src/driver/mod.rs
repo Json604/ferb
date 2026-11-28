@@ -537,12 +537,56 @@ struct AppState {
     tree: Option<AxTree>,
     tree_at: f64,
     window_id: Option<Value>,
+    /// ORCH-753: the earlier generations' ids that name a node of this one ({earlier id: id now}).
+    carried: std::collections::BTreeMap<String, String>,
 }
 
 impl AppState {
     fn node(&self, id: &str) -> Option<&AxNode> {
         self.nodes.iter().find(|(k, _)| k == id).map(|(_, n)| n)
     }
+
+    /// The node an id of the latest snapshot names, or an earlier id carried into it (ORCH-753).
+    fn current(&self, id: &str) -> Option<&AxNode> {
+        if id.starts_with(&format!("s{}e", self.gen)) {
+            self.node(id)
+        } else {
+            self.carried.get(id).and_then(|now| self.node(now))
+        }
+    }
+}
+
+/// ORCH-753: a new snapshot of the same window keeps the earlier ids of the nodes it finds again: an earlier node and
+/// a new one with the same stable identity (HAND-220: path, role, subrole, label, and the index of an unnamed one),
+/// when that identity names one node in each; an id the earlier snapshot had carried follows its node.
+fn carried_nodes(
+    old: &[(String, AxNode)],
+    old_carried: &std::collections::BTreeMap<String, String>,
+    new: &[(String, AxNode)],
+) -> std::collections::BTreeMap<String, String> {
+    let key = |n: &AxNode| ferb_py::json::dumps(&Value::Object(n.identity()));
+    let unique = |nodes: &[(String, AxNode)]| {
+        let mut by: HashMap<String, Option<String>> = HashMap::new();
+        for (id, n) in nodes {
+            by.entry(key(n))
+                .and_modify(|seen| *seen = None)
+                .or_insert_with(|| Some(id.clone()));
+        }
+        by
+    };
+    let (was, now) = (unique(old), unique(new));
+    let mut found: HashMap<String, String> = HashMap::new();
+    for (k, id) in &was {
+        if let (Some(id), Some(Some(to))) = (id, now.get(k)) {
+            found.insert(id.clone(), to.clone());
+        }
+    }
+    let mut out: std::collections::BTreeMap<String, String> = old_carried
+        .iter()
+        .filter_map(|(earlier, mid)| found.get(mid).map(|to| (earlier.clone(), to.clone())))
+        .collect();
+    out.extend(found);
+    out
 }
 
 #[derive(Debug, Clone)]
@@ -1330,6 +1374,19 @@ substituted or brought forward",
         Ok((a, out))
     }
 
+    /// ORCH-753: the earlier ids this app's latest snapshot carried, each with the id it now names.
+    pub fn carried_ids(&self, bundle_id: &str) -> Map<String, Value> {
+        let st = self.state.lock().expect("lock");
+        st.get(bundle_id)
+            .map(|s| {
+                s.carried
+                    .iter()
+                    .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// The snapshot's listing of a walk (driver.py:659's second half): the walk's nodes become this app's element ids
     /// (a new generation), and the result the worker reads. `keep_window_id`: the walk was of something that isn't a
     /// window (an open menu, HAND-552), so the snapshot's window stays the one read before.
@@ -1347,6 +1404,7 @@ substituted or brought forward",
         let mut st = self.state.lock().expect("lock");
         let s = st.entry(a.bundle_id.clone()).or_default();
         s.gen += 1;
+        let old_window = s.window_id.clone();
         let mut nodes = tree.nodes.clone();
         if let Some(sn) = subtree_node {
             for n in nodes.iter_mut() {
@@ -1365,11 +1423,21 @@ substituted or brought forward",
                 .map(|w| w.get("id").cloned().unwrap_or(Value::Null));
         }
         let gen = s.gen;
+        let old_nodes = std::mem::take(&mut s.nodes);
+        let old_carried = std::mem::take(&mut s.carried);
         s.nodes = nodes
             .into_iter()
             .enumerate()
             .map(|(i, n)| (format!("s{gen}e{}", i + 1), n))
             .collect();
+        // ORCH-753: a snapshot of the same window (not a subtree, not a menu) keeps the ids of the nodes it finds again
+        if subtree_node.is_none()
+            && !keep_window_id
+            && old_window.is_some()
+            && old_window == s.window_id
+        {
+            s.carried = carried_nodes(&old_nodes, &old_carried, &s.nodes);
+        }
         let mut els = vec![];
         let mut recent: Vec<String> = vec![];
         let (mut repeated, mut unnamed, mut generic_dropped) = (0u32, 0u32, 0u32);
@@ -1514,12 +1582,8 @@ substituted or brought forward",
     pub fn node(&self, bundle_id: &str, element: &str) -> Result<AxNode> {
         let st = self.state.lock().expect("lock");
         let s = st.get(bundle_id);
-        let n = s.and_then(|s| s.node(element));
-        let prefix = s
-            .map(|s| format!("s{}e", s.gen))
-            .unwrap_or_else(|| "-".into());
-        match n {
-            Some(n) if element.starts_with(&prefix) => Ok(n.clone()),
+        match s.and_then(|s| s.current(element)) {
+            Some(n) => Ok(n.clone()),
             _ => stale(format!(
                 "element {element} is from an older snapshot of this app; take a new one"
             )),
@@ -1530,10 +1594,7 @@ substituted or brought forward",
     pub fn element_identity(&self, bundle_id: &str, element: &str) -> Option<Map<String, Value>> {
         let st = self.state.lock().expect("lock");
         let s = st.get(bundle_id)?;
-        let n = s.node(element)?;
-        if !element.starts_with(&format!("s{}e", s.gen)) {
-            return None;
-        }
+        let n = s.current(element)?;
         let mut out = Map::new();
         out.insert("window".into(), s.window_id.clone().unwrap_or(Value::Null));
         out.extend(n.identity());
@@ -2833,3 +2894,59 @@ pub fn file_facts(path: &str) -> (String, String, String) {
 mod act;
 pub use act::{advertised, PERFORM_NEEDS_NAME};
 mod terminal;
+
+#[cfg(test)]
+mod carried_tests {
+    use super::*;
+
+    fn node(path: &str, label: &str) -> AxNode {
+        let mut n = AxNode::new(
+            El::new(()),
+            "button",
+            label,
+            None,
+            (0.0, 0.0, 1.0, 1.0),
+            false,
+            true,
+        );
+        n.ax_role = "AXButton".into();
+        n.path = vec![path.into()];
+        n
+    }
+
+    // decision: ORCH-753
+    #[test]
+    fn only_a_node_found_again_alone_keeps_its_id() {
+        let old = vec![
+            ("s1e1".to_string(), node("0", "Send")),
+            ("s1e2".to_string(), node("1", "Reply")),
+            ("s1e3".to_string(), node("2", "Archive")),
+            ("s1e4".to_string(), node("3", "Delete")),
+        ];
+        let new = vec![
+            // Send found again; Reply's label changed (another node); Archive twice (not one node: neither carries)
+            ("s2e1".to_string(), node("0", "Send")),
+            ("s2e2".to_string(), node("1", "Reply all")),
+            ("s2e3".to_string(), node("2", "Archive")),
+            ("s2e4".to_string(), node("2", "Archive")),
+            ("s2e5".to_string(), node("3", "Delete")),
+        ];
+        let earlier: std::collections::BTreeMap<String, String> = [
+            ("s0e9".to_string(), "s1e4".to_string()),
+            ("s0e8".to_string(), "s1e2".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        let got = carried_nodes(&old, &earlier, &new);
+        let want: std::collections::BTreeMap<String, String> = [
+            ("s1e1", "s2e1"),
+            ("s1e4", "s2e5"),
+            // an id carried before follows its node on; one whose node went is dropped
+            ("s0e9", "s2e5"),
+        ]
+        .into_iter()
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .collect();
+        assert_eq!(got, want);
+    }
+}

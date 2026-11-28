@@ -147,7 +147,7 @@ fn every_tool_row_is_python_s() {
         // the recorded row
         assert_eq!(
             ferb_py::json::dumps(&schema),
-            catalog::apply_changes(&ferb_py::json::dumps(&t["input_schema"])),
+            catalog::apply_changes_for(name, &ferb_py::json::dumps(&t["input_schema"])),
             "{name}"
         );
         let forms = &t["input_schema_forms"];
@@ -159,7 +159,7 @@ fn every_tool_row_is_python_s() {
         );
         assert_eq!(
             tool.description(&Live::default()),
-            catalog::apply_changes(t["description"].as_str().unwrap())
+            catalog::apply_changes_for(name, t["description"].as_str().unwrap())
         );
         assert_eq!(
             ferb_gateway::listing::acts(tool.as_ref()),
@@ -340,6 +340,7 @@ fn descriptions_that_read_live_facts_are_composed_as_python_does() {
 // decision: HAND-676
 // decision: HAND-681
 // decision: HAND-724
+// decision: ORCH-753
 #[test]
 fn the_deliberate_changes_are_the_only_ones() {
     let raw = catalog::catalog().raw();
@@ -363,6 +364,12 @@ fn the_deliberate_changes_are_the_only_ones() {
             ("HAND-724", "ferb_browser.close", "input_schema"),
             ("HAND-724", "browser.close", "description"),
             ("HAND-724", "ferb_browser.close", "description"),
+            ("ORCH-753", "browser.snapshot", "input_schema"),
+            ("ORCH-753", "browser.snapshot", "description"),
+            ("ORCH-753", "ferb_browser.snapshot", "input_schema"),
+            ("ORCH-753", "ferb_browser.snapshot", "description"),
+            ("ORCH-753", "mac.snapshot", "input_schema"),
+            ("ORCH-753", "mac.snapshot", "description"),
         ]
     );
     for c in c.iter().filter(|c| c.part != "validation") {

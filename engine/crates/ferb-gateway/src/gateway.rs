@@ -421,6 +421,8 @@ struct Inner {
     refusals: HashMap<String, Vec<RefusalAt>>,
     /// GATE-593: the owner's "Send to every site in this task" answers and the sites sent to under them, per tree.
     file_grants: crate::file_grants::FileGrants,
+    /// ORCH-753: per model run, the last look at each place it can rebuild (the what-changed view).
+    looks: crate::look_view::Looks,
 }
 
 /// `refused_fills.Refusal`: one field's refusals in a task tree.
@@ -1445,6 +1447,11 @@ impl Gateway {
         lock(&self.inner).steps.keep_trying(task_id);
     }
 
+    /// ORCH-753: the run's memory was compacted (its `model.compacted`): its next look at every place is sent whole.
+    pub fn looks_reset(&self, worker_id: &str) {
+        lock(&self.inner).looks.forget(worker_id);
+    }
+
     /// `forget_calls(worker)`: a run ended (its token revoked).
     pub fn forget_calls(&self, worker_id: &str) {
         let mut i = lock(&self.inner);
@@ -1453,6 +1460,7 @@ impl Gateway {
         i.refused_over.remove(worker_id);
         i.last_act.remove(worker_id);
         i.lookup_answers.retain(|k, _| k.0 != worker_id);
+        i.looks.forget(worker_id);
         // fixed against Python: a call of this ended attempt still queued behind another call's question would
         // otherwise ask or act, for nobody, once that question is answered
         for (_, w, c) in &i.queued {
@@ -6909,6 +6917,23 @@ impl Gateway {
             },
         );
         let footer = footer_origins(&out.result.read_sources, &origins);
+        // ORCH-753: the record above keeps the look whole; a look the run can rebuild is sent as what changed
+        let content = if out.result.is_error {
+            content
+        } else {
+            let look = crate::look_view::Look {
+                tool: &name,
+                args: &c.arguments,
+                content: &content,
+                carried: out.result.carried.as_ref(),
+                span_id: &span.id,
+            };
+            let sent = lock(&self.inner).looks.view(&c.grant.worker_id, &look);
+            match sent {
+                crate::look_view::Sent::Changed(view) => view,
+                _ => content,
+            }
+        };
         let mut reply = self.reply(
             Some(&c.rec),
             content,
