@@ -316,3 +316,13 @@ words_source = "Owner 2026-11-26, told that a phone message gets a screenshot of
 rule = "When a message was sent from a paired phone, the planner and its workers get the Mac's front window (app, title) but no screenshot, and the block says no picture was attached because the message came from the phone; a Mac message read in the same turn keeps its picture. The capture still takes the picture locally until its seam can skip it."
 why = "He isn't looking at the Mac when he writes from the phone; the picture showed an unrelated window and cost about 1,600 tokens and 0.35 s a message."
 paths = ["engine/crates/ferb-supervisor/src/flow/turn.rs"]
+
+[SENSE-433]
+title = "A phone message's capture at send never takes the picture"
+by = "agent"
+date = 2026-11-28
+status = "active"
+rule = "For SENSE-432 (its last sentence's seam). The supervisor asks the capture at send for each message with picture false when it was sent from a paired phone (front_window_capture(request_id, picture)); ferbd's capture then refuses the window's shot with the phone's reason (words::PHONE_NO_PICTURE), so no screenshot is taken, redacted or kept as evidence, and the window's facts (app, title, tab) still go. A Mac message read in the same turn is captured with its picture."
+why = "The picture was taken and kept on the Mac for every phone message although no model was given it."
+evidence = "ferb-supervisor tests/phone_no_picture.rs (the seam asked with picture false for a phone message and true for a Mac one, also read together)."
+paths = ["engine/crates/ferb-supervisor/src/flow/turn.rs", "engine/crates/ferb-supervisor/src/flow/mod.rs", "engine/crates/ferbd/src/compose/front.rs"]

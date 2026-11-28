@@ -843,31 +843,13 @@ why = "ORCH-719 (owner 2026-11-25); kb/plans/context.md. Also step 8 of kb/plans
 decisions = ["ORCH-719", "ORCH-726", "ORCH-727"]
 after = ["T-1336"]
 
-[T-1338]
-title = "Front door step 1: stopwatches (Claude and API timers, time to first word, the relay's tool record)"
-area = "runtimes"
-kind = "build"
-status = "open"
-why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 1. Done: the real clock (254), the relay record (255), first_text_ms (256). Left: ferb stats and ferb trace show the first-word time and the relay steps."
-decisions = ["ORCH-726"]
-
 [T-1339]
 title = "Front door step 2: use the answer on arrival, close after; fix Claude's doubled answer"
 area = "runtimes"
 kind = "build"
 status = "open"
-why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 2. Done: the answer before the close (257). Left: the fix for Claude's doubled answer, once the relay record (RUN-479) names its cause on the installed build."
+why = "ORCH-726, plan step 2. Done: the answer before the close (257). Left: the doubled-answer fix once the relay record names its cause; none recorded since it went in (journal 289: 5 Claude form calls, one answer each). ferb stats' relay line shows it."
 decisions = ["ORCH-726"]
-after = ["T-1338"]
-
-[T-1340]
-title = "Front door step 3: notices, the pinned question, time since last message, phone picture, imports"
-area = "orchestration"
-kind = "build"
-status = "open"
-why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 3. Done: 3a-3e (256, 258). Left: the phone capture skips the picture at its seam (ferbd front_window_capture); LIVE-875 rewritten for ORCH-729; the Memory page hides Always on for an imported line."
-decisions = ["ORCH-726"]
-after = ["T-1339"]
 
 [T-1341]
 title = "Front door step 4: every runtime streams text, reports a tool's start, ends on a final call"
@@ -876,25 +858,25 @@ kind = "build"
 status = "open"
 why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 4. Done in journal 259-261 (RUN-480, ORCH-733, ORCH-734). Left: measured live once step 5 uses plain mode."
 decisions = ["ORCH-726"]
-after = ["T-1340"]
+after = ["T-1339"]
 
 [T-1342]
 title = "Front door step 5: concierge.md and the typed tools, replayed, then the old planner path removed"
 area = "orchestration"
 kind = "build"
 status = "open"
-why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 5. The prompt text is shown to the owner before it lands; the plan's targets table is the acceptance."
+why = "ORCH-726, plan step 5. The front door decides every turn (262-270). Left: removing the old planner path, which stays while it writes complex hand-offs (ORCH-743, until T-1344) with ORCH-740's fallback; then the switch serves only the Python replays (journal 289)."
 decisions = ["ORCH-726"]
-after = ["T-1341"]
+after = ["T-1341", "T-1344"]
 
 [T-1344]
 title = "Front door step 7: complex work to the task architect; simple work starts its worker at once"
 area = "orchestration"
 kind = "build"
 status = "open"
-why = "ORCH-726 (owner 2026-11-26); kb/plans/front-door.md, step 7. The architect keeps today's plan rules and validation."
+why = "ORCH-726, plan step 7. Done: simple hand-offs start at once (ORCH-749). Left: the architect's own instructions (plan half of supervisor.md and the form; drafted in journal 289, owner's OK first) and running it off the owner's path (now 6-89 s inside the turn)."
 decisions = ["ORCH-726"]
-after = ["T-1342"]
+after = ["T-1341"]
 
 [T-1346]
 title = "Question cards: the task's reason first; the \"FERB treats ... as yours\" line behind an info icon"

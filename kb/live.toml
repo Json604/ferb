@@ -3938,12 +3938,12 @@ decisions = ["HAND-449"]
 sitting = "after this change is installed"
 
 [LIVE-875]
-title = "A new request typed while FERB's question is open runs on its own; the question waits"
+title = "A new request typed while FERB's question is open runs on its own; the question lapses"
 area = "orchestration"
 surface = "FERB.app with this build, Codex as the AI; one chat"
-request = "Ask FERB to order something it must ask a question about (say cables of an unstated length on Amazon). Without answering, ask it something unrelated (the weather in a city). Then answer the first question."
-pass = "The unrelated request is answered on its own; its trace's task payload holds none of the first request's words. The first question stays open; your later answer continues the order (journal: question.kept, then question.answered with `by`)."
-decisions = ["ORCH-586"]
+request = "Ask FERB to order something it must ask a question about (say cables of an unstated length on Amazon). Without answering, ask it something unrelated (the weather in a city). Then send one more message about anything else."
+pass = "The unrelated request is answered on its own; its trace's task payload holds none of the first request's words. The first question is cleared by that message and is never shown above a later one: the third message's turn carries no open question (journal: question.lapsed with `by` the weather request's id, no question.kept). The first request stays in the chat like any message."
+decisions = ["ORCH-729"]
 sitting = "after this change is installed"
 
 [LIVE-877]

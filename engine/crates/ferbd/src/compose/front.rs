@@ -30,6 +30,8 @@ struct Sources {
     exclusions: ferb_sense::exclusions::Exclusions,
     daemon_pid: i64,
     tokens: Arc<ferb_rpc::RunTokens>,
+    /// False for a message sent from the phone (SENSE-432): no picture is taken.
+    picture: bool,
 }
 
 impl fw::Sources for Sources {
@@ -66,7 +68,14 @@ impl fw::Sources for Sources {
     fn shoot<'a>(&'a self, w: &'a Window) -> BoxFuture<'a, Result<Shot, ShotError>> {
         let mac = self.parts.mac().map(|m| m.tools.clone());
         let (pid, id) = (w.pid, w.id);
+        let picture = self.picture;
         Box::pin(async move {
+            // decision: SENSE-432 — a message from the phone: the window's facts only, its picture never taken
+            if !picture {
+                return Err(ShotError::Refused(
+                    ferb_supervisor::words::PHONE_NO_PICTURE.into(),
+                ));
+            }
             let Some(tools) = mac else {
                 return Err(ShotError::Refused(
                     "FERB has no Mac driver to capture windows with".into(),
@@ -159,11 +168,13 @@ fn hand_kind(e: &ferb_mac_hands::error::HandError) -> String {
 
 /// `_front_window(request_id)`: the window the planner is given, the redacted picture as the planner's and the worker's
 /// image; None when the Mac's parts are off, sensing is paused, nothing but FERB is in front, or the capture failed
-/// (journaled).
+/// (journaled). `picture` false (a message from the phone, SENSE-432): the window's facts with no picture: the
+/// screenshot is never taken, redacted or kept as evidence, and the window says why.
 pub async fn at_send(
     parts: &Parts,
     tokens: &Arc<ferb_rpc::RunTokens>,
     request_id: &str,
+    picture: bool,
 ) -> Option<FrontCapture> {
     parts.mac()?;
     if parts.home().join("PAUSED").exists() {
@@ -194,6 +205,7 @@ pub async fn at_send(
         exclusions,
         daemon_pid: i64::from(std::process::id()),
         tokens: tokens.clone(),
+        picture,
     });
     let stage = Arc::new(Mutex::new(Vec::<String>::new()));
     // the planner stops waiting by dropping this future (DMN-520): the step the capture was on is journaled

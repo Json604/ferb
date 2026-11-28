@@ -36,7 +36,13 @@ const ROLES: [(&str, &str, bool, &str, usize); 3] = [
     ),
 ];
 
+/// The front door's ceiling (ORCH-754): its size measured on 2026-11-28 plus about 5%, a guard like the others.
+/// Measured: concierge.md with the shared rules 8,376 + 15 tools (the nine lookups and the six front tools) 31,090 =
+/// 39,466.
+const FRONT_DOOR_CEILING: usize = 41_500;
+
 // decision: ORCH-721
+// decision: ORCH-754
 #[test]
 fn each_roles_fixed_part_stays_under_its_ceiling() {
     let catalog = fixture("catalog/tools.json");
@@ -63,6 +69,57 @@ fn each_roles_fixed_part_stays_under_its_ceiling() {
         ));
         if total > ceiling {
             over.push(format!("{role}: {total} chars, ceiling {ceiling}"));
+        }
+    }
+    // ORCH-754: the front door's fixed part (front door step 1): the shared rules with concierge.md, and the lookups
+    // with the six front tools on its own grant (scopes add chat:act; it may do more than observe), as front_decide
+    // and lookup_grant build them; not in the frozen catalog, so the grant is built from code's constants (the
+    // planner's call limit from the catalog)
+    {
+        let instructions = system(
+            &prompts,
+            Some("concierge.md"),
+            false,
+            &[],
+            &SystemInputs::default(),
+        )
+        .unwrap();
+        let planner = &catalog["listings"]["planner_lookups"]["grant"];
+        // the lookups as the planner's code lists them (PLANNER_TOOLS: the frozen catalog's grant predates three)
+        let tools: Vec<Value> = ferb_supervisor::words::PLANNER_TOOLS
+            .iter()
+            .chain(ferb_supervisor::words::FRONT_TOOLS.iter())
+            .map(|t| json!(t))
+            .collect();
+        let scopes: Vec<Value> = ferb_supervisor::words::PLANNER_SCOPES
+            .iter()
+            .chain(ferb_supervisor::words::FRONT_SCOPES.iter())
+            .map(|t| json!(t))
+            .collect();
+        let listing: Value = run.control(
+            json!({"do": "listing", "identity": "owner", "scopes": scopes, "observe_only": false,
+            "tools": tools, "max_calls": planner["max_calls"]}),
+        );
+        let names: Vec<&str> = listing
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        for front in ferb_supervisor::words::FRONT_TOOLS {
+            assert!(names.contains(&front), "{front} offered: {names:?}");
+        }
+        let schema_chars = ferb_py::json::dumps(&listing).chars().count();
+        let total = instructions.chars().count() + schema_chars;
+        measured.push(format!(
+            "front door: instructions {} + {} tools {schema_chars} = {total}",
+            instructions.chars().count(),
+            names.len()
+        ));
+        if total > FRONT_DOOR_CEILING {
+            over.push(format!(
+                "front door: {total} chars, ceiling {FRONT_DOOR_CEILING}"
+            ));
         }
     }
     eprintln!("{}", measured.join("\n"));

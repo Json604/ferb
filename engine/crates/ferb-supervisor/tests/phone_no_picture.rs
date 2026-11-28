@@ -95,17 +95,31 @@ fn send(w: &mut World, messages: &[(&str, &str)]) -> Vec<(Vec<String>, u64)> {
         .collect()
 }
 
+/// Whether each capture at send was asked to take its picture, in the order asked.
+fn pictures(w: &World) -> Vec<bool> {
+    w.daemon
+        .captures_asked
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, p)| *p)
+        .collect()
+}
+
 fn windows(parts: &[String]) -> Vec<&String> {
     parts.iter().filter(|p| p.contains(WINDOW)).collect()
 }
 
 // decision: SENSE-432
+// decision: SENSE-433
 #[test]
 fn a_message_from_the_phone_carries_the_window_but_no_picture() {
     let mut w = world();
     let calls = send(&mut w, &[("phone:e0e0e0", "what's on my screen?")]);
     let (parts, images) = calls.last().expect("a planner call");
     assert_eq!(*images, 0, "no picture of the Mac's screen");
+    // SENSE-433: the capture is asked not to take the picture at all (no screenshot taken or kept for it)
+    assert_eq!(pictures(&w), [false]);
     let shown = windows(parts);
     assert_eq!(shown.len(), 1, "{parts:#?}");
     assert!(
@@ -128,6 +142,7 @@ fn a_message_from_the_mac_keeps_its_picture() {
     let (parts, images) = calls.last().expect("a planner call");
     assert_eq!(*images, 1);
     assert!(windows(parts)[0].contains("attached to this request as an image"));
+    assert_eq!(pictures(&w), [true]);
 }
 
 // decision: SENSE-432
@@ -156,6 +171,11 @@ fn messages_read_together_keep_the_mac_ones_picture() {
         n
     };
     assert_eq!(together, 1, "{parts:#?}");
+    assert_eq!(
+        pictures(&w),
+        [true, false],
+        "the Mac message's picture is taken, the phone's isn't"
+    );
     assert_eq!(*images, 1, "{parts:#?}");
     let shown = windows(parts);
     assert_eq!(shown.len(), 1, "{parts:#?}");

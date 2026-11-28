@@ -343,26 +343,18 @@ pub trait Daemon: Send + Sync {
     fn front_window<'a>(&'a self, request_id: &'a str) -> BoxFuture<'a, Option<FrontSeen>>;
     /// The front window captured at send (L12), awaited (the planner waits at most FRONT_WINDOW_WAIT_S for it,
     /// DMN-520): the window with its redacted screenshot, None when nothing was captured, Err(the exception's class)
-    /// when the capture failed. By default the earlier [`Daemon::front_window`]'s answer.
+    /// when the capture failed. `picture` false (SENSE-432: a message sent from the phone): the window's facts only,
+    /// no picture is taken, its withheld reason said. By default the earlier [`Daemon::front_window`]'s answer.
     fn front_window_capture<'a>(
         &'a self,
         request_id: &'a str,
+        picture: bool,
     ) -> BoxFuture<'a, Result<Option<FrontCapture>, String>> {
         Box::pin(async move {
-            Ok(self.front_window(request_id).await.map(|f| FrontCapture {
-                window: crate::planner::FrontWindow {
-                    facts: f.facts,
-                    image_ref: f
-                        .image
-                        .as_ref()
-                        .map(|i| i.reference.clone())
-                        .unwrap_or_default(),
-                    withheld: String::new(),
-                    masking: String::new(),
-                    origin: f.origin,
-                },
-                image: f.image,
-            }))
+            Ok(self
+                .front_window(request_id)
+                .await
+                .map(|f| FrontCapture::of(f, picture)))
         })
     }
     /// areas/chat.py:355: `chat.send` captures the owner's front window as each message arrives (`self.front_window
@@ -696,6 +688,31 @@ pub struct FrontSeen {
 pub struct FrontCapture {
     pub window: crate::planner::FrontWindow,
     pub image: Option<ModelImage>,
+}
+
+impl FrontCapture {
+    /// A capture from an earlier [`FrontSeen`]: as it was, or (`picture` false, SENSE-432) its facts with no picture
+    /// and the phone's withheld reason.
+    pub fn of(f: FrontSeen, picture: bool) -> FrontCapture {
+        let image = f.image.filter(|_| picture);
+        FrontCapture {
+            window: crate::planner::FrontWindow {
+                facts: f.facts,
+                image_ref: image
+                    .as_ref()
+                    .map(|i| i.reference.clone())
+                    .unwrap_or_default(),
+                withheld: if picture {
+                    String::new()
+                } else {
+                    crate::words::PHONE_NO_PICTURE.to_string()
+                },
+                masking: String::new(),
+                origin: f.origin,
+            },
+            image,
+        }
+    }
 }
 
 /// `_screen_at_send`'s answer for one message (supervisor.py:2671): its front window (None: nothing was captured,

@@ -846,7 +846,7 @@ pub fn item_dict(
     };
     let in_profile = st.profile.ids()?.contains(&it.id);
     let iso = |t: &ferb_learning::DateTime| t.isoformat(ferb_py::time::Timespec::Auto);
-    Ok(json!({
+    let mut row = json!({
         "id": it.id, "kind": it.kind, "subject": it.subject, "key": it.key, "content": it.content,
         "origin": it.origin, "label": origin_label(&it.origin), "about": it.about, "status": it.status,
         "valid_from": iso(&it.valid_from),
@@ -857,7 +857,13 @@ pub fn item_dict(
         "set_aside": it.set_aside,
         "sources": it.source_ids, "evidence_days": st.memory.evidence_days(&it.id)?, "conflict": conflict,
         "imported_from": imported,
-    }))
+    });
+    // decision: MEM-489 — an imported line is never always on: the Memory page offers no Always on for it. Only such a
+    // line carries the key, so every other row keeps its bytes.
+    if st.profile.never_always_on(it)? {
+        row["can_always_on"] = json!(false);
+    }
+    Ok(row)
 }
 
 // ---------- the handlers ----------

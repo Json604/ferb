@@ -478,6 +478,8 @@ pub struct TestDaemon {
     pub meanings: Mutex<String>,
     pub fresh_reads: Mutex<Vec<bool>>,
     pub capture: Mutex<Option<FrontSeen>>,
+    /// SENSE-432: each capture asked for at send, with whether its picture was to be taken.
+    pub captures_asked: Mutex<Vec<(String, bool)>>,
     /// The scenario's clock: a test's own script event `{"kind": "advance", "seconds": n}` moves it (ORCH-732).
     pub clock: Mutex<Option<Arc<FakeClock>>>,
     /// RUN-474: a test's runtimes that can run here (`worker_types`; None: default, codex and claude), and each role
@@ -1179,6 +1181,20 @@ impl Daemon for TestDaemon {
     }
     fn front_window<'a>(&'a self, _request_id: &'a str) -> BoxFuture<'a, Option<FrontSeen>> {
         Box::pin(async { self.capture.lock().unwrap().clone() })
+    }
+    fn front_window_capture<'a>(
+        &'a self,
+        request_id: &'a str,
+        picture: bool,
+    ) -> BoxFuture<'a, Result<Option<ferb_supervisor::flow::FrontCapture>, String>> {
+        self.captures_asked
+            .lock()
+            .unwrap()
+            .push((request_id.to_string(), picture));
+        let seen = self.capture.lock().unwrap().clone();
+        Box::pin(
+            async move { Ok(seen.map(|f| ferb_supervisor::flow::FrontCapture::of(f, picture))) },
+        )
     }
     fn captures_at_send(&self) -> bool {
         self.capture.lock().unwrap().is_some()
@@ -2196,6 +2212,7 @@ pub fn world_with(name: &str, edit: impl FnOnce(&mut Vec<Value>)) -> World {
         meanings: Mutex::default(),
         fresh_reads: Mutex::default(),
         capture: Mutex::default(),
+        captures_asked: Mutex::default(),
         clock: Mutex::default(),
         types: Mutex::default(),
         switched: Mutex::default(),

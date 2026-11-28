@@ -1603,7 +1603,7 @@ impl Daemon for SupDaemon {
     /// arrived, waited for at most `FRONT_WINDOW_WAIT_S`.
     fn front_window<'a>(&'a self, request_id: &'a str) -> BoxFuture<'a, Option<FrontSeen>> {
         Box::pin(async move {
-            super::front::at_send(&self.tools, &self.tokens, request_id)
+            super::front::at_send(&self.tools, &self.tokens, request_id, true)
                 .await
                 .map(|c| FrontSeen {
                     facts: c.window.facts,
@@ -1620,13 +1620,14 @@ impl Daemon for SupDaemon {
     fn front_window_capture<'a>(
         &'a self,
         request_id: &'a str,
+        picture: bool,
     ) -> BoxFuture<'a, Result<Option<ferb_supervisor::flow::FrontCapture>, String>> {
         if let Some(recorded) = self.reads.front_capture(request_id) {
             return recorded;
         }
-        Box::pin(
-            async move { Ok(super::front::at_send(&self.tools, &self.tokens, request_id).await) },
-        )
+        Box::pin(async move {
+            Ok(super::front::at_send(&self.tools, &self.tokens, request_id, picture).await)
+        })
     }
     fn make_runtime(
         &self,

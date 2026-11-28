@@ -15441,3 +15441,125 @@ daemon looked a quoted entry up only in the stored chat, so the quote was droppe
 
 **Unverified.** Nothing ran live. One Android full run had 35 unrelated failures that passed alone and on a rerun
 (load).
+
+## 2026-11-28 · 289 · The front door's leftovers: the first word and the relay in stats and trace, no phone picture taken, imported lines offer no Always on, the old path and step 7 checked
+
+**Why (T-1338, T-1339, T-1340, T-1342, T-1344; ORCH-726, kb/plans/front-door.md).** What journals 254-277 left
+of the front door's steps 1, 2, 3, 5 and 7.
+
+**What.**
+- ORCH-755 (step 1, refines ORCH-720): `ferb stats` ends, each only when its records exist in the range, with model
+  call time per role and runtime (each `model.usage` record's own timing; a record whose clock stood still, before
+  journal 254, left out), Claude relay requests per role and runtime (RUN-479: requests, tools called, results and
+  errors, each tool called again in one run and how often after an error result for it, the first byte's median), and
+  the time to the first word per door and runtime (ORCH-732's `first_text_ms`: count, median, 90%, slowest; the
+  runtime from the turn's usage record, else from its `model.close` record). `ferb trace --json` adds
+  `first_text_ms` to a planner turn and `relay_steps` (`relay_steps_dropped`) to a model call when the records hold
+  them; `--full` prints "First word shown … after its intake" under the turn's header and one line per request under
+  its call. Records without them read as before (ferb-trace's parity fixtures unchanged).
+- ORCH-754 (step 1, beside ORCH-721): the fixed-part guard also sums the front door's: the shared rules with
+  concierge.md plus the real program's listing for its grant (the planner's scopes with chat:act, observe_only false,
+  the nine lookups and the six front tools, from code's constants: the frozen catalog's planner grant predates three
+  lookups), ceiling 41,500 = the measured 39,466 characters (concierge.md with the shared rules 8,376 + 15 tools
+  31,090) + about 5%. That is about 10.4k tokens at 3.8 characters a token, over the plan's "at most 8k fixed" (an
+  agent's estimate, correction 2): the tool descriptions are three quarters of it.
+- SENSE-433 (step 3d's seam, for SENSE-432): `Daemon::front_window_capture(request_id, picture)`; the turn passes
+  false for a message from a paired phone, and ferbd's capture (`front::at_send` → `Sources::shoot`) refuses the shot
+  with `PHONE_NO_PICTURE`, so no screenshot is taken, redacted or kept as evidence; the window's facts still go. The
+  trait's default and the stand-ins drop the picture the same way (`FrontCapture::of`).
+- MEM-489 on the Memory page (step 3e): `memory.list`'s rows carry `can_always_on: false` on an imported line alone
+  (every other row keeps its bytes); FERB.app's MemoryRow reads it (`offersAlwaysOn`) and the row shows no Always on
+  for it (one somehow still on keeps Not always on).
+- LIVE-875 rewritten for ORCH-729: the question lapses at the next message that doesn't answer it (journal
+  `question.lapsed`), instead of waiting.
+
+**T-1339: Claude's doubled answer (records read only, `sqlite3 -readonly`, `mode=ro`, and a read-only `.backup` copy
+for `ferb stats`).** Since the relay record went in (first `steps` 2026-11-27 05:29): 47 Claude `model.usage` records
+carry steps; the planner's answer form (`StructuredOutput`) ran on Claude 5 times (11-27 06:43-10:11), each one request
+with one `StructuredOutput` call. No doubled answer is recorded since, so its cause is still unnamed and the task stays
+open. Claude was last used 11-27 13:27 (Codex since). The front door has no answer form, so the doubling can come back
+only on the planner's form (a complex hand-off or ORCH-740's fallback); `ferb stats`' relay line names it then.
+Query: `SELECT u.started_at, json_extract(u.output_json,'$.steps') FROM spans u JOIN spans p ON p.id = u.parent_id
+WHERE u.kind = 'model.usage' AND json_extract(u.input_json,'$.runtime') = 'claude' AND p.kind = 'model.turn' AND
+json_extract(u.output_json,'$.steps') LIKE '%StructuredOutput%'` (5 rows, one call each). The three two-request
+planner rows on 11-26 01:19-01:21 predate the record (no steps). The front door's two- and three-request Claude turns
+(8 of 34) are a side call followed by its text, or a refused hand-off repaired (dispatch called again after an error,
+2 runs): by design, not a doubled answer.
+
+**T-1342: the old planner path (read from the code and the store).** In ferbd the front door is on (`Reads::
+front_door` true). Since it went on (11-27 05:29) every planner turn in his store followed a front-door hand-off in
+the same request (37 of 37): ORCH-743's complex hand-off, the planner writing the task under the ack. No
+`front_door.fallback` was ever journaled (0 rows). The planner path stays as: (1) the complex hand-off's task writer
+(`decide` → `planner_decide(turn, None, cancel)`, turn.rs, ORCH-743/747), until step 7's architect has its own
+instructions; (2) ORCH-740's fallback (`planner_decide(turn, Some(emit), cancel)` after `front_door.fallback`), which
+ORCH-740 says goes with the planner's removal; (3) the main path only where `Daemon::front_door()` is false: the
+trait's default (flow/mod.rs) and ferbd's ScriptReads for the Python-recorded replays (chat_replay, tests/life,
+follow_up_grid) and ferb-supervisor's stand-in tests. Nothing else of the old path remains beside the front door.
+Removing it waits on T-1344, so T-1342 stays open after T-1344 (order changed: T-1344 no longer waits on T-1342).
+
+**T-1344: step 7 against "Step 7 in detail".** Built: `complexity`, the simple fields, code's TaskSpec, `problems()`
+in the call, no planner call for a simple one (ORCH-749, PRM-388); the complex one planned by today's planner under
+the ack with the planning line (ORCH-743, ORCH-747); the tests the plan names (journal 277). Measured in his store
+(hand-off `tool.call` end to the task's first `worker` span): simple 0.22-0.37 s (4 hand-offs, the plan's 1 s target
+met); complex 6.5-89.2 s (13, one never reached a worker). Not built: the architect's own instructions (the plan half
+of supervisor.md and of the answer form; model-facing text, drafted below for the owner, not landed) and the
+architect off the owner's path: it runs inside the turn under the turn's cancel, so a message sent while it plans
+restarts the turn (inferred from turn.rs's `arrive` → `cancel_think` and `decide`, not run). T-1344 stays open.
+
+Draft for the owner (not landed): a new `architect.md` for the complex hand-off's planner call; supervisor.md stays
+for ORCH-740's fallback until the planner goes. Its opening, in place of supervisor.md's lines 1-33 and 53-58:
+
+> You are FERB's task architect. FERB's front door has handed the owner's message off as work, and the owner has
+> already read its line; Layer 6 names the hand-off and its goal. You write that task: its goal, parts, conditions
+> and, when the work has several dependent or independent parts, its plan. You never reply, set reminders,
+> schedules or memory, or stop or change other tasks: the front door did those. Code checks every quote against what
+> the owner typed, works out dates and times, and enforces scopes and confirmations.
+> Read the owner's own messages in Layer 5 for every quote and every detail of the task; the front door's goal
+> orients you and is never the owner's words.
+> Your only tools are read-only lookups (memory, older chat, this chat's earlier tasks, recorded activity, FERB's
+> diagnostics); look something up only when the task depends on it and it isn't in your context.
+> Return kind "task". Return "clarify" with one short question only when a what, who or which the task needs is
+> missing from his messages, the conversation and the records. Leave `text` empty: the owner already read the front
+> door's line.
+
+Kept from supervisor.md as they are: `{capabilities}`, the context paragraph (lines 37-52), "A task (kind "task")"
+(84-150), "Plans" (151-192), "Times" (284-291). Left out: the list of kinds, remember and forget, side_entries,
+existing tasks (control), schedules and reminders, the reply's writing rules (292-301). Its answer form: kind ("task"
+or "clarify"), task and text; the side entries, control and answer_question leave it.
+
+**Found, not fixed (agent findings).**
+- 17 Codex front-door runs ended on their accepted call (14 `chat.dispatch_task`, 3 `chat.ask`, 11-27/28) have no
+  `model.usage` record (a `model.close` with `runtime` codex only): their tokens are missing from `ferb stats`; 15
+  other Codex hand-offs have theirs. RUN-477's close-time usage seems not to arrive after `turn/interrupt` sometimes
+  (inferred; runtimes area, not read further).
+- Side calls (`chat.set_reminder`, `chat.control_task`, `chat.remember`, `chat.schedule`) don't end the run
+  (`ends_on` holds only dispatch and ask), so each costs a second request: on Claude it came 1.4-3.2 s to the first
+  byte after the call (relay steps, 4 runs).
+- The time to the first word on his store, 11-27/28 (`ferb stats --from 2026-11-27 --to 2026-11-28` on the copy):
+  the front door on Codex 76 turns, median 6.52 s, 90% within 11.53 s, slowest 58.45 s; on Claude Code 33, median
+  3.67 s, 90% within 6.71 s; on the Anthropic API 6, median 3.23 s, slowest 19.20 s. The plan's targets (Codex 2 s,
+  Claude 1.5 s) are not met.
+
+**Evidence.** Through ferb-test-guard, `CARGO_TARGET_DIR=engine/target/agents/frontdoor`, `nice -n 10`, temp folders
+only: `cargo test -p ferb-trace -p ferb-supervisor -p ferb-daemon -p ferbd`: 136 test binaries, 770 passed, 0 failed,
+6 ignored (chat_replay, front_door_replay and ferb-trace's parity among them, unchanged); then fixed_part (1) and
+usage_stats (5) again after their last edits: pass. New or extended: ferb-trace `tests/first_word_and_relay.rs` (3),
+ferbd `tests/usage_stats.rs` (3 new), ferbd `tests/fixed_part.rs` (the front door), ferb-supervisor
+`tests/phone_no_picture.rs` (the seam's picture flag in its 3 tests), ferb-daemon `tests/a_memory_inferred_waits.rs`
+(`can_always_on` on every imported row and on none of his own), FERBNotch `MemoryImportRowsTests`
+(`testAnImportedLineOffersNoAlwaysOn`). Shown failing with the change off: the phone flag always true (2 of 3 phone
+tests fail: [true] for [false], [true, true] for [true, false]); `can_always_on` never written (the daemon test
+fails); the fixed part's ceiling at 1 (fails, printing the size). `swift test` (after `source
+scripts/swiftpm-anonymous.sh`): 1000 tests, 9 skipped, 0 failures. `cargo clippy --workspace --all-targets -- -D
+warnings -D clippy::significant_drop_in_scrutinee` clean; `./gate.sh fmt` clean; `git diff --check` clean; `kb gen`,
+`kb check` ok. Not run: the phone crates' clippy and `./gate.sh portable` (the disk had 0.9-10 GB free while other
+agents built; no portable or phone crate was touched). `ferb stats` ran on a read-only `.backup` copy of his store in
+the scratchpad, deleted after.
+
+**Unverified.** Nothing ran live or on an installed build. ferbd's shot refusal for a phone message is read, not run
+(ferbd's stand-ins have no Mac hands, TEST-512); the supervisor's test proves the seam is asked with picture false.
+The architect draft has not been run on a model. The Memory page's hidden button was not looked at in the app
+(APP-567); only its row model is tested.
+
+**kb.** Agent: ORCH-754, ORCH-755, SENSE-433. LIVE-875 rewritten (ORCH-729). T-1338 and T-1340 deleted (T-1341 now
+after T-1339); T-1339, T-1342 and T-1344 stay open with what is left; T-1342 now after T-1344.

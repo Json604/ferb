@@ -387,8 +387,11 @@ struct MemoryPage: View {
                 }
             }
             HStack(spacing: 8) {
-                Button(item.inProfile ? "Not always on" : "Always on") {
-                    Task { await store.setInProfile(item, !item.inProfile) }
+                // MEM-489: an imported line is never always on, so it offers no Always on
+                if item.offersAlwaysOn {
+                    Button(item.inProfile ? "Not always on" : "Always on") {
+                        Task { await store.setInProfile(item, !item.inProfile) }
+                    }
                 }
                 Button("Not right") { Task { await store.retract(item) } }
                 Button("Forget…") {

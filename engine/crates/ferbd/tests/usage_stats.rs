@@ -297,3 +297,167 @@ fn a_chosen_range_reads_only_its_days_and_an_empty_one_prints_nothing() {
         "no usage, no section"
     );
 }
+
+/// Chat turns with their first word (ORCH-732) and records with their own clock and the relay's requests (RUN-479).
+fn timed_home() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let db = ferb_store::Db::open(dir.path().join("ferb.db")).unwrap();
+    db.migrate().unwrap();
+    let c = db.conn();
+    c.execute_batch("PRAGMA foreign_keys=OFF").unwrap();
+    let day = "2026-11-25T10:00:00+05:30";
+    // three front-door turns on Claude, one planner turn on Codex, one turn that never streamed a word
+    let turns: [(&str, bool, Option<i64>, &str); 5] = [
+        ("f1", true, Some(1_500), "claude"),
+        ("f2", true, Some(2_500), "claude"),
+        ("f3", true, Some(9_000), "claude"),
+        ("p1", false, Some(8_000), "codex"),
+        ("p2", false, None, "codex"),
+    ];
+    for (id, front, first, runtime) in turns {
+        let mut timing = json!({"total_ms": 1});
+        if let Some(ms) = first {
+            timing["first_text_ms"] = json!(ms);
+        }
+        span(
+            c,
+            id,
+            None,
+            None,
+            "model.turn",
+            day,
+            json!({"role": "supervisor", "request_id": format!("r-{id}"), "front_door": front}),
+            json!({"timing": timing}),
+        );
+        let mut u = usage(1_000, 0, 0, 0, 1);
+        u["timing"] = json!({"by": "runtime", "ttft_ms": 1_000, "total_ms": 3_000});
+        if runtime == "claude" {
+            u["requests"] = json!(2);
+            u["steps"] = json!([
+                {"called": ["StructuredOutput"], "results": [], "stop": "tool_use", "first_byte_ms": 1_200,
+                 "done_ms": 3_000},
+                {"called": ["StructuredOutput"], "results": [{"tool": "StructuredOutput", "error": id == "f1"}],
+                 "stop": "tool_use", "first_byte_ms": 1_400, "done_ms": 2_000}]);
+        }
+        span(
+            c,
+            &format!("u-{id}"),
+            Some(id),
+            None,
+            "model.usage",
+            day,
+            json!({"runtime": runtime}),
+            u,
+        );
+    }
+    // a front-door run ended on its accepted call whose runtime reported no usage: its runtime from its close record
+    span(
+        c,
+        "f4",
+        None,
+        None,
+        "model.turn",
+        day,
+        json!({"role": "supervisor", "request_id": "r-f4", "front_door": true}),
+        json!({"timing": {"total_ms": 1, "first_text_ms": 4_000}}),
+    );
+    span(
+        c,
+        "close-f4",
+        Some("f4"),
+        None,
+        "model.close",
+        day,
+        json!({"runtime": "codex"}),
+        json!({"close_ms": 30}),
+    );
+    // a record from before journal 254: its clock stood still
+    span(
+        c,
+        "old",
+        None,
+        None,
+        "model.turn",
+        day,
+        json!({"role": "supervisor", "request_id": "r-old"}),
+        json!({}),
+    );
+    let mut u = usage(1_000, 0, 0, 0, 1);
+    u["timing"] =
+        json!({"by": "runtime", "ttft_ms": 0, "generate_ms": 0, "tail_ms": 0, "total_ms": 0});
+    span(
+        c,
+        "u-old",
+        Some("old"),
+        None,
+        "model.usage",
+        day,
+        json!({"runtime": "claude"}),
+        u,
+    );
+    db.close().unwrap();
+    dir
+}
+
+fn after(text: &str, header: &str) -> String {
+    text.split_once(header)
+        .map(|(_, s)| format!("{header}{s}"))
+        .unwrap_or_default()
+}
+
+// decision: ORCH-755
+#[test]
+fn stats_show_each_chat_turns_first_word_per_door_and_runtime() {
+    let dir = timed_home();
+    let mut out = Vec::new();
+    assert_eq!(stats_in(dir.path(), &mut out, 7, None, now()), 0);
+    let got = after(&String::from_utf8(out).unwrap(), "Time to the first word");
+    assert_eq!(
+        got,
+        "\
+Time to the first word in the last 7 day(s) (chat turns, from FERB's intake of the message to the first word shown):
+  front door, claude: 3 turns, median 2.50 s, 90% within 9.00 s, slowest 9.00 s
+  front door, codex: 1 turns, median 4.00 s, 90% within 4.00 s, slowest 4.00 s
+  planner, codex: 1 turns, median 8.00 s, 90% within 8.00 s, slowest 8.00 s
+",
+        "\n{got}"
+    );
+}
+
+// decision: ORCH-755
+#[test]
+fn stats_show_call_times_and_the_relay_requests_per_role_and_runtime() {
+    let dir = timed_home();
+    let mut out = Vec::new();
+    assert_eq!(stats_in(dir.path(), &mut out, 7, None, now()), 0);
+    let text = String::from_utf8(out).unwrap();
+    let got = after(&text, "Model call time");
+    let got = got.split("Time to the first word").next().unwrap();
+    assert_eq!(
+        got,
+        "\
+Model call time by role and runtime (each record's own clock; a record whose clock stood still is left out):
+  planner, claude: 3 records, to the first output median 1.00 s, whole call median 3.00 s
+  planner, codex: 2 records, to the first output median 1.00 s, whole call median 3.00 s
+Claude relay requests by role and runtime (RUN-479: per request the tools called and each result's error flag):
+  planner, claude: 3 records, 6 requests; tools called 6, results 3 (1 errors); called again in one run: StructuredOutput 3 (1 after an error); first byte median 1.40 s
+",
+        "\n{text}"
+    );
+}
+
+// decision: ORCH-755 (the Python-recorded stores and the ORCH-720 cases have none of these records: nothing printed)
+#[test]
+fn a_store_without_them_prints_none_of_the_new_sections() {
+    let dir = home();
+    let mut out = Vec::new();
+    assert_eq!(stats_in(dir.path(), &mut out, 7, None, now()), 0);
+    let text = String::from_utf8(out).unwrap();
+    for header in [
+        "Model call time",
+        "Claude relay requests",
+        "Time to the first word",
+    ] {
+        assert!(!text.contains(header), "{header}: {text}");
+    }
+}

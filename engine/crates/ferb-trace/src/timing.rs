@@ -48,6 +48,18 @@ fn calls(node: &Value) -> Vec<Value> {
         .map(|c| {
             let mut m: Map<String, Value> = timing_of(c).as_object().cloned().unwrap_or_default();
             m.insert("reported_at".to_owned(), g(c, "started_at").clone());
+            // RUN-479 (T-1338): FERB's Claude relay's record of each request, only where a record holds it (newer
+            // than the Python build, so every recorded trace keeps its bytes)
+            let usage = g(c, "output");
+            if g(usage, "steps").is_array() {
+                m.insert("relay_steps".to_owned(), g(usage, "steps").clone());
+                if is_int(g(usage, "steps_dropped")) {
+                    m.insert(
+                        "relay_steps_dropped".to_owned(),
+                        g(usage, "steps_dropped").clone(),
+                    );
+                }
+            }
             Value::Object(m)
         })
         .collect()
@@ -108,7 +120,7 @@ fn planner_turns(nodes: &[&Value]) -> Vec<Value> {
         });
         let before = prepare.map_or(&*EMPTY, |p| obj(p, "output"));
         let first = prepare.unwrap_or(turn);
-        out.push(map(vec![
+        let mut entry = map(vec![
             ("kind", string("planner")),
             ("request_id", string(&request_id)),
             ("at", g(first, "started_at").clone()),
@@ -155,7 +167,17 @@ fn planner_turns(nodes: &[&Value]) -> Vec<Value> {
             ),
             ("turn_ms", g(timing, "total_ms").clone()),
             ("recorded", Value::Bool(truthy(timing))),
-        ]));
+        ]);
+        // ORCH-732 (T-1338): the turn's first word, ms from its intake, only where the turn recorded one
+        if is_int(g(timing, "first_text_ms")) {
+            if let Value::Object(m) = &mut entry {
+                m.insert(
+                    "first_text_ms".to_owned(),
+                    g(timing, "first_text_ms").clone(),
+                );
+            }
+        }
+        out.push(entry);
     }
     out
 }
@@ -258,6 +280,58 @@ fn call_line(i: usize, timing: &Value) -> String {
     )
 }
 
+/// RUN-479 (T-1338): one line per request FERB's Claude relay recorded under a model call: the tools the answer
+/// called, the tool results the request carried back (an error marked), its stop reason, a status that was not a
+/// success, and its times on the relay's clock. Nothing for a call without the record.
+fn relay_lines(call: &Value) -> Vec<String> {
+    let steps = items(call, "relay_steps");
+    let mut out = Vec::new();
+    if is_int(g(call, "relay_steps_dropped")) {
+        out.push(format!(
+            "    ({} earlier requests not kept)",
+            int_val(g(call, "relay_steps_dropped"))
+        ));
+    }
+    for (i, s) in steps.iter().enumerate() {
+        let called: Vec<String> = items(s, "called").iter().map(str_of).collect();
+        let mut line = format!(
+            "    Request {}: {}",
+            i + 1,
+            if called.is_empty() {
+                "no tool called".to_owned()
+            } else {
+                format!("called {}", called.join(", "))
+            }
+        );
+        let results: Vec<String> = items(s, "results")
+            .iter()
+            .map(|r| {
+                let name = str_of(g(r, "tool"));
+                if g(r, "error").as_bool() == Some(true) {
+                    format!("{name} (error)")
+                } else {
+                    name
+                }
+            })
+            .collect();
+        if !results.is_empty() {
+            line.push_str(&format!("; carried results of {}", results.join(", ")));
+        }
+        if has(s, "stop") {
+            line.push_str(&format!("; stop {}", str_of(g(s, "stop"))));
+        }
+        if has(s, "status") {
+            line.push_str(&format!("; status {}", str_of(g(s, "status"))));
+        }
+        if has(s, "first_byte_ms") {
+            line.push_str(&format!("; first byte {}", d(g(s, "first_byte_ms"))));
+        }
+        line.push_str(&format!("; done {}", d(g(s, "done_ms"))));
+        out.push(line);
+    }
+    out
+}
+
 fn run_lines(entry: &Value) -> Vec<String> {
     let mut out = Vec::new();
     let start = g(entry, "runtime_start");
@@ -275,6 +349,10 @@ fn run_lines(entry: &Value) -> Vec<String> {
     let mut events: Vec<(i128, u8, String)> = Vec::new();
     for (i, c) in model_calls.iter().enumerate() {
         events.push((began(c), 0, call_line(i + 1, c)));
+        // under its call (the sort below is stable)
+        for l in relay_lines(c) {
+            events.push((began(c), 0, l));
+        }
     }
     for t in tool_list {
         let at = parse_time(text(t, "at")).map_or(0, |t| micros(&t));
@@ -357,6 +435,12 @@ pub fn lines(entries: &[Value]) -> Vec<String> {
                 str_of(g(e, "request_id")),
                 d(&Value::from(total))
             ));
+            if is_int(g(e, "first_text_ms")) {
+                out.push(format!(
+                    "  First word shown {} after its intake",
+                    d(g(e, "first_text_ms"))
+                ));
+            }
             let mut merged: Map<String, Value> = g(before, "steps_ms")
                 .as_object()
                 .cloned()

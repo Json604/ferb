@@ -1228,6 +1228,7 @@ impl Daemon for TestDaemon {
     fn front_window_capture<'a>(
         &'a self,
         request_id: &'a str,
+        _picture: bool,
     ) -> BoxFuture<'a, Result<Option<ferb_supervisor::flow::FrontCapture>, String>> {
         if self
             .captures

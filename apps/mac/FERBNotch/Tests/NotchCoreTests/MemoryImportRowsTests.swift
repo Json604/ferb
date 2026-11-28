@@ -20,4 +20,17 @@ final class MemoryImportRowsTests: XCTestCase {
         XCTAssertEqual(general?.offerLine, "")
         XCTAssertNil(ImportedLine(["scope": "x"]))
     }
+
+    // decision: MEM-489
+    func testAnImportedLineOffersNoAlwaysOn() {
+        let imported = MemoryRow(["id": "m1", "content": "Plan before building", "in_profile": false,
+                                  "can_always_on": false])
+        XCTAssertEqual(imported?.offersAlwaysOn, false)
+        // a row the daemon says nothing about reads as before: Always on offered
+        let own = MemoryRow(["id": "m2", "content": "My name is Sam", "in_profile": false])
+        XCTAssertEqual(own?.offersAlwaysOn, true)
+        // one somehow still on keeps its way out
+        let on = MemoryRow(["id": "m3", "content": "x", "in_profile": true, "can_always_on": false])
+        XCTAssertEqual(on?.offersAlwaysOn, true)
+    }
 }

@@ -2887,3 +2887,23 @@ rule = "For ORCH-719 item 2. Each look's span keeps it whole. Per model run the 
 why = "Replay of the owner's November runs (205 tasks, read only): looks carried through later calls shrink 32% (browser) and 29% (Mac), 30% and 25% as built, and every look rebuilds. Matching with position fields made about 40% of repeated looks over half changed; 457 of 783 looks were a page's first."
 evidence = "ferb-gateway tests/look_view.rs (through the real gateway, nothing lost), ferb-browser tests/carried_ids.rs, ferb-mac-hands element_actions.rs and carried_tests, ferb-worker close_after.rs; the catalog changes are named in engine/fixtures/catalog/tool_changes.json."
 paths = ["engine/crates/ferb-gateway/src/look_view.rs", "engine/crates/ferb-gateway/src/gateway.rs", "engine/crates/ferb-browser/src/tools.rs", "engine/crates/ferb-browser/src/capture.rs", "engine/crates/ferb-mac-hands/src/driver/mod.rs", "engine/crates/ferb-worker/src/worker.rs", "engine/fixtures/catalog/tool_changes.json"]
+
+[ORCH-754]
+title = "The front door's fixed part has a ceiling like the other roles'"
+by = "agent"
+date = 2026-11-28
+status = "active"
+rule = "For ORCH-726 step 1, beside ORCH-721. The fixed-part test also sums the front door's: the shared rules with concierge.md (no live facts) plus the listing the real program gives its grant (owner, the planner's scopes with chat:act, observe_only false, the planner's lookups and the six front tools, the planner's call limit), in json.dumps characters, and fails past its ceiling: the size measured on 2026-11-28 plus about 5%, a guard, not the owner's number."
+why = "The plan's step 1 asked for a guard on the front door's fixed size; its grant is built by code (lookup_grant) and is not in the frozen catalog, so ORCH-721's table could not name it."
+evidence = "ferbd tests/fixed_part.rs; the measured size in journal 289."
+paths = ["engine/crates/ferbd/tests/fixed_part.rs"]
+
+[ORCH-755]
+title = "ferb stats and ferb trace show the first word and each relay request"
+by = "agent"
+date = 2026-11-28
+status = "active"
+rule = "For ORCH-726 step 1, refining ORCH-720. ferb stats then prints, each only when its records exist: model call time per role and runtime (each record's own timing; a stopped clock left out); Claude relay requests (RUN-479: requests, tools called, results and errors, each tool called again in one run and how often after an error); the time to the first word per door and runtime (ORCH-732: count, median, 90%, slowest). ferb trace adds first_text_ms and each call's relay_steps, and --full a line for each."
+why = "The plan's numbers are set in the time to the first word, and a doubled Claude answer is named by the relay's record; neither was readable without SQL."
+evidence = "ferbd tests/usage_stats.rs (the three sections, and none on a store without them), ferb-trace tests/first_word_and_relay.rs, tests/parity.rs unchanged."
+paths = ["engine/crates/ferbd/src/usage_stats.rs", "engine/crates/ferbd/src/stats.rs", "engine/crates/ferb-trace/src/timing.rs"]

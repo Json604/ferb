@@ -12,6 +12,16 @@
 //! - **Steps:** the tool calls made in those runs; per step is input over steps.
 //! - **Fixed part:** the run's instructions (`system_prompt`, the median over its runs, in characters) and the tools
 //!   the provider saw offered (`runtime.tools`, the median count). The tool descriptions' size is not in the spans.
+//!
+//! Then, each only when its records exist in the range (ORCH-726 step 1, T-1338):
+//!
+//! - **Model call time** per role and runtime: each record's own `timing` (RUN-419, RUN-420), the median to the first
+//!   output and of the whole call; records whose clock stood still (every figure 0, before journal 254) are left out.
+//! - **Claude relay requests** per role and runtime (RUN-479): requests recorded and let go, tools called, results and
+//!   how many were errors, the tools called again in one run (and how many of those after an error result), and the
+//!   requests' median time to the first byte.
+//! - **Time to the first word** ([`first_words`], ORCH-732): per door (the front door or the planner) and runtime, each
+//!   chat turn's `first_text_ms`, the median, the 90th percentile and the slowest.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
@@ -343,9 +353,6 @@ pub fn report(c: &Connection, range: &Range, out: &mut dyn Write) -> Res<()> {
             }
         }
     }
-    let say = |out: &mut dyn Write, line: &str| -> Res<()> {
-        writeln!(out, "{line}").map_err(|e| format!("BrokenPipeError: {e}"))
-    };
     say(
         out,
         &format!(
@@ -419,7 +426,238 @@ pub fn report(c: &Connection, range: &Range, out: &mut dyn Write) -> Res<()> {
             ),
         )?;
     }
+    call_times(&records, &roles, out)?;
+    relay_requests(&records, &roles, out)
+}
+
+/// Milliseconds as seconds with two decimals ("1.68 s").
+fn secs(ms: i64) -> String {
+    format!("{:.2} s", ms as f64 / 1000.0)
+}
+
+/// The `p`th percentile (nearest rank) of a sorted list.
+fn rank(sorted: &[i64], p: f64) -> i64 {
+    let at = ((sorted.len() as f64 * p).ceil() as usize).clamp(1, sorted.len()) - 1;
+    sorted[at]
+}
+
+fn role_at(roles: &[&str], role: &str) -> usize {
+    roles
+        .iter()
+        .position(|r| *r == role)
+        .unwrap_or(roles.len() - 1)
+}
+
+/// Model call time per role and runtime: each record's own timing; a record whose clock stood still is left out.
+fn call_times(records: &[Record], roles: &[&str], out: &mut dyn Write) -> Res<()> {
+    let mut by: BTreeMap<(usize, String), (Vec<i64>, Vec<i64>)> = BTreeMap::new();
+    for rec in records {
+        let Some(Value::Object(t)) = rec.usage.get("timing") else {
+            continue;
+        };
+        let total = int(t.get("total_ms"));
+        if total <= 0 {
+            continue;
+        }
+        let e = by
+            .entry((role_at(roles, &rec.role), rec.runtime.clone()))
+            .or_default();
+        e.1.push(total);
+        if t.contains_key("ttft_ms") {
+            e.0.push(int(t.get("ttft_ms")));
+        }
+    }
+    if by.is_empty() {
+        return Ok(());
+    }
+    say(
+        out,
+        "Model call time by role and runtime (each record's own clock; a record whose clock stood still is left out):",
+    )?;
+    for ((at, runtime), (ttft, total)) in by {
+        let first = median(ttft).map_or_else(String::new, |m| {
+            format!(", to the first output median {}", secs(m))
+        });
+        say(
+            out,
+            &format!(
+                "  {}, {runtime}: {} records{first}, whole call median {}",
+                roles[at],
+                thousands(total.len() as i64),
+                secs(median(total).unwrap_or(0))
+            ),
+        )?;
+    }
     Ok(())
+}
+
+#[derive(Default)]
+struct Relay {
+    records: i64,
+    requests: i64,
+    dropped: i64,
+    called: i64,
+    results: i64,
+    errors: i64,
+    /// tool name → (called again in one run, of those after an error result for it)
+    again: BTreeMap<String, (i64, i64)>,
+    first_byte: Vec<i64>,
+}
+
+/// FERB's Claude relay's record of each request (RUN-479), per role and runtime: so a doubled answer names its cause
+/// (a tool called again after an error result is a refusal answered; again after no error, the runtime's own retry).
+fn relay_requests(records: &[Record], roles: &[&str], out: &mut dyn Write) -> Res<()> {
+    let mut by: BTreeMap<(usize, String), Relay> = BTreeMap::new();
+    for rec in records {
+        let Some(Value::Array(steps)) = rec.usage.get("steps") else {
+            continue;
+        };
+        let r = by
+            .entry((role_at(roles, &rec.role), rec.runtime.clone()))
+            .or_default();
+        r.records += 1;
+        r.requests += steps.len() as i64;
+        r.dropped += int(rec.usage.get("steps_dropped"));
+        let mut seen: HashSet<String> = HashSet::new();
+        for step in steps {
+            let results = step
+                .get("results")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            r.results += results.len() as i64;
+            r.errors += results
+                .iter()
+                .filter(|x| x.get("error") == Some(&Value::Bool(true)))
+                .count() as i64;
+            if let Some(ms) = step.get("first_byte_ms").and_then(Value::as_i64) {
+                r.first_byte.push(ms);
+            }
+            for name in step
+                .get("called")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
+                r.called += 1;
+                if !seen.insert(name.to_string()) {
+                    let after_error = results.iter().any(|x| {
+                        x.get("tool").and_then(Value::as_str) == Some(name)
+                            && x.get("error") == Some(&Value::Bool(true))
+                    });
+                    let e = r.again.entry(name.to_string()).or_default();
+                    e.0 += 1;
+                    e.1 += i64::from(after_error);
+                }
+            }
+        }
+    }
+    if by.is_empty() {
+        return Ok(());
+    }
+    say(
+        out,
+        "Claude relay requests by role and runtime (RUN-479: per request the tools called and each result's error flag):",
+    )?;
+    for ((at, runtime), r) in by {
+        let let_go = if r.dropped > 0 {
+            format!(" (and {} not kept)", thousands(r.dropped))
+        } else {
+            String::new()
+        };
+        let again = if r.again.is_empty() {
+            "none".to_string()
+        } else {
+            r.again
+                .iter()
+                .map(|(name, (n, after))| format!("{name} {n} ({after} after an error)"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let first = median(r.first_byte)
+            .map_or_else(String::new, |m| format!("; first byte median {}", secs(m)));
+        say(
+            out,
+            &format!(
+                "  {}, {runtime}: {} records, {} requests{let_go}; tools called {}, results {} ({} errors); \
+                 called again in one run: {again}{first}",
+                roles[at],
+                thousands(r.records),
+                thousands(r.requests),
+                thousands(r.called),
+                thousands(r.results),
+                thousands(r.errors),
+            ),
+        )?;
+    }
+    Ok(())
+}
+
+/// ORCH-732: how long the owner waited for each chat turn's first word (`first_text_ms` of the `model.turn` span that
+/// sent it, from its intake), per door and runtime (the runtime of the turn's own usage record, else of its
+/// `model.close` record: a run ended on its accepted call may report no usage); nothing when no turn in the range
+/// recorded one.
+pub fn first_words(c: &Connection, range: &Range, out: &mut dyn Write) -> Res<()> {
+    let tables: HashSet<String> =
+        query(c, "SELECT name FROM sqlite_master WHERE type='table'", &[])?
+            .into_iter()
+            .map(|r| text(&r[0]))
+            .collect();
+    if !tables.contains("spans") {
+        return Ok(());
+    }
+    let (clause, params) = range.clause();
+    let rows = query(
+        c,
+        &format!(
+            "SELECT json_extract(u.output_json, '$.timing.first_text_ms'), json_extract(u.input_json, '$.front_door'), \
+             (SELECT json_extract(m.input_json, '$.runtime') FROM spans m WHERE m.parent_id = u.id AND \
+              m.kind IN ('model.usage', 'model.close') AND json_extract(m.input_json, '$.runtime') IS NOT NULL \
+              ORDER BY m.kind = 'model.close', m.started_at, m.rowid LIMIT 1) \
+             FROM spans u WHERE u.kind = 'model.turn' AND {clause} \
+             AND json_extract(u.output_json, '$.timing.first_text_ms') IS NOT NULL"
+        ),
+        &params,
+    )?;
+    let mut by: BTreeMap<(u8, String), Vec<i64>> = BTreeMap::new();
+    for r in &rows {
+        let Sql::Integer(ms) = r[0] else { continue };
+        let front = matches!(r[1], Sql::Integer(1));
+        let runtime = Some(text(&r[2]))
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| "?".into());
+        by.entry((u8::from(!front), runtime)).or_default().push(ms);
+    }
+    if by.is_empty() {
+        return Ok(());
+    }
+    say(
+        out,
+        &format!(
+            "Time to the first word {} (chat turns, from FERB's intake of the message to the first word shown):",
+            range.label()
+        ),
+    )?;
+    for ((door, runtime), mut ms) in by {
+        ms.sort_unstable();
+        say(
+            out,
+            &format!(
+                "  {}, {runtime}: {} turns, median {}, 90% within {}, slowest {}",
+                if door == 0 { "front door" } else { "planner" },
+                thousands(ms.len() as i64),
+                secs(median(ms.clone()).unwrap_or(0)),
+                secs(rank(&ms, 0.9)),
+                secs(*ms.last().unwrap_or(&0)),
+            ),
+        )?;
+    }
+    Ok(())
+}
+
+fn say(out: &mut dyn Write, line: &str) -> Res<()> {
+    writeln!(out, "{line}").map_err(|e| format!("BrokenPipeError: {e}"))
 }
 
 fn query(c: &Connection, sql: &str, params: &[Sql]) -> Res<Vec<Vec<Sql>>> {

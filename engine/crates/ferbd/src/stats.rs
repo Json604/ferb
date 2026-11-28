@@ -403,7 +403,9 @@ fn run(
         Some((from, to)) => crate::usage_stats::Range::Days { from, to },
         None => crate::usage_stats::Range::Since { since, days },
     };
-    crate::usage_stats::report(&c, &range, out)
+    crate::usage_stats::report(&c, &range, out)?;
+    // ORCH-726 step 1: how long the owner waited for the first word of each chat turn
+    crate::usage_stats::first_words(&c, &range, out)
 }
 
 /// `status_label`: a task status as the owner reads it: done_unverified is "not confirmed" (V5); the others as

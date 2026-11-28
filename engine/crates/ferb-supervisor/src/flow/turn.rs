@@ -706,18 +706,20 @@ impl Inner {
             _ = cancel.wait() => return Err(Failure::Cancelled),
         };
         prep.mark(self, "environment");
-        let waiting: Vec<String> = list
+        // decision: SENSE-432 — a message from the phone is captured without its picture: none is taken
+        let waiting: Vec<(String, bool)> = list
             .iter()
             .filter(|a| a.screen && a.seen.is_none())
-            .map(|a| a.request_id.clone())
+            .map(|a| (a.request_id.clone(), !from_phone(a.sent_from.as_deref())))
             .collect();
         if !waiting.is_empty() {
             // each message's own capture, waited for together (DMN-520)
             let seens = tokio::select! {
-                s = futures_util::future::join_all(waiting.iter().map(|rid| self.screen_at_send(rid))) => s,
+                s = futures_util::future::join_all(
+                    waiting.iter().map(|(rid, picture)| self.screen_at_send(rid, *picture))) => s,
                 _ = cancel.wait() => return Err(Failure::Cancelled),
             };
-            for (rid, mut seen) in waiting.iter().zip(seens) {
+            for ((rid, _), mut seen) in waiting.iter().zip(seens) {
                 if let Some(line) = self.live().lines.get_mut(session_id) {
                     if let Some(a) = line.arrivals.get_mut(rid) {
                         // decision: SENSE-432 — a message from the phone carries the front window's name, never a
@@ -3484,10 +3486,14 @@ impl Inner {
     /// supervisor.py:2671 `_screen_at_send` (L12): the front window the daemon captured as the owner sent this message,
     /// and its redacted screenshot. A failed capture is journaled by type and gives "not available"; a capture that
     /// takes longer than FRONT_WINDOW_WAIT_S (DMN-520) is given up on and journaled: it never blocks the message.
-    async fn screen_at_send(&self, request_id: &str) -> super::Seen {
+    /// `picture` false: a message sent from the phone, captured without its picture (SENSE-432).
+    async fn screen_at_send(&self, request_id: &str, picture: bool) -> super::Seen {
         let wait = std::time::Duration::from_secs_f64(FRONT_WINDOW_WAIT_S);
-        let got =
-            tokio::time::timeout(wait, self.deps.daemon.front_window_capture(request_id)).await;
+        let got = tokio::time::timeout(
+            wait,
+            self.deps.daemon.front_window_capture(request_id, picture),
+        )
+        .await;
         let capture = match got {
             Err(_) => {
                 self.journal(

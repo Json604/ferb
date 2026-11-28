@@ -257,6 +257,23 @@ async fn the_upgrade_takes_every_imported_line_out_of_always_on_and_asks_nothing
     assert!(asks(&d).is_empty(), "{:?}", asks(&d));
     let review = call(&d, "memory.review", json!({})).await;
     assert_eq!(review["result"]["count"], json!(0), "{review}");
+    // MEM-489: the Memory page offers no Always on for an imported line (`can_always_on` false on it alone; every other
+    // row reads as before, with no such key)
+    let listed = call(&d, "memory.list", json!({})).await;
+    let items = listed["result"]["items"].as_array().expect("items");
+    let row = |id: &str| {
+        items
+            .iter()
+            .find(|i| i["id"] == id)
+            .unwrap_or_else(|| panic!("{id} listed: {listed}"))
+            .clone()
+    };
+    for id in lines.iter().chain(&joined) {
+        assert_eq!(row(id)["can_always_on"], json!(false), "{}", row(id));
+    }
+    for id in [&his, &seen] {
+        assert!(row(id).get("can_always_on").is_none(), "{}", row(id));
+    }
 }
 
 // decision: MEM-481, MEM-485 — FERB's own understanding seen on two days waits in the same list, the day's first

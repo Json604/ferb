@@ -167,7 +167,8 @@ public struct NoticeRow: Identifiable, Equatable {
 }
 
 /// A memory item (`memory.list`): its words, where it came from (`label`: your words / FERB's understanding / observed,
-/// MEM-12), what it is about, and whether it is in the core profile (always on).
+/// MEM-12), what it is about, whether it is in the core profile (always on), and whether it may be (MEM-489: a line
+/// imported from his other assistants never is; the daemon says `can_always_on: false` on it alone).
 public struct MemoryRow: Identifiable, Equatable {
     public let id: String
     public let kind: String
@@ -179,6 +180,7 @@ public struct MemoryRow: Identifiable, Equatable {
     public let label: String
     public let about: String
     public let inProfile: Bool
+    public let canAlwaysOn: Bool
 
     public init?(_ row: [String: Any]) {
         guard let id = row["id"] as? String, !id.isEmpty else { return nil }
@@ -192,7 +194,11 @@ public struct MemoryRow: Identifiable, Equatable {
         label = text(row["label"])
         about = text(row["about"])
         inProfile = flag(row["in_profile"])
+        canAlwaysOn = (row["can_always_on"] as? NSNumber)?.boolValue ?? true
     }
+
+    /// Whether the row offers Always on / Not always on: an imported line offers neither unless it is somehow on.
+    public var offersAlwaysOn: Bool { canAlwaysOn || inProfile }
 }
 
 /// What FERB brought in from another assistant about one memory (`memory.import.lines`, MEM-442..444): where it
