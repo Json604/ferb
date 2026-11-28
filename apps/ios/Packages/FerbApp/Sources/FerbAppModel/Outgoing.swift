@@ -143,7 +143,7 @@ public final class Outgoing {
         let box = chips
         chips = []
         messages.append(Sending(id: id, text: text, chips: box, onMac: onMac, phase: .uploading, total: box.reduce(0) { $0 + $1.size },
-                                temporary: temporary, replyTo: temporary ? nil : replyTo))
+                                temporary: temporary, replyTo: replyTo))
         start(id)
         return true
     }
@@ -221,7 +221,7 @@ public final class Outgoing {
         let api = self.api
         return Task {
             if m.temporary {
-                switch await Task.detached(operation: { await api.sendTemporary(m.text, attachments: m.onMac) }).value {
+                switch await Task.detached(operation: { await api.sendTemporary(m.text, attachments: m.onMac, replyTo: m.replyTo) }).value {
                 case .ok(let t):
                     drop(id)
                     onSentTemporary?(t)
@@ -279,7 +279,7 @@ public final class Outgoing {
             if m.temporary {
                 // the temporary chat's message: `fresh`, never the outbox (the Mac moves its files into the temporary
                 // chat's own folder and deletes them when it ends)
-                switch await Task.detached(operation: { await api.sendTemporary(m.text, attachments: files) }).value {
+                switch await Task.detached(operation: { await api.sendTemporary(m.text, attachments: files, replyTo: m.replyTo) }).value {
                 case .ok(let t):
                     transfers.forgetBatch(id)
                     drop(id)

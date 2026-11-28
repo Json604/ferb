@@ -964,3 +964,43 @@ fn the_files_a_temporary_chat_was_sent_go_when_it_ends_and_at_every_start() {
     w.sup.recover_after_restart();
     assert!(!folder.exists(), "a restart ended it: its files went");
 }
+
+/// A quote of a message the temporary chat holds (memory only, never stored) is taken like any other (owner,
+/// 2026-11-28: "is quoting not that easy???"): the next message's ack and entry keep it, and its words are those shown.
+// decision: APP-1146
+#[test]
+fn a_message_in_the_temporary_chat_can_be_quoted() {
+    let mut w = world();
+    run(&mut w, json!({"fresh": true}));
+    let snap = w.sup.inner().temporary_snapshot();
+    let first = snap["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["kind"] == "message")
+        .expect("the temporary chat's first message")
+        .clone();
+    let id = first["id"].as_str().unwrap().to_string();
+    run(&mut w, json!({"fresh": true, "reply_to": id}));
+    let snap = w.sup.inner().temporary_snapshot();
+    let quoting: Vec<&Value> = snap["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["kind"] == "message" && e["body"]["reply_to"]["entry_id"] == json!(id))
+        .collect();
+    assert_eq!(
+        quoting.len(),
+        1,
+        "the second message keeps its quote: {snap}"
+    );
+    assert_eq!(quoting[0]["body"]["reply_to"]["who"], "owner");
+    assert_eq!(
+        count(
+            &w,
+            "SELECT count(*) FROM journal WHERE kind = 'chat.reply_to_dropped'"
+        ),
+        0,
+        "nothing dropped"
+    );
+}

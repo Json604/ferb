@@ -129,12 +129,50 @@ final class ReplyTests: XCTestCase {
         vm.reply(to: booked)
         await vm.toggleTemporary().value
         XCTAssertNotNil(vm.temporary)
-        XCTAssertNil(vm.shownQuote, "not in the temporary chat")
+        XCTAssertNil(vm.shownQuote, "the normal chat's quote waits there: not in the temporary chat")
         vm.typed("What is 2+2?")
         await vm.send().value
-        XCTAssertTrue(rig.phone.sentQuotes.isEmpty, "the temporary chat's message quotes nothing")
+        XCTAssertEqual(rig.phone.temporaryQuotes, [nil], "the temporary message goes without the normal chat's quote")
+        XCTAssertTrue(rig.phone.sentQuotes.isEmpty)
         await vm.toggleTemporary().value
         XCTAssertEqual(vm.shownQuote, booked, "back in the chat it waits still")
+    }
+
+    // decision: APP-1146, ORCH-715 — the temporary chat quotes as the chat does: its bubbles offer their quotes (the
+    // library's fold), the swipe puts one in the box, it goes as reply_to and comes back when the message couldn't go,
+    // a tap on it lights its row, and it goes when the temporary chat ends
+    func testTheTemporaryChatQuotesAsTheChatDoes() async throws {
+        rig.phone.temporaryNow = TemporaryChat(on: true, id: "tmp9", startedAt: "2026-11-23T10:00:00+05:30", rev: 1, transcript: try chat())
+        let vm = try await opened()
+        await eventually("the temporary chat") { vm.temporary != nil }
+        let t = try XCTUnwrap(vm.temporary)
+        let key = try XCTUnwrap(ChatModel.quotedRow(t.rows, t.replies, entryId: "a1"), "its answer offers a quote")
+        XCTAssertEqual(t.replies[key]?.quote, booked)
+        XCTAssertEqual(t.replies["m2"]?.quoting, booked, "his message shows what it quotes")
+        vm.reply(to: booked)
+        XCTAssertEqual(vm.shownQuote, booked, "the box shows it")
+        XCTAssertTrue(vm.focusAsk)
+        vm.typed("Make it 9 then")
+        await vm.send().value
+        XCTAssertEqual(rig.phone.temporaryQuotes, [booked], "sent as its reply_to")
+        XCTAssertTrue(rig.phone.sentQuotes.isEmpty, "never through the outbox")
+        XCTAssertNil(vm.shownQuote, "it went with the words")
+        // a message that couldn't go: its words and its quote come back
+        vm.reply(to: booked)
+        vm.typed("Make it 10")
+        rig.phone.temporaryRefusal = .Refused(detail: "The Mac said no.", linkCode: nil)
+        await vm.send().value
+        XCTAssertEqual(vm.draft, "Make it 10")
+        XCTAssertEqual(vm.shownQuote, booked)
+        // a tap on it: the quoted row lights up
+        vm.showQuoted(booked)
+        XCTAssertEqual(vm.quoteLit, ChatModel.quotedRow(vm.temporary?.rows ?? [], vm.temporary?.replies ?? [:], entryId: "a1"))
+        XCTAssertNotNil(vm.quoteLit)
+        // the temporary chat ends: its quote goes with it, and none waits in the normal chat
+        await vm.toggleTemporary().value
+        XCTAssertNil(vm.temporary)
+        XCTAssertNil(vm.shownQuote)
+        XCTAssertNil(vm.composerQuote)
     }
 
     // decision: APP-1146

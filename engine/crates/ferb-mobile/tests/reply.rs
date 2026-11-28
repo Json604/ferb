@@ -360,10 +360,10 @@ fn rusqlite_open(path: &std::path::Path) -> rusqlite::Connection {
     c
 }
 
-// decision: APP-1146 — the temporary chat's entries live only in the Mac's memory, which reply_to can't name: no
-// bubble there offers a reply
+// decision: APP-1146 — the temporary chat's bubbles offer their quotes as the chat's do (the Mac quotes from the
+// temporary chat it holds in memory)
 #[test]
-fn the_temporary_chat_offers_no_reply() {
+fn the_temporary_chat_offers_its_quotes() {
     let reply = json!({"on": true, "id": "t1", "conversation": "temporary:t1", "rev": 1, "entries": [
         entry("tm1", 1, "message", json!({"conversation_id": "temporary:t1"}), json!({"text": "hi"})),
         entry("ta1", 2, "answer", json!({"conversation_id": "temporary:t1", "answers": "tm1", "placement": "inline"}),
@@ -373,5 +373,42 @@ fn the_temporary_chat_offers_no_reply() {
     let Item::Turn(t) = &chat.transcript.items[0] else {
         panic!("{:?}", chat.transcript.items)
     };
-    assert_eq!((&t.message_quote, &t.answer_quote), (&None, &None));
+    assert_eq!(t.message_quote, quote("tm1", "message", true, "hi"));
+    assert_eq!(t.answer_quote, quote("ta1", "answer", false, "Hello"));
+}
+
+// decision: APP-1146 — a temporary message that quotes one goes with chat.send's reply_to, as the chat's do; the
+// watch's copy of the temporary chat offers its quotes too
+#[test]
+fn a_temporary_reply_goes_with_reply_to() {
+    let mac = FakeMac::new("C1");
+    let phone = Phone::new();
+    let m = phone.open();
+    m.connect(Arc::new(mac.clone())).unwrap();
+    m.link_event(&online("direct"));
+    phone.jobs.run();
+    m.send_temporary("what is 2+2").unwrap();
+    mac.temporary_said("answer", "four");
+    phone.jobs.run();
+    let chat = m.last_temporary_chat().unwrap().expect("on");
+    let quoted = chat
+        .transcript
+        .items
+        .iter()
+        .find_map(|i| match i {
+            Item::Turn(t) => t.answer_quote.clone().or_else(|| t.message_quote.clone()),
+            Item::Reply(r) => r.quote.clone(),
+            _ => None,
+        })
+        .expect("a bubble offers a reply");
+    m.send_temporary_reply("and 3+3?", &[], Some(&quoted))
+        .unwrap();
+    let sent = mac.lock().sends.last().cloned().unwrap();
+    assert_eq!(
+        sent,
+        json!({"text": "and 3+3?", "fresh": true, "client_id": "phone-1", "reply_to": quoted.entry_id})
+    );
+    // a plain one carries none
+    m.send_temporary("thanks").unwrap();
+    assert!(mac.lock().sends.last().unwrap().get("reply_to").is_none());
 }

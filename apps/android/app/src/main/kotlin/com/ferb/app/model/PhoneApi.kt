@@ -227,7 +227,8 @@ interface PhoneApi {
     suspend fun temporaryChat(): Outcome<TemporaryChat> = Outcome.Failed(com.ferb.mobile.FerbException.Offline("No link.", null))
     suspend fun setTemporaryChat(on: Boolean): Outcome<TemporaryChat> = Outcome.Failed(com.ferb.mobile.FerbException.Offline("No link.", null))
     suspend fun sendTemporary(text: String): Outcome<TemporaryChat> = Outcome.Failed(com.ferb.mobile.FerbException.Offline("No link.", null))
-    suspend fun sendTemporaryWith(text: String, attachments: List<Attachment>): Outcome<TemporaryChat> =
+    /** With files and, replying to one of the temporary chat's messages, its quote (`replyTo`, kb APP-1146). */
+    suspend fun sendTemporaryWith(text: String, attachments: List<Attachment>, replyTo: com.ferb.mobile.ReplyQuote? = null): Outcome<TemporaryChat> =
         Outcome.Failed(com.ferb.mobile.FerbException.Offline("No link.", null))
     suspend fun lastTemporaryChat(): Outcome<TemporaryChat?> = Outcome.Ok(null)
 }
@@ -334,7 +335,7 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun temporaryChat() = phone.call { it.temporaryChat().also { t -> ChatModel.prepare(t.transcript) } }
     override suspend fun setTemporaryChat(on: Boolean) = phone.call { it.setTemporaryChat(on).also { t -> ChatModel.prepare(t.transcript) } }
     override suspend fun sendTemporary(text: String) = phone.call { it.sendTemporary(text).also { t -> ChatModel.prepare(t.transcript) } }
-    override suspend fun sendTemporaryWith(text: String, attachments: List<Attachment>) =
-        phone.call { it.sendTemporaryWith(text, attachments).also { t -> ChatModel.prepare(t.transcript) } }
+    override suspend fun sendTemporaryWith(text: String, attachments: List<Attachment>, replyTo: com.ferb.mobile.ReplyQuote?) =
+        phone.call { it.sendTemporaryWith(text, attachments, replyTo).also { t -> ChatModel.prepare(t.transcript) } }
     override suspend fun lastTemporaryChat() = phone.call { it.lastTemporaryChat()?.also { t -> ChatModel.prepare(t.transcript) } }
 }

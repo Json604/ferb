@@ -433,12 +433,15 @@ class FakePhone : PhoneApi {
     override suspend fun sendTemporary(text: String): Outcome<com.ferb.mobile.TemporaryChat> = sendTemporaryWith(text, emptyList())
     /** The files each temporary message carried, by upload id. */
     val temporaryFiles = ArrayList<List<String>>()
-    override suspend fun sendTemporaryWith(text: String, attachments: List<Attachment>): Outcome<com.ferb.mobile.TemporaryChat> {
+    /** The quote each temporary message carried (`reply_to`), none for a plain one. */
+    val temporaryQuotes = ArrayList<com.ferb.mobile.ReplyQuote?>()
+    override suspend fun sendTemporaryWith(text: String, attachments: List<Attachment>, replyTo: com.ferb.mobile.ReplyQuote?): Outcome<com.ferb.mobile.TemporaryChat> {
         calls += "send-temporary:$text"
         temporaryGate?.await()
         temporaryRefusal?.let { return it }
         temporarySent += text
         temporaryFiles += attachments.map { it.uploadId }
+        temporaryQuotes += replyTo
         temporaryOn = true
         return Outcome.Ok(temporaryNow())
     }

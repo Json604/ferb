@@ -428,7 +428,7 @@ struct ChatView: View {
                         // each row gets only what it draws: a streamed word re-evaluates its own row (kb PHN-714)
                         // a quotable bubble swipes to reply; his message shows what it quotes (kb APP-1146)
                         ChatRowView(model: model, row: row, today: todayDay, olderLoading: model.ui.busy.contains("older"),
-                                    reply: temporary == nil ? model.replies[row.key] : nil, lit: model.quoteLit == row.key).id(row.key)
+                                    reply: (temporary?.replies ?? model.replies)[row.key], lit: model.quoteLit == row.key).id(row.key)
                             // only the earlier days load older pages; today's chat never does
                             .onAppear { if earlier, case .older(_, .available) = row { model.loadOlder() } }
                             .transition(.motionItem)  // a row that arrives rises in (kb PHN-624)

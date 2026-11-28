@@ -448,16 +448,20 @@ final class FakePhone: PhoneApi {
         calls.append("temporary-last")
         return .ok(temporaryNow.on ? temporaryNow : nil)
     }
-    func sendTemporary(_ text: String, attachments: [Attachment]) async -> Outcome<TemporaryChat> {
-        let r = await sendTemporary(text)
+    /// The quote each temporary message carried (`reply_to`), nil for a plain one.
+    @ObservationIgnored var temporaryQuotes: [ReplyQuote?] = []
+    func sendTemporary(_ text: String, attachments: [Attachment], replyTo: ReplyQuote?) async -> Outcome<TemporaryChat> {
+        let r = await sendTemporary(text, quoting: replyTo)
         if case .ok = r { temporaryFiles.append(attachments.map(\.uploadId)) }
         return r
     }
-    func sendTemporary(_ text: String) async -> Outcome<TemporaryChat> {
+    func sendTemporary(_ text: String) async -> Outcome<TemporaryChat> { await sendTemporary(text, quoting: nil) }
+    private func sendTemporary(_ text: String, quoting: ReplyQuote?) async -> Outcome<TemporaryChat> {
         calls.append("temporary-send:\(text)")
         if let g = temporaryGate { await g.wait() }
         if let e = temporaryRefusal { temporaryRefusal = nil; return .failed(e) }
         guard temporaryNow.on else { return .failed(.Refused(detail: "No temporary chat is on.", linkCode: nil)) }
+        temporaryQuotes.append(quoting)
         var v = temporaryNow.transcript
         let n = v.items.count
         v.items.append(FakePhone.ownerTurn("t-e\(n)", text, task: "tmp-task-\(n)"))

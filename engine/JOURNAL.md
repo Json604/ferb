@@ -15418,3 +15418,26 @@ waiting message have the same colour as a sent one: it had been dimmed with the 
 - Nothing ran on a phone: the swipe's feel, the haptic, scrolling and edge-back never taken, the screen readers.
 - iPhone's design goldens `chat-pieces-night` and `connection-*` come out different on every record run (left as
   committed; the compare passes).
+
+## 2026-11-28 · 286 · A message of the temporary chat can be quoted, on the Mac and both phones
+
+**Why (owner, 2026-11-28).** "is quoting not that easy???": FERB.app offered quotes in the temporary chat, but the
+daemon looked a quoted entry up only in the stored chat, so the quote was dropped. The phones offered none there.
+
+**What.**
+- The daemon's `quoted()` falls back to the temporary chat's in-memory entries (`temporary_entry`).
+- ferb-mobile offers quotes in the temporary chat: `without_reply_offers` is gone. `send_temporary_reply` sends
+  `reply_to` with `fresh`; FFI `sendTemporaryWith(…, replyTo)` defaults to none.
+- Android and iPhone: the temporary chat swipes, shows and sends quotes as the normal chat does. A quote shows only in
+  the chat it was taken in. Ending the temporary chat drops a quote taken there. A failed send gives it back.
+- On Android, the new test caught a bug: a temporary send cleared a normal-chat quote that was waiting.
+
+**Checked.**
+- ferb-supervisor `temporary_chat.rs` `a_message_in_the_temporary_chat_can_be_quoted`: fails with the fallback
+  removed, passes with it.
+- ferb-mobile `the_temporary_chat_offers_its_quotes` and `a_temporary_reply_goes_with_reply_to`.
+- Android `ReplyTest` (two new) and the full suites.
+- iPhone `testTheTemporaryChatQuotesAsTheChatDoes` and the full suites.
+
+**Unverified.** Nothing ran live. One Android full run had 35 unrelated failures that passed alone and on a rerun
+(load).

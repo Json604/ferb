@@ -9,6 +9,8 @@ public struct TemporaryShown: Equatable {
     public let rev: Int64
     public let startedAt: String?
     public let rows: [ChatRow]
+    /// What each of its bubbles offers as a quote and what his messages quote (kb APP-1146), as the chat's `replies`.
+    public let replies: [String: RowReply]
     public let taskIds: Set<String>
     /// Its turns as the library folded them: the work row of its tasks is made from them.
     public let transcript: TranscriptView?
@@ -19,6 +21,7 @@ public struct TemporaryShown: Equatable {
         self.rev = rev
         self.startedAt = startedAt
         self.rows = rows
+        self.replies = ChatModel.replies(transcript)
         self.taskIds = taskIds
     }
 

@@ -120,7 +120,7 @@ public enum ChatRow: Equatable, Identifiable {
 }
 
 /// Reply to a message (kb APP-1146, APP-1147; FERB.app's ReplyQuote.swift): what a row's bubble offers as a quote when
-/// he replies to it (nil: no reply, a bubble with no words or no engine entry, or the temporary chat), and what his
+/// he replies to it (nil: no reply, a bubble with no words or no engine entry), and what his
 /// message quotes (drawn above his words). Both come from the phone library's fold.
 public struct RowReply: Equatable, Sendable {
     public var quote: ReplyQuote?

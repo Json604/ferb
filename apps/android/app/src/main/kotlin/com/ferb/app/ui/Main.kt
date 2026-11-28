@@ -206,9 +206,11 @@ private fun Composer(vm: FerbViewModel, draft: String, placeholder: String, modi
     val ink = LocalSkyInk.current
     val context = LocalContext.current
     val hasFiles = chips.isNotEmpty() || ready.isNotEmpty()
-    // the message he replies to (kb APP-1146): taken in the kept chat, so the temporary chat doesn't show it (it waits)
+    // the message he replies to (kb APP-1146): it shows only in the chat it was taken in (one of the kept chat waits
+    // while the temporary chat is on)
     val held by vm.replyQuote.collectAsState()
-    val quote = held.takeIf { !temporary }
+    val heldTemporary by vm.quoteTemporary.collectAsState()
+    val quote = held.takeIf { heldTemporary == temporary }
     // Esc (a keyboard's) drops the quote, as on FERB.app; without one it does what it did
     Column(modifier.onPreviewKeyEvent { e ->
         e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && e.key == androidx.compose.ui.input.key.Key.Escape && quote != null && vm.dropReplyQuote()
@@ -1018,7 +1020,7 @@ private fun SentQuoteFor(vm: FerbViewModel, q: com.ferb.mobile.ReplyQuote) {
 
 /**
  * A bubble that can be replied to (kb APP-1146): swiped right (or TalkBack's Reply) its [quote] goes above the message
- * box; it lights up when a quote of it was tapped. No quote: it offers no reply (a legacy row, the temporary chat).
+ * box; it lights up when a quote of it was tapped. No quote: it offers no reply (a legacy row).
  * Only the one bubble whose lit state changes is drawn again.
  */
 @Composable

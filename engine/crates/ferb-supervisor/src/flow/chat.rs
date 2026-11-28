@@ -874,6 +874,12 @@ impl Inner {
                     .flatten()
             }
         };
+        // a message of the temporary chat on now is kept in memory only, never stored: it is quoted from there
+        let found = found.or_else(|| {
+            (!entry_id.is_empty())
+                .then(|| self.temporary_entry(entry_id))
+                .flatten()
+        });
         let why = match &found {
             None => Some(UNKNOWN),
             Some(e) if e.conversation_id != conversation => Some(OTHER_CONVERSATION),

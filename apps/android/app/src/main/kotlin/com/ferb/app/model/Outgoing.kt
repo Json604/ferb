@@ -146,7 +146,7 @@ class Outgoing(
         val id = "m${System.currentTimeMillis()}-${n.incrementAndGet()}"
         _chips.value = emptyList()
         _messages.update { it + Sending(id, text, chips, onMac, SendPhase.UPLOADING, total = chips.sumOf { c -> c.size }, temporary = temporary,
-            replyTo = replyTo.takeIf { !temporary }) }
+            replyTo = replyTo) }
         start(id)
         return true
     }
@@ -218,7 +218,7 @@ class Outgoing(
         set(id) { it.copy(phase = SendPhase.SENDING, note = null) }
         scope.launch {
             if (m.temporary) {
-                when (val r = withContext(io) { api.sendTemporaryWith(m.text, m.onMac) }) {
+                when (val r = withContext(io) { api.sendTemporaryWith(m.text, m.onMac, m.replyTo) }) {
                     is Outcome.Ok -> { drop(id); sentTemporary(r.value) }
                     is Outcome.Failed -> { set(id) { it.copy(phase = SendPhase.WAITING_PATH, note = FerbViewModel.errorNote(r.error)) }; save() }
                 }
@@ -260,7 +260,7 @@ class Outgoing(
             if (m.temporary) {
                 // the temporary chat's message: with `fresh`, never the outbox (the Mac moves its files into the
                 // temporary chat's own folder and deletes them when it ends)
-                when (val r = withContext(io) { api.sendTemporaryWith(m.text, files) }) {
+                when (val r = withContext(io) { api.sendTemporaryWith(m.text, files, m.replyTo) }) {
                     is Outcome.Ok -> {
                         transfers.forgetBatch(id)
                         drop(id)

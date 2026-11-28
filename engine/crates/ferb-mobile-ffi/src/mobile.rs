@@ -437,17 +437,24 @@ impl Mobile {
     }
 
     /// Writes in the temporary chat with files, as `send_with` sends them in the chat: this phone's finished uploads
-    /// (`upload`'s ids). The Mac moves them into the temporary chat's own folder and deletes them when it ends. Never
-    /// queued. Network: not on the UI thread.
+    /// (`upload`'s ids). The Mac moves them into the temporary chat's own folder and deletes them when it ends.
+    /// `reply_to` (APP-1146): the quote of the temporary chat's bubble the owner replied to, sent as `chat.send`'s
+    /// `reply_to`, as `send_with` sends one in the chat. Never queued. Network: not on the UI thread.
+    #[uniffi::method(default(attachments = [], reply_to = None))]
     pub fn send_temporary_with(
         &self,
         text: String,
         attachments: Vec<Attachment>,
+        reply_to: Option<ReplyQuote>,
     ) -> Result<TemporaryChat, FerbError> {
         guard(|| {
             let files: Vec<ferb_mobile::store::Attachment> =
                 attachments.into_iter().map(Into::into).collect();
-            Ok(self.core()?.send_temporary_with(&text, &files)?.conv())
+            let quote: Option<ferb_mobile::ReplyQuote> = reply_to.map(Conv::conv);
+            Ok(self
+                .core()?
+                .send_temporary_reply(&text, &files, quote.as_ref())?
+                .conv())
         })
     }
 

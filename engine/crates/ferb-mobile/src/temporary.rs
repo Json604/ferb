@@ -20,8 +20,8 @@ use serde_json::{json, Value};
 use crate::api::{lock, Change, Mobile, MobileResult, OlderState, Shared, TranscriptView};
 use crate::entries::{Applied, EntrySet};
 use crate::entry::ChatEntry;
-use crate::fold::Item;
 use crate::live::LiveState;
+use crate::reply::ReplyQuote;
 use crate::store::{Attachment, Cursor};
 
 /// The temporary chat's conversation starts with this (ferb-core `temporary::SESSION_PREFIX`).
@@ -97,9 +97,7 @@ impl TemporaryChat {
             e.cut = false;
             e
         });
-        let mut t = EntrySet::from_entries(entries).transcript(utc_offset_s);
-        // decision: APP-1146 — the Mac can't quote what only its memory holds: no bubble here offers a reply
-        t.items.iter_mut().for_each(Item::without_reply_offers);
+        let t = EntrySet::from_entries(entries).transcript(utc_offset_s);
         // decision: APP-1126 — what the chat draws live over its turns with no frame yet (the typing dots of a turn that
         // is working, its card's and checklist's rows): the same view as the normal chat's (`Mobile::transcript`), from
         // a live state that no watch feeds here, so nothing streams in it
@@ -129,8 +127,7 @@ impl Shared {
         let conversation = format!("{SESSION_PREFIX}{}", held.id);
         let mut st = self.state.lock();
         let conv = st.conv(&conversation).ok()?;
-        let mut t = conv.set.transcript(self.config.utc_offset_s);
-        t.items.iter_mut().for_each(Item::without_reply_offers);
+        let t = conv.set.transcript(self.config.utc_offset_s);
         let live = conv.live.view(&t);
         Some(TemporaryChat {
             on: true,
@@ -281,6 +278,19 @@ impl Mobile {
         text: &str,
         attachments: &[Attachment],
     ) -> MobileResult<TemporaryChat> {
+        self.send_temporary_reply(text, attachments, None)
+    }
+
+    /// A temporary message that quotes one of the temporary chat (APP-1146), as `send_reply` quotes in the chat:
+    /// `reply_to` is the quote of the bubble the owner replied to, sent as `chat.send`'s `reply_to` (the entry id; the
+    /// Mac quotes it from the temporary chat it holds in memory). A quote without an entry id is none; one the Mac
+    /// can't quote is dropped there and the message goes without it.
+    pub fn send_temporary_reply(
+        &self,
+        text: &str,
+        attachments: &[Attachment],
+        reply_to: Option<&ReplyQuote>,
+    ) -> MobileResult<TemporaryChat> {
         let t = self.shared.transport_online()?;
         let mut params =
             json!({"text": text, "fresh": true, "client_id": self.shared.config.client_id});
@@ -289,6 +299,10 @@ impl Mobile {
                 .iter()
                 .map(|a| a.upload_id.clone())
                 .collect::<Vec<_>>());
+        }
+        // decision: APP-1146 — the quoted entry, by the engine's id, as the chat's messages send it
+        if let Some(q) = reply_to.and_then(ReplyQuote::normalized) {
+            params["reply_to"] = json!(q.entry_id);
         }
         t.send(&params.to_string())
             .map_err(crate::api::MobileError::from_link)?;

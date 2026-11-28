@@ -223,6 +223,63 @@ class ReplyTest {
         assertFalse(vm.earlier.value)
     }
 
+    // decision: APP-1146 — the temporary chat quotes as the chat does: its bubbles offer their quotes, the swipe puts one
+    // above the box, it goes with the message as reply_to and comes back when the message couldn't go
+    @Test
+    fun the_temporary_chat_quotes_as_the_chat_does() {
+        phone.temporaryOn = true
+        phone.temporaryView = chat()
+        val vm = vm()
+        session.unlocked()
+        assertNotNull("the temporary chat is on", vm.ui.value.temporary)
+        val rows = vm.ui.value.temporary!!.rows
+        val q = rows.filterIsInstance<ChatRow.Answer>().first { it.quote != null }.quote!!
+        vm.reply(q)
+        assertEquals("the swipe puts it above the box", q, vm.replyQuote.value)
+        assertTrue("taken in the temporary chat", vm.quoteTemporary.value)
+        assertTrue(vm.focusAsk.value)
+        vm.typed("Make it 8:30")
+        vm.send()
+        assertEquals(listOf("Make it 8:30"), phone.temporarySent)
+        assertEquals("it went as reply_to", listOf<ReplyQuote?>(q), phone.temporaryQuotes)
+        assertNull("the box's quote went with the words", vm.replyQuote.value)
+        // a message that couldn't go: its words and its quote are back in the box
+        vm.reply(q)
+        vm.typed("And a window table")
+        phone.temporaryRefusal = Outcome.Failed(FerbException.Offline("FERB's Mac can't be reached now.", "mac_unreachable"))
+        vm.send()
+        assertEquals("And a window table", vm.draft.value)
+        assertEquals(q, vm.replyQuote.value)
+        assertTrue(vm.quoteTemporary.value)
+        // the temporary chat ends: its quote goes with it (the Mac forgot what it quotes)
+        phone.temporaryRefusal = null
+        vm.toggleTemporary()
+        assertNull(vm.ui.value.temporary)
+        assertNull(vm.replyQuote.value)
+    }
+
+    // decision: APP-1146 — a quote shows only in the chat it was taken in: one of the normal chat waits while the
+    // temporary chat is on, and a temporary message goes without it
+    @Test
+    fun a_quote_of_the_normal_chat_waits_while_the_temporary_chat_is_on() {
+        val vm = vm()
+        val q = ferbsAnswer
+        vm.reply(q)
+        assertFalse(vm.quoteTemporary.value)
+        vm.toggleTemporary()
+        assertNotNull(vm.ui.value.temporary)
+        assertFalse("not shown here: Esc does what it did", vm.dropReplyQuote())
+        vm.typed("what is 2+2")
+        vm.send()
+        assertEquals(listOf<ReplyQuote?>(null), phone.temporaryQuotes)
+        assertEquals("it still waits for the normal chat", q, vm.replyQuote.value)
+        vm.toggleTemporary()
+        assertNull(vm.ui.value.temporary)
+        vm.typed("Make it 8:30")
+        vm.send()
+        assertEquals("back in the normal chat it goes with the next message", listOf<ReplyQuote?>(q), phone.sentQuotes)
+    }
+
     // decision: APP-1146
     @Test
     fun the_swipe_follows_the_finger_to_its_reach_then_slows_and_only_a_sideways_swipe_is_one() {

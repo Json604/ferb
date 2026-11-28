@@ -929,20 +929,6 @@ impl Item {
             Item::Notice(n) | Item::Reminder(n) => &n.entry,
         }
     }
-
-    /// Its bubbles' quotes taken away (APP-1146): where the engine can't quote what it shows (the temporary chat's
-    /// entries live only in the Mac's memory, which `chat.send`'s `reply_to` doesn't read), no bubble offers a reply.
-    pub fn without_reply_offers(&mut self) {
-        match self {
-            Item::Turn(t) => {
-                t.message_quote = None;
-                t.first_reply_quote = None;
-                t.answer_quote = None;
-            }
-            Item::Reply(r) => r.quote = None,
-            Item::Notice(n) | Item::Reminder(n) => n.quote = None,
-        }
-    }
 }
 
 /// The item that shows the entry `entry_id` (FERB.app's `shownTarget(ofEntry:)`): where tapping a quote of it goes,

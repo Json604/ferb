@@ -134,7 +134,9 @@ public protocol PhoneApi: AnyObject {
     func temporaryChat() async -> Outcome<TemporaryChat>
     func setTemporaryChat(on: Bool) async -> Outcome<TemporaryChat>
     func sendTemporary(_ text: String) async -> Outcome<TemporaryChat>
-    func sendTemporary(_ text: String, attachments: [Attachment]) async -> Outcome<TemporaryChat>
+    /// With files and, replying to one of the temporary chat's messages, its quote (`replyTo`, kb APP-1146: `chat.send`'s
+    /// `reply_to`, as `sendWith` sends one in the chat).
+    func sendTemporary(_ text: String, attachments: [Attachment], replyTo: ReplyQuote?) async -> Outcome<TemporaryChat>
     func lastTemporaryChat() async -> Outcome<TemporaryChat?>
 
     /// Keys made after pairing the Mac doesn't hold (Face ID or Touch ID enrolled later), and registering them
@@ -299,8 +301,8 @@ public final class LibraryPhone: PhoneApi {
     public func sendTemporary(_ text: String) async -> Outcome<TemporaryChat> {
         await Self.laidOut(await phone.call { try $0.sendTemporary(text: text) })
     }
-    public func sendTemporary(_ text: String, attachments: [Attachment]) async -> Outcome<TemporaryChat> {
-        await Self.laidOut(await phone.call { try $0.sendTemporaryWith(text: text, attachments: attachments) })
+    public func sendTemporary(_ text: String, attachments: [Attachment], replyTo: ReplyQuote?) async -> Outcome<TemporaryChat> {
+        await Self.laidOut(await phone.call { try $0.sendTemporaryWith(text: text, attachments: attachments, replyTo: replyTo) })
     }
     public func lastTemporaryChat() async -> Outcome<TemporaryChat?> {
         let read = await phone.call { try $0.lastTemporaryChat() }

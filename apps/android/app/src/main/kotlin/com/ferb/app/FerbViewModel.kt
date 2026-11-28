@@ -897,7 +897,11 @@ class FerbViewModel(
         // off drops the copy at once: the normal chat shows again, and its messages still on their way go
         val was = lastTemporary
         lastTemporary = t?.takeIf { it.on }
-        if (was != null && lastTemporary == null) outgoing.dropTemporary()
+        if (was != null && lastTemporary == null) {
+            outgoing.dropTemporary()
+            // a quote taken in it goes with it: the Mac forgot what it quotes
+            if (_quoteTemporary.value) setReplyQuote(null)
+        }
         apply(null, statusOnly = true)
     }
 
@@ -923,21 +927,29 @@ class FerbViewModel(
      * A message in the temporary chat: sent now with `fresh: true`, never the outbox; it shows at once as his message on
      * its way, as in the chat (APP-1126). A failure takes it away and puts the words back in the box.
      */
-    private suspend fun sendTemporary(text: String, files: List<Attachment> = emptyList()) {
+    private suspend fun sendTemporary(text: String, files: List<Attachment> = emptyList(), quote: com.ferb.mobile.ReplyQuote? = null) {
         if (text.isEmpty() && files.isEmpty()) return
         saved["draft"] = ""
+        // the quote goes with the words (a quote of the normal chat waits there)
+        if (quote != null) setReplyQuote(null)
         temporarySends += 1
         val at = java.time.Instant.ofEpochMilli(now()).toString()
         temporarySending = TemporarySending(
-            com.ferb.mobile.OutboxItem("temporary-$temporarySends", text, at, "sending", null, null, false, files),
+            com.ferb.mobile.OutboxItem("temporary-$temporarySends", text, at, "sending", null, null, false, files, quote),
             ChatModel.said(lastTemporary?.transcript, text),
         )
         apply(null, statusOnly = true)
-        val r = if (files.isEmpty()) api.sendTemporary(text) else api.sendTemporaryWith(text, files)
+        val r = if (files.isEmpty() && quote == null) api.sendTemporary(text) else api.sendTemporaryWith(text, files, quote)
         temporarySending = null
         when (r) {
             is Outcome.Ok -> { if (files.isNotEmpty()) transfers.sent(); showTemporary(r.value) }
-            is Outcome.Failed -> { saved["draft"] = text; apply(null, statusOnly = true); failed(r.error) }
+            // not sent: his words and the quote are back in the box, as in the chat
+            is Outcome.Failed -> {
+                saved["draft"] = text
+                if (quote != null && _replyQuote.value == null) setReplyQuote(quote, temporary = true)
+                apply(null, statusOnly = true)
+                failed(r.error)
+            }
         }
     }
 
@@ -1648,24 +1660,26 @@ class FerbViewModel(
     fun send() = busy("send") {
         val text = draft.value.trim()
         val files = transfers.ready.value
+        // the message he replies to goes with it, as his words do (kb APP-1146; FERB.app's takeComposerQuote): the
+        // quote shown in the chat on now
+        val quote = shownQuote()
         if (_ui.value.temporary != null) {
             // the temporary chat sends as the chat does (the owner, 2026-11-24, ORCH-715): the box's files go to the
             // Mac first, then the message with them, `fresh`; files already on the Mac go with it now
             if (outgoing.chips.value.isNotEmpty()) {
                 saved["draft"] = ""
-                outgoing.send(text, files, temporary = true)
+                if (quote != null) setReplyQuote(null)
+                outgoing.send(text, files, temporary = true, replyTo = quote)
                 if (files.isNotEmpty()) transfers.sent()
                 return@busy
             }
-            sendTemporary(text, files)
+            sendTemporary(text, files, quote)
             return@busy
         }
-        // the message he replies to goes with it, as his words do (kb APP-1146; FERB.app's takeComposerQuote)
-        val quote = replyQuote.value
         // files in the box: the message shows at once and goes when its files are on the Mac (kb PHN-690, PHN-691)
         if (outgoing.chips.value.isNotEmpty()) {
             saved["draft"] = ""
-            setReplyQuote(null)
+            if (quote != null) setReplyQuote(null)
             // a send from the earlier days goes to today, where his message is (kb PHN-698)
             saved["earlier"] = false
             outgoing.send(text, files, replyTo = quote)
@@ -1674,7 +1688,7 @@ class FerbViewModel(
         }
         if (text.isEmpty() && files.isEmpty()) return@busy
         saved["draft"] = ""
-        setReplyQuote(null)
+        if (quote != null) setReplyQuote(null)
         saved["earlier"] = false
         val r = if (files.isEmpty() && quote == null) api.send(text) else api.sendWith(text, files, quote)
         when (r) {
@@ -2292,35 +2306,47 @@ class FerbViewModel(
     // ---- reply to a message (kb APP-1146) ---------------------------------------------------------------------------
 
     private val _replyQuote = MutableStateFlow(readReplyQuote())
+    private val _quoteTemporary = MutableStateFlow(saved.get<ArrayList<String>>("reply_quote")?.getOrNull(4) == "temporary")
 
     /**
      * The message he replies to, above the message box (the owner, 2026-11-27: "quote any ferb's reply message, either
      * slide or an on hover icon maybe"; "yeah my messages too"): it goes with his next message as `reply_to`, and the
-     * box's ✕ (or Esc) drops it; the draft stays either way. Kept as the draft is, across a rebuilt screen.
+     * box's ✕ (or Esc) drops it; the draft stays either way. Kept as the draft is, across a rebuilt screen. It shows only
+     * in the chat it was taken in ([quoteTemporary]): one of the normal chat waits while the temporary chat is on.
      */
     val replyQuote: StateFlow<com.ferb.mobile.ReplyQuote?> = _replyQuote.asStateFlow()
 
+    /** Whether [replyQuote] was taken in the temporary chat (it shows there only) or in the normal chat. */
+    val quoteTemporary: StateFlow<Boolean> = _quoteTemporary.asStateFlow()
+
     private fun readReplyQuote(): com.ferb.mobile.ReplyQuote? {
         val kept = saved.get<ArrayList<String>>("reply_quote") ?: return null
-        if (kept.size != 4 || kept[0].isEmpty()) return null
+        if (kept.size < 4 || kept[0].isEmpty()) return null
         return com.ferb.mobile.ReplyQuote(kept[0], kept[1], kept[2] == "owner", kept[3])
     }
 
-    private fun setReplyQuote(q: com.ferb.mobile.ReplyQuote?) {
+    private fun setReplyQuote(q: com.ferb.mobile.ReplyQuote?, temporary: Boolean = false) {
         _replyQuote.value = q
-        saved["reply_quote"] = q?.let { arrayListOf(it.entryId, it.kind, if (it.byOwner) "owner" else "ferb", it.excerpt) }
+        _quoteTemporary.value = q != null && temporary
+        saved["reply_quote"] = q?.let {
+            arrayListOf(it.entryId, it.kind, if (it.byOwner) "owner" else "ferb", it.excerpt, if (temporary) "temporary" else "chat")
+        }
     }
+
+    /** The quote the message box shows in the chat on now: only in the chat it was taken in. */
+    private fun shownQuote(): com.ferb.mobile.ReplyQuote? =
+        _replyQuote.value?.takeIf { _quoteTemporary.value == (_ui.value.temporary != null) }
 
     /** He swiped a message (or chose Reply on it): its quote goes above the message box, which takes the cursor. */
     fun reply(to: com.ferb.mobile.ReplyQuote) {
         if (to.entryId.isEmpty()) return
-        setReplyQuote(to)
+        setReplyQuote(to, temporary = _ui.value.temporary != null)
         _focusAsk.value = true
     }
 
-    /** The quote's ✕ or Esc: the quote goes, the draft stays. False when there was none (Esc then does what it did). */
+    /** The quote's ✕ or Esc: the quote goes, the draft stays. False when none shows (Esc then does what it did). */
     fun dropReplyQuote(): Boolean {
-        if (_replyQuote.value == null) return false
+        if (shownQuote() == null) return false
         setReplyQuote(null)
         return true
     }

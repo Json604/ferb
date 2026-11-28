@@ -488,8 +488,9 @@ public final class AppModel {
 
     // MARK: reply to a message (kb APP-1146, APP-1147; FERB.app's ReplyQuotes.swift)
 
-    /// The quote waiting in the message box, and whether it was taken in the temporary chat (it shows only where it was
-    /// taken; no bubble of the temporary chat offers one now, the library's quotes there are nil).
+    /// The quote waiting in the message box, and whether it was taken in the temporary chat: it shows only where it was
+    /// taken (one of the normal chat waits while the temporary chat is on), and one of the temporary chat goes when it
+    /// ends.
     public struct ComposerQuote: Equatable, Sendable {
         public let quote: ReplyQuote
         public let temporary: Bool
@@ -515,6 +516,11 @@ public final class AppModel {
     /// The quote's ✕: it goes, the draft stays.
     public func dropReplyQuote() { composerQuote = nil }
 
+    /// The temporary chat ended: a quote taken in it goes with it (the Mac forgot what it quotes).
+    private func dropTemporaryQuote() {
+        if composerQuote?.temporary == true { composerQuote = nil }
+    }
+
     /// The quote of the message sent now: it goes with the draft.
     private func takeQuote() -> ReplyQuote? {
         guard let q = shownQuote else { return nil }
@@ -526,7 +532,12 @@ public final class AppModel {
     /// phone holds: in the other place (today's chat or the earlier days) the chat goes there first; when the phone
     /// doesn't hold it (older than the pages fetched, or gone) nothing moves, as on FERB.app and Android.
     public func showQuoted(_ quote: ReplyQuote) {
-        guard temporary == nil else { return }
+        // the temporary chat's quotes are looked for among its own rows only
+        if let t = temporary {
+            guard let key = ChatModel.quotedRow(t.rows, t.replies, entryId: quote.entryId) else { return }
+            light(key)
+            return
+        }
         let here = earlier ? places.earlier : places.today
         let there = earlier ? places.today : places.earlier
         let key: String
@@ -539,6 +550,11 @@ public final class AppModel {
         } else {
             return
         }
+        light(key)
+    }
+
+    /// The quoted message's row comes into view and lights up for a moment.
+    private func light(_ key: String) {
         toQuoted = (key, (toQuoted?.n ?? 0) + 1)
         quotedLast = true
         quoteLit = key
@@ -1876,27 +1892,31 @@ public final class AppModel {
             // (never the outbox): the box's files go to the Mac first, then the message with them; files already on the
             // Mac go with it now
             if temporary != nil {
+                // the quote he chose goes with the words as `reply_to` (kb APP-1146), as in the chat
                 if !outgoing.chips.isEmpty {
                     draft = ""
-                    outgoing.send(text, onMac: files, temporary: true)
+                    outgoing.send(text, onMac: files, temporary: true, replyTo: takeQuote())
                     if !files.isEmpty { transfers.sent() }
                     return
                 }
                 if text.isEmpty && files.isEmpty { return }
                 draft = ""
+                let quote = takeQuote()
                 // his message shows at once as the chat shows his outbox, until the Mac's chat holds it (APP-1126)
                 temporarySends += 1
                 temporarySending = OutboxItem(id: "temporary-\(temporarySends)", text: text,
                                               createdAt: ISO8601DateFormatter().string(from: now()), state: "sending",
-                                              waitingFor: nil, reason: nil, tried: false, attachments: files)
+                                              waitingFor: nil, reason: nil, tried: false, attachments: files, replyTo: quote)
                 if let t = lastTemporary { showTemporary(t) }
                 var sent = false
                 await callTemporary {
-                    let r = files.isEmpty ? await self.api.sendTemporary(text) : await self.api.sendTemporary(text, attachments: files)
+                    let r = files.isEmpty && quote == nil
+                        ? await self.api.sendTemporary(text) : await self.api.sendTemporary(text, attachments: files, replyTo: quote)
                     if case .ok = r { sent = true }
                     return r
                 } failed: { e in
                     self.draft = text
+                    if let quote, self.composerQuote == nil { self.composerQuote = ComposerQuote(quote: quote, temporary: true) }
                     self.failed(e)
                 }
                 if sent && !files.isEmpty { transfers.sent() }
@@ -2769,7 +2789,7 @@ public final class AppModel {
     /// his message on its way at its end until the send is answered.
     private func showTemporary(_ t: TemporaryChat) {
         // ended (on any device): its messages with files still on their way go too
-        if lastTemporary != nil && !t.on { outgoing.dropTemporary() }
+        if lastTemporary != nil && !t.on { outgoing.dropTemporary(); dropTemporaryQuote() }
         lastTemporary = t.on ? t : nil
         let shown = t.on ? TemporaryShown(t, sending: temporarySending) : nil
         if temporary != shown { temporary = shown }
@@ -2780,6 +2800,7 @@ public final class AppModel {
     /// on their way go.
     private func temporaryEnded() {
         outgoing.dropTemporary()
+        dropTemporaryQuote()
         lastTemporary = nil
         if temporary != nil { temporary = nil }
         runTemporary()
