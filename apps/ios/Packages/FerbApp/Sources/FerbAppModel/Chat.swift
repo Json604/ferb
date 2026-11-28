@@ -119,7 +119,47 @@ public enum ChatRow: Equatable, Identifiable {
     public var id: String { key }
 }
 
+/// Reply to a message (kb APP-1146, APP-1147; FERB.app's ReplyQuote.swift): what a row's bubble offers as a quote when
+/// he replies to it (nil: no reply, a bubble with no words or no engine entry, or the temporary chat), and what his
+/// message quotes (drawn above his words). Both come from the phone library's fold.
+public struct RowReply: Equatable, Sendable {
+    public var quote: ReplyQuote?
+    public var quoting: ReplyQuote?
+    public init(quote: ReplyQuote? = nil, quoting: ReplyQuote? = nil) { self.quote = quote; self.quoting = quoting }
+}
+
 public enum ChatModel {
+    /// Each row's reply (kb APP-1146), by the row's key as `rows` makes it: his message (`entry`) offers its own quote
+    /// and shows what it quotes; FERB's first reply (`entry:first`), the answer drawn at a turn (`entry:answer`, with a
+    /// card `entry:card:answer`), a later answer (`entry:answer`) and a notice or reminder (`entry`) offer theirs. Only
+    /// rows with something are in it.
+    public static func replies(_ view: TranscriptView?) -> [String: RowReply] {
+        var out: [String: RowReply] = [:]
+        func put(_ key: String, quote: ReplyQuote?, quoting: ReplyQuote? = nil) {
+            if quote != nil || quoting != nil { out[key] = RowReply(quote: quote, quoting: quoting) }
+        }
+        for item in view?.items ?? [] {
+            switch item {
+            case .turn(let t):
+                put(t.entry, quote: t.messageQuote, quoting: t.replyTo)
+                put("\(t.entry):first", quote: t.firstReplyQuote)
+                put("\(t.entry):answer", quote: t.answerQuote)
+                put("\(t.entry):card:answer", quote: t.answerQuote)
+            case .reply(let r):
+                put("\(r.entry):answer", quote: r.quote)
+            case .notice(let n), .reminder(let n):
+                put(n.entry, quote: n.quote)
+            }
+        }
+        return out
+    }
+
+    /// The key of the row among `rows` whose bubble is the engine entry `entryId` (where a tap on a quote of it goes),
+    /// or nil when none of them shows it.
+    public static func quotedRow(_ rows: [ChatRow], _ replies: [String: RowReply], entryId: String) -> String? {
+        rows.first { replies[$0.key]?.quote?.entryId == entryId }?.key
+    }
+
     /// When `item`'s entry was made (the library's `at`: seconds since 2001-01-01, Foundation's reference date).
     public static func date(_ item: Item) -> Date {
         switch item {

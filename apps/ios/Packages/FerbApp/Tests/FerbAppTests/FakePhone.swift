@@ -53,6 +53,9 @@ final class FakePhone: PhoneApi {
     /// An upload waits here half way until it is let go (a cancel lets it go, refused as stopped).
     @ObservationIgnored var uploadGate: Latch?
     @ObservationIgnored var sentWith: [(String, [Attachment])] = []
+    /// The quote each `sendWith` carried (kb APP-1146), and what it answers instead of the outbox item (a refusal).
+    @ObservationIgnored var sentQuotes: [ReplyQuote?] = []
+    @ObservationIgnored var sendWithResult: Outcome<OutboxItem>?
     @ObservationIgnored var preview: PreviewSink?
     @ObservationIgnored var previewStopped = 0
     @ObservationIgnored var settingsValues: [(String, String)] = []
@@ -241,10 +244,12 @@ final class FakePhone: PhoneApi {
     }
     func lastStatus() async -> PhoneStatus? { status }
     func markReadLatest(conversation: String) async -> Outcome<Void> { calls.append("mark:\(conversation)"); return .ok(()) }
-    func sendWith(_ text: String, attachments: [Attachment]) async -> Outcome<OutboxItem> {
+    func sendWith(_ text: String, attachments: [Attachment], replyTo: ReplyQuote?) async -> Outcome<OutboxItem> {
         sentWith.append((text, attachments))
+        sentQuotes.append(replyTo)
+        if let r = sendWithResult { return r }
         let item = OutboxItem(id: "o\(outbox.count + 1)", text: text, createdAt: "2026-01-02T10:00:00+00:00", state: "waiting",
-                              waitingFor: "link", reason: nil, tried: false, attachments: attachments)
+                              waitingFor: "link", reason: nil, tried: false, attachments: attachments, replyTo: replyTo)
         outbox.append(item)
         return .ok(item)
     }

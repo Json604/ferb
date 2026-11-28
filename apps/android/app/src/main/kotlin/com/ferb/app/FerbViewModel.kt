@@ -1660,26 +1660,31 @@ class FerbViewModel(
             sendTemporary(text, files)
             return@busy
         }
+        // the message he replies to goes with it, as his words do (kb APP-1146; FERB.app's takeComposerQuote)
+        val quote = replyQuote.value
         // files in the box: the message shows at once and goes when its files are on the Mac (kb PHN-690, PHN-691)
         if (outgoing.chips.value.isNotEmpty()) {
             saved["draft"] = ""
+            setReplyQuote(null)
             // a send from the earlier days goes to today, where his message is (kb PHN-698)
             saved["earlier"] = false
-            outgoing.send(text, files)
+            outgoing.send(text, files, replyTo = quote)
             if (files.isNotEmpty()) transfers.sent()
             return@busy
         }
         if (text.isEmpty() && files.isEmpty()) return@busy
         saved["draft"] = ""
+        setReplyQuote(null)
         saved["earlier"] = false
-        val r = if (files.isEmpty()) api.send(text) else api.sendWith(text, files)
+        val r = if (files.isEmpty() && quote == null) api.send(text) else api.sendWith(text, files, quote)
         when (r) {
             is Outcome.Ok -> {
                 if (files.isNotEmpty()) transfers.sent()
                 if (r.value.waitingFor == "unlock") macLocked()
                 cantNotifyOnce()
             }
-            is Outcome.Failed -> { saved["draft"] = text; failed(r.error) }
+            // not sent: his words and the quote are back in the box (a message that waits keeps its quote in the outbox)
+            is Outcome.Failed -> { saved["draft"] = text; if (replyQuote.value == null) setReplyQuote(quote); failed(r.error) }
         }
         refresh()
     }
@@ -2284,6 +2289,92 @@ class FerbViewModel(
     val focusAsk: StateFlow<Boolean> = _focusAsk.asStateFlow()
     fun focusTaken() { _focusAsk.value = false }
 
+    // ---- reply to a message (kb APP-1146) ---------------------------------------------------------------------------
+
+    private val _replyQuote = MutableStateFlow(readReplyQuote())
+
+    /**
+     * The message he replies to, above the message box (the owner, 2026-11-27: "quote any ferb's reply message, either
+     * slide or an on hover icon maybe"; "yeah my messages too"): it goes with his next message as `reply_to`, and the
+     * box's ✕ (or Esc) drops it; the draft stays either way. Kept as the draft is, across a rebuilt screen.
+     */
+    val replyQuote: StateFlow<com.ferb.mobile.ReplyQuote?> = _replyQuote.asStateFlow()
+
+    private fun readReplyQuote(): com.ferb.mobile.ReplyQuote? {
+        val kept = saved.get<ArrayList<String>>("reply_quote") ?: return null
+        if (kept.size != 4 || kept[0].isEmpty()) return null
+        return com.ferb.mobile.ReplyQuote(kept[0], kept[1], kept[2] == "owner", kept[3])
+    }
+
+    private fun setReplyQuote(q: com.ferb.mobile.ReplyQuote?) {
+        _replyQuote.value = q
+        saved["reply_quote"] = q?.let { arrayListOf(it.entryId, it.kind, if (it.byOwner) "owner" else "ferb", it.excerpt) }
+    }
+
+    /** He swiped a message (or chose Reply on it): its quote goes above the message box, which takes the cursor. */
+    fun reply(to: com.ferb.mobile.ReplyQuote) {
+        if (to.entryId.isEmpty()) return
+        setReplyQuote(to)
+        _focusAsk.value = true
+    }
+
+    /** The quote's ✕ or Esc: the quote goes, the draft stays. False when there was none (Esc then does what it did). */
+    fun dropReplyQuote(): Boolean {
+        if (_replyQuote.value == null) return false
+        setReplyQuote(null)
+        return true
+    }
+
+    /** Where a tap on a quote goes: [item] (the library's `quotedItem`; empty: look for the bubble only) and its entry. */
+    data class Quoted(val item: String, val entryId: String, val n: Int)
+
+    private val _quoted = MutableStateFlow<Quoted?>(null)
+
+    /** A quote was tapped: the chat brings this message into view, then calls [quotedReached]. */
+    val quoted: StateFlow<Quoted?> = _quoted.asStateFlow()
+    private var quotedTaps = 0
+    private val _quoteLit = MutableStateFlow<String?>(null)
+
+    /** The entry of the quoted message that lights up briefly once it is in view (FERB.app's `quoteHighlight`). */
+    val quoteLit: StateFlow<String?> = _quoteLit.asStateFlow()
+
+    /**
+     * He tapped a quote (above his sent message, or the one in the box): the quoted message comes into view and lights
+     * up briefly, in today's chat or the earlier days, wherever its day is. Nothing moves when the pages this phone
+     * holds don't have it (an older message no page fetched yet, or one gone): FERB.app does the same.
+     */
+    fun showQuoted(q: com.ferb.mobile.ReplyQuote) {
+        val temporary = _ui.value.temporary != null
+        val view = lastView
+        viewModelScope.launch {
+            // the temporary chat's quotes are looked for among its own rows only
+            val item = if (temporary) "" else view?.let { v -> withContext(io) { runCatching { com.ferb.mobile.quotedItem(v.items, q.entryId) }.getOrNull() } }
+                ?: return@launch
+            if (!temporary) {
+                val today = _ui.value.chatDay.takeIf { it > 0 } ?: ChatModel.chatDay(System.currentTimeMillis(), zone)
+                val day = _ui.value.days[item]
+                saved["earlier"] = day != null && day < today
+            }
+            saved["tab"] = PhoneTab.CHAT
+            _sheet.value = null
+            val t = Quoted(item, q.entryId, ++quotedTaps)
+            _quoted.value = t
+            // a chat that never finds it lets it go (its page still loading, the rows changed under it)
+            kotlinx.coroutines.delay(QUOTED_WAIT_MS)
+            if (_quoted.value == t) _quoted.value = null
+        }
+    }
+
+    /** The chat brought the quoted message into view: it lights up for a moment. */
+    fun quotedReached(t: Quoted) {
+        if (_quoted.value == t) _quoted.value = null
+        _quoteLit.value = t.entryId
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(QUOTE_LIT_MS)
+            if (_quoteLit.value == t.entryId) _quoteLit.value = null
+        }
+    }
+
     /** Back to today from the earlier days (kb PHN-698): its chat, or its home page while nothing was said on it. */
     fun backToToday() {
         saved["tab"] = PhoneTab.CHAT
@@ -2345,7 +2436,7 @@ class FerbViewModel(
         live.stop()
         return when (val r = api.forget()) {
             is Outcome.Ok -> {
-                prefs.forgetPairing(); saved["tab"] = PhoneTab.CHAT; saved["earlier"] = false
+                prefs.forgetPairing(); saved["tab"] = PhoneTab.CHAT; saved["earlier"] = false; setReplyQuote(null)
                 withContext(Dispatchers.IO) { transfers.clear(); outgoing.clear() }
                 statement = null
                 _ui.update { it.copy(mac = null, macTasks = null, files = FilesUi(), settings = null, status = null,
@@ -2443,6 +2534,12 @@ class FerbViewModel(
     }
 
     companion object {
+        /** How long a tapped quote's message stays lit (FERB.app's `showQuoted`: 1.4 s, kb APP-1146). */
+        const val QUOTE_LIT_MS = 1_400L
+
+        /** How long the chat may take to find a tapped quote's message (a page switch, rows still coming) before it lets go. */
+        const val QUOTED_WAIT_MS = 3_000L
+
         /**
          * How long the link may be not online, with the app open and unlocked, before the app says it can't reach the
          * Mac: 10 s, the owner's (kb PHN-757); the connect itself takes about a second after the link fix.

@@ -249,11 +249,13 @@ fun FerbRichBubble(
     modifier: Modifier = Modifier,
     copy: String = "",
     maxWidth: Dp = Phone.bubbleMaxFerb,
+    /** On the bubble itself, before its background (the reply swipe, kb APP-1146). */
+    bubble: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
     androidx.compose.foundation.layout.Box(modifier.fillMaxWidth()) {
         Column(
-            Modifier.widthIn(max = maxWidth).background(Ink.black, RoundedFerb)
+            bubble.widthIn(max = maxWidth).background(Ink.black, RoundedFerb)
                 .semantics { if (copy.isNotEmpty()) contentDescription = "FERB: $copy" }
                 .padding(horizontal = 16.dp, vertical = 11.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -261,7 +263,8 @@ fun FerbRichBubble(
     }
 }
 
-internal val RoundedFerb = androidx.compose.foundation.shape.RoundedCornerShape(Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleTail)
+/** FERB's bubble's shape (its tail corner at the bottom left). */
+val RoundedFerb = androidx.compose.foundation.shape.RoundedCornerShape(Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleTail)
 
 /**
  * FERB's blocks drawn whole: words as one selectable text that folds as FERB.app's (see [RichWords]); a table as a grid

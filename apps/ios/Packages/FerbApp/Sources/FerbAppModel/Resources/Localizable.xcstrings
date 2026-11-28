@@ -3193,6 +3193,83 @@
         }
       }
     },
+    "reply_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reply"
+          }
+        }
+      }
+    },
+    "reply_drop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't reply to this message"
+          }
+        }
+      }
+    },
+    "reply_ferb": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FERB"
+          }
+        }
+      }
+    },
+    "reply_show": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show this message"
+          }
+        }
+      }
+    },
+    "reply_to_ferb": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replying to FERB: %1$@"
+          }
+        }
+      }
+    },
+    "reply_to_yours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replying to your message: %1$@"
+          }
+        }
+      }
+    },
+    "reply_you": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You"
+          }
+        }
+      }
+    },
     "review_sheet_empty": {
       "extractionState": "manual",
       "localizations": {

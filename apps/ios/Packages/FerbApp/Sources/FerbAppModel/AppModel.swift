@@ -304,6 +304,8 @@ public final class AppModel {
     /// phone's zone: the day dividers, kb PHN-627): apart from [ui], so a streamed word changes only these.
     public private(set) var rows: [ChatRow] = []
     public private(set) var days: [String: Int] = [:]
+    /// Each row's reply by its key (kb APP-1146, ChatModel.replies): the quote its bubble offers, the one his message shows.
+    public private(set) var replies: [String: RowReply] = [:]
     /// Today's chat and the earlier days as the chat draws them (ChatModel.withDays and split over the rows and the
     /// messages with files, kb PHN-696), made off the main actor for a long chat (kb PHN-714).
     public private(set) var places = ChatModel.Places(today: [], earlier: [])
@@ -464,6 +466,16 @@ public final class AppModel {
 
     /// A question's box to bring into view in today's chat (a notification's tap, the Tasks tab's row; kb PHN-770).
     public private(set) var toQuestion: (id: String, n: Int)? = nil
+    /// The quoted message's row to bring into view (a tap on a quote, kb APP-1146), and whether it was asked for after
+    /// the question's box (the chat brings the newer one).
+    public private(set) var toQuoted: (key: String, n: Int)? = nil
+    @ObservationIgnored private var quotedLast = false
+
+    /// The row the chat brings into view: the newest of a question's box and a quoted message.
+    public var chatReveal: (id: String, n: Int)? {
+        if quotedLast, let q = toQuoted { return (q.key, q.n) }
+        return toQuestion.map { ("q:\($0.id)", $0.n) }
+    }
 
     /// Today's chat with this question's box in view: where it is answered (kb PHN-770).
     public func goToQuestion(_ approvalId: String) {
@@ -471,6 +483,71 @@ public final class AppModel {
         earlier = false
         sheet = nil
         toQuestion = (approvalId, (toQuestion?.n ?? 0) + 1)
+        quotedLast = false
+    }
+
+    // MARK: reply to a message (kb APP-1146, APP-1147; FERB.app's ReplyQuotes.swift)
+
+    /// The quote waiting in the message box, and whether it was taken in the temporary chat (it shows only where it was
+    /// taken; no bubble of the temporary chat offers one now, the library's quotes there are nil).
+    public struct ComposerQuote: Equatable, Sendable {
+        public let quote: ReplyQuote
+        public let temporary: Bool
+    }
+    public private(set) var composerQuote: ComposerQuote?
+    /// The row lit up for a moment as the quoted message (FERB.app's `quoteHighlight`).
+    public private(set) var quoteLit: String?
+    @ObservationIgnored private var litTimer: Task<Void, Never>?
+
+    /// The quote the message box shows: only in the chat it was taken in.
+    public var shownQuote: ReplyQuote? {
+        guard let q = composerQuote, q.temporary == (temporary != nil) else { return nil }
+        return q.quote
+    }
+
+    /// He swiped a bubble (or chose Reply): its quote waits above the words and the box takes the cursor. A newer one
+    /// replaces it; the draft stays.
+    public func reply(to quote: ReplyQuote) {
+        composerQuote = ComposerQuote(quote: quote, temporary: temporary != nil)
+        focusAsk = true
+    }
+
+    /// The quote's ✕: it goes, the draft stays.
+    public func dropReplyQuote() { composerQuote = nil }
+
+    /// The quote of the message sent now: it goes with the draft.
+    private func takeQuote() -> ReplyQuote? {
+        guard let q = shownQuote else { return nil }
+        composerQuote = nil
+        return q
+    }
+
+    /// A tap on a quote: the quoted message comes into view and lights up for a moment. It is found among the rows the
+    /// phone holds: in the other place (today's chat or the earlier days) the chat goes there first; when the phone
+    /// doesn't hold it (older than the pages fetched, or gone) nothing moves, as on FERB.app and Android.
+    public func showQuoted(_ quote: ReplyQuote) {
+        guard temporary == nil else { return }
+        let here = earlier ? places.earlier : places.today
+        let there = earlier ? places.today : places.earlier
+        let key: String
+        if let k = ChatModel.quotedRow(here, replies, entryId: quote.entryId) {
+            key = k
+        } else if let k = ChatModel.quotedRow(there, replies, entryId: quote.entryId) {
+            key = k
+            tab = .chat
+            if earlier { backToToday() } else { openChat() }
+        } else {
+            return
+        }
+        toQuoted = (key, (toQuoted?.n ?? 0) + 1)
+        quotedLast = true
+        quoteLit = key
+        litTimer?.cancel()
+        litTimer = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_400_000_000)
+            guard !Task.isCancelled, let self, self.quoteLit == key else { return }
+            self.quoteLit = nil
+        }
     }
 
     /// What the shell keeps in scene storage (and passes back at the next launch).
@@ -914,6 +991,7 @@ public final class AppModel {
     private struct Made: @unchecked Sendable {
         let rows: [ChatRow]
         let days: [String: Int]
+        let replies: [String: RowReply]
         let running: RunningUi?
         let chatWork: Work
 
@@ -923,6 +1001,7 @@ public final class AppModel {
             #endif
             rows = ChatModel.rows(view)
             days = ChatModel.days(view, Calendar.current)
+            replies = ChatModel.replies(view)
             // the chat's work row never counts a temporary chat's tasks
             running = RunningModel.of(view, status: statusPart(status, temporary: false), mac: mac)
             chatWork = WorkModel.of(view, asking: "")
@@ -940,6 +1019,7 @@ public final class AppModel {
         rows = made.rows
         ui.running = made.running
         if days != made.days { days = made.days }
+        if replies != made.replies { replies = made.replies }
         rebuildPlaces()
         if !storedShown && !rows.isEmpty {
             storedShown = true
@@ -1827,20 +1907,23 @@ public final class AppModel {
                 draft = ""
                 // a send from the earlier days goes to today, where his message is (kb PHN-698)
                 earlier = false
-                outgoing.send(text, onMac: files)
+                outgoing.send(text, onMac: files, replyTo: takeQuote())
                 if !files.isEmpty { transfers.sent() }
                 return
             }
             if text.isEmpty && files.isEmpty { return }
             draft = ""
             earlier = false
-            let r = files.isEmpty ? await api.send(text) : await api.sendWith(text, attachments: files)
+            // the quote he chose goes with the words as `reply_to` (kb APP-1146) and comes back with them if it fails
+            let quote = takeQuote()
+            let r = files.isEmpty && quote == nil ? await api.send(text) : await api.sendWith(text, attachments: files, replyTo: quote)
             switch r {
             case .ok(let item):
                 if !files.isEmpty { transfers.sent() }
                 if item.waitingFor == "unlock" { macLocked() }
             case .failed(let e):
                 draft = text
+                if let quote, composerQuote == nil { composerQuote = ComposerQuote(quote: quote, temporary: false) }
                 failed(e)
             }
             await refresh()?.value
@@ -2445,7 +2528,8 @@ public final class AppModel {
         if focus { focusAsk = true }
     }
 
-    /// The message box takes the cursor once (a tap on FERB's question's notification: he answers it there, kb PHN-739).
+    /// The message box takes the cursor once (a tap on FERB's question's notification: he answers it there, kb PHN-739;
+    /// a reply to a message, kb APP-1146).
     public private(set) var focusAsk = false
     public func focusTaken() { focusAsk = false }
 
@@ -2523,6 +2607,7 @@ public final class AppModel {
             presented = []
             transfers.clear()
             outgoing.clear()
+            composerQuote = nil
             ui.mac = nil
             ui.macTasks = nil
             ui.files = FilesUi()

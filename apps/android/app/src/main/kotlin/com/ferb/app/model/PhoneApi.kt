@@ -138,7 +138,8 @@ interface PhoneApi {
     suspend fun watchCamera(sink: CameraSink): Outcome<Live>
 
     suspend fun markReadLatest(conversation: String): Outcome<Unit>
-    suspend fun sendWith(text: String, attachments: List<Attachment>): Outcome<OutboxItem>
+    /** A message with files, or quoting one of the chat's messages ([replyTo], kb APP-1146: `chat.send`'s `reply_to`). */
+    suspend fun sendWith(text: String, attachments: List<Attachment>, replyTo: com.ferb.mobile.ReplyQuote? = null): Outcome<OutboxItem>
 
     // files (PHN-113, PHN-115, PHN-127): the blocking ones run on IO and end with Cancelled when paused
     /** A folder's listing, a page at a time (PHN-606): [after] is the page before's `next` ("Load more"). */
@@ -286,7 +287,8 @@ class LibraryPhone(private val phone: FerbPhone) : PhoneApi {
     override suspend fun watchCamera(sink: CameraSink): Outcome<Live> =
         phone.call { m -> m.watchCamera(sink).let { p -> Live { runCatching { p.stop() } } } }
     override suspend fun markReadLatest(conversation: String) = phone.call { it.markReadLatest(conversation) }
-    override suspend fun sendWith(text: String, attachments: List<Attachment>) = phone.call { it.sendWith(text, attachments) }
+    override suspend fun sendWith(text: String, attachments: List<Attachment>, replyTo: com.ferb.mobile.ReplyQuote?) =
+        phone.call { it.sendWith(text, attachments, replyTo) }
     override suspend fun files(path: String?, signer: Signer?, after: String?) = phone.call { it.files(path, signer, after) }
     override suspend fun fetch(id: String, path: String, saveTo: String, offset: Long, signer: Signer?, listener: TransferListener) =
         phone.call { it.fetch(id, path, saveTo, offset.toULong(), signer, listener) }

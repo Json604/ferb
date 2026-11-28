@@ -56,14 +56,17 @@ import kotlin.math.sin
 // The conversation (MobileScreens.swift ChatPage, Conversation.swift): the owner's words on white, FERB's on black,
 // a task's parts in one white card with Watch live and Stop.
 
-/** The owner's bubble: white, its tail corner at the bottom right. */
+/**
+ * The owner's bubble: white, its tail corner at the bottom right. [bubble] goes on the bubble itself, before its
+ * background (the reply swipe, kb APP-1146).
+ */
 @Composable
-fun OwnerBubble(text: String, modifier: Modifier = Modifier) {
+fun OwnerBubble(text: String, modifier: Modifier = Modifier, bubble: Modifier = Modifier) {
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
         PhoneText(
             text, 16f, color = Ink.black, lineSpacing = 2f,
-            modifier = Modifier.widthIn(max = Phone.bubbleMaxOwner)
-                .background(Ink.white, RoundedCornerShape(Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleTail, Phone.bubbleCorner))
+            modifier = bubble.widthIn(max = Phone.bubbleMaxOwner)
+                .background(Ink.white, OwnerBubbleShape)
                 .padding(horizontal = 16.dp, vertical = 11.dp)
                 .semantics { contentDescription = "You: $text" },
         )
@@ -82,6 +85,9 @@ fun FerbBubble(text: String, modifier: Modifier = Modifier, maxWidth: Dp = Phone
         )
     }
 }
+
+/** The owner's bubble's shape (its tail corner at the bottom right). */
+val OwnerBubbleShape = RoundedCornerShape(Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleTail, Phone.bubbleCorner)
 
 private val ferbBubbleShape = RoundedCornerShape(Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleCorner, Phone.bubbleTail)
 
@@ -256,10 +262,13 @@ fun PhoneComposer(
     attachments: (@Composable () -> Unit)? = null,
     /** Lets the app put the cursor in the box (a tap on FERB's question's notification, kb PHN-739). */
     focus: androidx.compose.ui.focus.FocusRequester? = null,
+    /** The message he replies to (kb APP-1146, [ComposerQuote]): inside the box at its top, above its files. */
+    quote: (@Composable () -> Unit)? = null,
 ) {
-    if (attachments != null) {
+    if (attachments != null || quote != null) {
         Column(modifier.fillMaxWidth().background(Ink.black, RoundedCornerShape(Phone.composerHeight / 2)).padding(top = 8.dp)) {
-            Box(Modifier.padding(horizontal = 8.dp)) { attachments() }
+            if (quote != null) Box(Modifier.padding(horizontal = 8.dp).padding(bottom = if (attachments != null) 6.dp else 0.dp)) { quote() }
+            if (attachments != null) Box(Modifier.padding(horizontal = 8.dp)) { attachments() }
             ComposerRow(Modifier, placeholder, typed, onValueChange, onSend, onAttach, onMic, onMicDown, onMicUp, listening, listeningText, micLabel, mic, micLevel, focus)
         }
     } else {

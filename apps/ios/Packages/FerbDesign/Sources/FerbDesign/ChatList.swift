@@ -205,9 +205,13 @@ public struct FilesMessage: View {
     let status: String
     let bad: Bool
     let actions: [(String, () -> Void)]
+    /// The message it quotes (kb APP-1146), drawn in its bubble.
+    var quote: QuoteShown? = nil
     @Environment(\.skyInk) private var ink
 
-    public init(files: [(name: String, detail: String, thumbnail: Image?)], text: String, status: String, bad: Bool, actions: [(String, () -> Void)]) {
+    public init(files: [(name: String, detail: String, thumbnail: Image?)], text: String, status: String, bad: Bool, actions: [(String, () -> Void)],
+                quote: QuoteShown? = nil) {
+        self.quote = quote
         self.files = files
         self.text = text
         self.status = status
@@ -217,6 +221,8 @@ public struct FilesMessage: View {
 
     public var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
+            // the quote keeps the sent message's colour: only the waiting words are dimmed (owner, 2026-11-28)
+            if let quote { SentQuote(quote) }
             VStack(alignment: .trailing, spacing: 6) {
                 ForEach(Array(files.prefix(4).enumerated()), id: \.offset) { _, f in
                     AttachmentChip(f.name, detail: f.detail, thumbnail: f.thumbnail)

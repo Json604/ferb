@@ -12,13 +12,21 @@ import SwiftUI
 /// ChatPage.mine: the owner's words on white, the tail corner at the bottom right.
 public struct OwnerBubble: View {
     let text: String
-    public init(_ text: String) { self.text = text }
+    /// Not from the lab (kb APP-1146): the message this one quotes, above the bubble. The bubble also swipes to reply
+    /// and lights up as a quoted message when the row says so (`bubbleReply`).
+    var quote: QuoteShown? = nil
+    public init(_ text: String, quote: QuoteShown? = nil) { self.text = text; self.quote = quote }
     public var body: some View {
-        Text(text).type(16, .regular, .black).lineSpacing(2)
-            .padding(.horizontal, 16).padding(.vertical, 11)
-            .background(Ink.white, in: UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 22, bottomTrailingRadius: 6, topTrailingRadius: 22, style: .continuous))
-            .frame(maxWidth: 310, alignment: .trailing)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+        let shape = UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 22, bottomTrailingRadius: 6, topTrailingRadius: 22, style: .continuous)
+        VStack(alignment: .trailing, spacing: 4) {
+            if let quote { SentQuote(quote) }
+            Text(text).type(16, .regular, .black).lineSpacing(2)
+                .padding(.horizontal, 16).padding(.vertical, 11)
+                .background(Ink.white, in: shape)
+                .modifier(Quotable(shape: shape))
+                .frame(maxWidth: 310, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
     }
 }
 
@@ -32,6 +40,7 @@ public struct FerbBubble: View {
         Text(text).type(16, .regular, .white).lineSpacing(2)
             .padding(.horizontal, 16).padding(.vertical, 11)
             .background(Ink.black, in: UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 6, bottomTrailingRadius: 22, topTrailingRadius: 22, style: .continuous))
+            .modifier(Quotable(shape: UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 6, bottomTrailingRadius: 22, topTrailingRadius: 22, style: .continuous)))
             .frame(maxWidth: maxWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
     }

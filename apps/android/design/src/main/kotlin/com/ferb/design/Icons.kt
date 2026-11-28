@@ -6,6 +6,7 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.automirrored.outlined.Backspace
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
+import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.outlined.ArrowCircleDown
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Cloud
@@ -101,6 +102,7 @@ object FerbIcons {
     val lockFill = Icons.Rounded.Lock                      // lock.fill
     val backspace = Icons.AutoMirrored.Outlined.Backspace  // delete.left
     val close = Icons.Rounded.Close                        // xmark
+    val reply = Icons.AutoMirrored.Rounded.Reply           // arrowshape.turn.up.left (not from the lab: FERB.app's reply arrow, APP-1146)
     val chevronUp = Icons.Rounded.ExpandLess               // chevron.up (the alerts' count, kb APP-1109)
     val chevronDown = Icons.Rounded.ExpandMore             // chevron.down
     val bell = Icons.Outlined.Notifications                // bell

@@ -221,9 +221,14 @@ class FakePhone : PhoneApi {
     override suspend fun status(): Outcome<PhoneStatus> { calls += "status"; return status?.let { Outcome.Ok(it) } ?: Outcome.Failed(FerbException.Offline("no", null)) }
     override suspend fun lastStatus(): PhoneStatus? = status
     override suspend fun markReadLatest(conversation: String): Outcome<Unit> { calls += "mark:$conversation"; return Outcome.Ok(Unit) }
-    override suspend fun sendWith(text: String, attachments: List<Attachment>): Outcome<OutboxItem> {
+    /** What each sendWith quoted (kb APP-1146), in turn; [sendWithRefusal] fails the next one. */
+    val sentQuotes = ArrayList<com.ferb.mobile.ReplyQuote?>()
+    var sendWithRefusal: Outcome.Failed? = null
+    override suspend fun sendWith(text: String, attachments: List<Attachment>, replyTo: com.ferb.mobile.ReplyQuote?): Outcome<OutboxItem> {
+        sendWithRefusal?.let { sendWithRefusal = null; return it }
         sentWith += text to attachments
-        val item = OutboxItem("o${outbox.size + 1}", text, "2026-01-02T10:00:00+00:00", "waiting", "link", null, false, attachments)
+        sentQuotes += replyTo
+        val item = OutboxItem("o${outbox.size + 1}", text, "2026-01-02T10:00:00+00:00", "waiting", "link", null, false, attachments, replyTo)
         outbox += item
         return Outcome.Ok(item)
     }

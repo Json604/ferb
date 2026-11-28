@@ -85,6 +85,31 @@ final class SendWithFilesTests: XCTestCase {
         XCTAssertEqual(uploads.count, 2)
     }
 
+    /// A reply with files (kb APP-1146): the quote waits with the message while its files wait, is kept across FERB
+    /// closing, and goes as its reply_to.
+    // decision: APP-1146, PHN-691
+    func testAReplyWithFilesKeepsItsQuoteWhileItWaitsAndAcrossAClose() async {
+        phone.link = FakePhone.status(.waiting)
+        let quote = ReplyQuote(entryId: "a1", kind: "answer", byOwner: false, excerpt: "Booked the 7pm table at Nori.")
+        let first = rig.model()
+        await pickTwo(first)
+        first.reply(to: quote)
+        first.typed("Here's the menu")
+        await first.send().value
+        XCTAssertNil(first.shownQuote, "it went with the message")
+        await eventually("waiting") { first.outgoing.messages.first?.phase == .waitingLink }
+        XCTAssertEqual(first.outgoing.messages.first?.replyTo, quote, "drawn with it meanwhile")
+        let kept = rig.local.root.appendingPathComponent("messages.json")
+        await eventually("kept") { ((try? String(contentsOf: kept, encoding: .utf8)) ?? "").contains("Booked the 7pm table") }
+        // FERB closes here: a new process reads what was kept
+        let vm = rig.model()
+        await eventually("the message is back") { !vm.outgoing.messages.isEmpty }
+        XCTAssertEqual(vm.outgoing.messages.first?.replyTo, quote)
+        phone.link = FakePhone.status()
+        await eventually("sent once the Mac is back") { !phone.sentWith.isEmpty }
+        XCTAssertEqual(phone.sentQuotes.first, quote)
+    }
+
     // decision: PHN-691, PHN-410
     func testOnTheSharedRelayFilesWaitAndTheWordsCanGoAlone() async {
         phone.link = FakePhone.status(path: .publicRelay)

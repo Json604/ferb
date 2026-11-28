@@ -15391,3 +15391,30 @@ built only in FERB.app (journal 280's daemon half, commits a9bcdfe6 and 94069030
 - Nothing ran against the real engine: the fake Mac imitates its `reply_to`.
 - Excerpts are cut by Unicode character, where Swift's `prefix` counts graphemes.
 - FERB.app offers quotes in the temporary chat, where the engine drops them: a mismatch, left for the owner.
+
+## 2026-11-28 · 285 · Swipe to reply on both phones (APP-1146, the apps)
+
+**Why (owner, 2026-11-28).** "the swipe to quote feature isnt in my phone". Journal 284 gave the phone library the
+quote; this adds the apps' half. Shown the pictures, he said "rest is good to go". He asked that the quote above a
+waiting message have the same colour as a sent one: it had been dimmed with the message.
+
+**What.**
+- On Android and iPhone, swiping a quotable bubble right (his or FERB's) sets the quote:
+  - the bubble follows 1:1 to 64 dp/pt, then at a third, never past 96;
+  - an arrow grows in the space it leaves;
+  - one tick at the threshold;
+  - a move only counts when clearly sideways and to the right;
+  - TalkBack and VoiceOver offer "Reply".
+- The quote sits in the message box ("You: …" / "FERB: …", ✕ drops it and keeps the words). Sending passes it. A
+  failed send gives back the words and the quote, and a waiting message (outbox, or one with files) keeps it.
+- A sent message shows its quote above it. A tap scrolls to the quoted message (switching today / earlier days) and
+  lights it for 1.4 s; one not loaded moves nothing, as on the Mac.
+- The temporary chat offers no quote.
+
+**Checked.** Android `:core`, `:design`, `:app` tests: ReplyTest and ReplyShotsTest are new; the goldens are in
+`app/src/test/screenshots/reply`. iPhone `tools/build.sh test`: ReplyTests, SwipeToReplyTests, and 7 goldens.
+
+**Unverified.**
+- Nothing ran on a phone: the swipe's feel, the haptic, scrolling and edge-back never taken, the screen readers.
+- iPhone's design goldens `chat-pieces-night` and `connection-*` come out different on every record run (left as
+  committed; the compare passes).

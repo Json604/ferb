@@ -58,9 +58,12 @@ public struct Sending: Equatable, Sendable, Identifiable {
     /// same way, then it goes with `fresh` (never the outbox); it shows only in the temporary chat, is never written on
     /// the phone, and goes when the chat ends.
     public let temporary: Bool
+    /// The message it replies to (kb APP-1146): sent as its `reply_to` and drawn in its bubble meanwhile; kept with it.
+    public let replyTo: ReplyQuote?
 
     public init(id: String, text: String, chips: [Chip], onMac: [Attachment], phase: SendPhase, note: Note? = nil, done: Int64 = 0,
-                total: Int64 = 0, temporary: Bool = false) {
+                total: Int64 = 0, temporary: Bool = false, replyTo: ReplyQuote? = nil) {
+        self.replyTo = replyTo
         self.id = id
         self.text = text
         self.chips = chips
@@ -132,15 +135,15 @@ public final class Outgoing {
     }
 
     /// Send with the box's files: false when the box has none (the message then goes as before). The box empties; the
-    /// message shows in the chat and goes as soon as its files are on the Mac.
+    /// message shows in the chat and goes as soon as its files are on the Mac, with the quote it replies to (`replyTo`).
     @discardableResult
-    public func send(_ text: String, onMac: [Attachment], temporary: Bool = false) -> Bool {
+    public func send(_ text: String, onMac: [Attachment], temporary: Bool = false, replyTo: ReplyQuote? = nil) -> Bool {
         guard !chips.isEmpty else { return false }
         let id = nextKey("m")
         let box = chips
         chips = []
         messages.append(Sending(id: id, text: text, chips: box, onMac: onMac, phase: .uploading, total: box.reduce(0) { $0 + $1.size },
-                                temporary: temporary))
+                                temporary: temporary, replyTo: temporary ? nil : replyTo))
         start(id)
         return true
     }
@@ -231,7 +234,9 @@ public final class Outgoing {
                 }
                 return
             }
-            let r = await Task.detached { m.onMac.isEmpty ? await api.send(m.text) : await api.sendWith(m.text, attachments: m.onMac) }.value
+            let r = await Task.detached {
+                m.onMac.isEmpty && m.replyTo == nil ? await api.send(m.text) : await api.sendWith(m.text, attachments: m.onMac, replyTo: m.replyTo)
+            }.value
             switch r {
             case .ok(let item):
                 drop(id)
@@ -288,7 +293,7 @@ public final class Outgoing {
                 }
                 return
             }
-            let r = await Task.detached { await api.sendWith(m.text, attachments: files) }.value
+            let r = await Task.detached { await api.sendWith(m.text, attachments: files, replyTo: m.replyTo) }.value
             switch r {
             case .ok(let item):
                 transfers.forgetBatch(id)
@@ -355,6 +360,8 @@ public final class Outgoing {
             let phase: SendPhase
             let chips: [Chip]
             let onMac: [[String]]
+            /// The quote it replies to (kb APP-1146): entry id, kind, "owner" or "ferb", excerpt; absent in older files.
+            var replyTo: [String]? = nil
         }
         let chips: [Chip]
         let messages: [Message]
@@ -377,7 +384,10 @@ public final class Outgoing {
                 return Sending(id: k.id, text: k.text, chips: k.chips,
                                onMac: k.onMac.compactMap { $0.count == 2 ? Attachment(uploadId: $0[0], name: $0[1]) : nil },
                                phase: phase, note: lost ? Note("send_files_gone") : nil,
-                               done: k.chips.filter(\.onMac).reduce(0) { $0 + $1.size }, total: k.chips.reduce(0) { $0 + $1.size })
+                               done: k.chips.filter(\.onMac).reduce(0) { $0 + $1.size }, total: k.chips.reduce(0) { $0 + $1.size },
+                               replyTo: k.replyTo.flatMap { q in
+                                   q.count == 4 ? ReplyQuote(entryId: q[0], kind: q[1], byOwner: q[2] == "owner", excerpt: q[3]) : nil
+                               })
             }
         }
     }
@@ -385,7 +395,8 @@ public final class Outgoing {
     private func save() {
         // a temporary chat's message is never written on the phone (memory only, as all of that chat)
         let kept = Kept(chips: chips, messages: messages.filter { !$0.temporary }.map {
-            Kept.Message(id: $0.id, text: $0.text, phase: $0.phase, chips: $0.chips, onMac: $0.onMac.map { [$0.uploadId, $0.name] })
+            Kept.Message(id: $0.id, text: $0.text, phase: $0.phase, chips: $0.chips, onMac: $0.onMac.map { [$0.uploadId, $0.name] },
+                         replyTo: $0.replyTo.map { [$0.entryId, $0.kind, $0.byOwner ? "owner" : "ferb", $0.excerpt] })
         })
         let store = self.store
         let before = lastWrite

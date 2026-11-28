@@ -16,6 +16,7 @@ import com.ferb.mobile.LiveRow
 import com.ferb.mobile.LiveView
 import com.ferb.mobile.OlderState
 import com.ferb.mobile.OutboxItem
+import com.ferb.mobile.ReplyQuote
 import com.ferb.mobile.ResultCard
 import com.ferb.mobile.TranscriptView
 import com.ferb.mobile.TurnItem
@@ -31,8 +32,12 @@ import com.ferb.mobile.TurnItem
 sealed interface ChatRow {
     val key: String
 
-    /** The owner's words (from this phone, the Mac or another device: drawn alike, as the Mac does, APP-916). */
-    data class Owner(override val key: String, val text: String, val files: List<String>, val note: String?) : ChatRow
+    /**
+     * The owner's words (from this phone, the Mac or another device: drawn alike, as the Mac does, APP-916). [replyTo]:
+     * the message his quotes, drawn above it; [quote]: what a reply to it quotes (kb APP-1146; null: it offers none).
+     */
+    data class Owner(override val key: String, val text: String, val files: List<String>, val note: String?,
+                     val replyTo: ReplyQuote? = null, val quote: ReplyQuote? = null) : ChatRow
 
     /** FERB's words in a black bubble. */
     data class Ferb(override val key: String, val text: String) : ChatRow
@@ -55,13 +60,19 @@ sealed interface ChatRow {
         val copy: String,
         val tail: List<String> = emptyList(),
         val fold: Fold = Fold.NONE,
+        /** What a reply to this bubble quotes (FERB's first reply, kb APP-1146); null: it offers none. */
+        val quote: ReplyQuote? = null,
     ) : ChatRow
 
-    /** A turn's answer as FERB.app draws it (kb PHN-723, PHN-724): its cards, words, sites row, files and ending. */
-    data class Answer(override val key: String, val ui: AnswerUi) : ChatRow
+    /**
+     * A turn's answer as FERB.app draws it (kb PHN-723, PHN-724): its cards, words, sites row, files and ending.
+     * [quote]: what a reply to its bubble quotes (kb APP-1146).
+     */
+    data class Answer(override val key: String, val ui: AnswerUi, val quote: ReplyQuote? = null) : ChatRow
 
     /** FERB's own message (a notice) in its bubble, with its reminder boxes, quotes, facts and pages (NoticeView). */
-    data class Notice(override val key: String, val text: String, val quotes: List<Pair<String, String>>, val ui: NoticeUi) : ChatRow
+    data class Notice(override val key: String, val text: String, val quotes: List<Pair<String, String>>, val ui: NoticeUi,
+                      val quote: ReplyQuote? = null) : ChatRow
 
     /** Result cards by kind (a first reply's receipts). */
     data class Results(override val key: String, val cards: List<ResultShown>) : ChatRow
@@ -319,14 +330,14 @@ object ChatModel {
                     }
                     val said = r.said
                     when {
-                        said != null -> answer(r.entry, said, false, r.hidden, out, turn?.taskId, null)
+                        said != null -> answer(r.entry, said, false, r.hidden, out, turn?.taskId, null, quote = r.quote)
                         r.part == "question" -> turn?.question?.let { q ->
                             out.add(rich("${r.entry}:q", q))
                             // the final answer follows the question unless it went further below
                             val below = view.items.any { x -> x is Item.Reply && x.reply.answers == r.answers && x.reply.part == "answer" }
-                            if (!below) turn.answer?.let { answer(r.entry, it, turn.card != null, turn.hidden, out, turn.taskId, turn.statusWords, turn.status == GAPS) }
+                            if (!below) turn.answer?.let { answer(r.entry, it, turn.card != null, turn.hidden, out, turn.taskId, turn.statusWords, turn.status == GAPS, r.quote) }
                         }
-                        else -> turn?.answer?.let { answer(r.entry, it, turn.card != null, turn.hidden, out, turn.taskId, turn.statusWords, turn.status == GAPS) }
+                        else -> turn?.answer?.let { answer(r.entry, it, turn.card != null, turn.hidden, out, turn.taskId, turn.statusWords, turn.status == GAPS, r.quote) }
                     }
                 }
                 is Item.Notice -> notice(item.notice, out)
@@ -339,19 +350,20 @@ object ChatModel {
     }
 
     /** FERB's Markdown in a bubble, laid out by the phone library (kept per text). */
-    private fun rich(key: String, text: String, tail: List<String> = emptyList(), fold: Fold = Fold.NONE, keep: Boolean = true): ChatRow.Rich =
-        ChatRow.Rich(key, if (keep) Present.rich(text) else Present.richNow(key, text), text, tail, fold)
+    private fun rich(key: String, text: String, tail: List<String> = emptyList(), fold: Fold = Fold.NONE, keep: Boolean = true,
+                     quote: ReplyQuote? = null): ChatRow.Rich =
+        ChatRow.Rich(key, if (keep) Present.rich(text) else Present.richNow(key, text), text, tail, fold, quote)
 
     private fun notice(n: com.ferb.mobile.NoticeItem, out: MutableList<ChatRow>) {
         val ui = Present.notice(n.text, n.quotes.size, n.cards.orEmpty(), n.hidden)
-        out.add(ChatRow.Notice(n.entry, n.text, n.quotes.map { it.text to it.origin }, ui))
+        out.add(ChatRow.Notice(n.entry, n.text, n.quotes.map { it.text to it.origin }, ui, n.quote))
     }
 
     private fun turn(t: TurnItem, live: LiveView?, merged: String?, questionBelow: Boolean, out: MutableList<ChatRow>) {
         val e = t.entry
         val words = t.words
         if (t.from == "owner" && words != null) {
-            out.add(ChatRow.Owner(e, words.text, words.files.map(::fileName), words.hiddenNotice))
+            out.add(ChatRow.Owner(e, words.text, words.files.map(::fileName), words.hiddenNotice, t.replyTo, t.messageQuote))
         } else if (t.goal != null) {
             out.add(ChatRow.Line("$e:goal", t.goal!!.ifEmpty { "A task from earlier" }))
         }
@@ -364,7 +376,7 @@ object ChatModel {
             val said = (if (t.card == null) first.direct else emptyList()) + first.receiptsShown + listOfNotNull(line)
             val text = said.filter { it.isNotBlank() }.joinToString("\n\n")
             val tail = if (first.planLine != null) first.planLines.filter { it.isNotBlank() } else emptyList()
-            if (text.isNotEmpty() || tail.isNotEmpty()) out.add(rich("$e:first", text, tail, Fold.ANSWER))
+            if (text.isNotEmpty() || tail.isNotEmpty()) out.add(rich("$e:first", text, tail, Fold.ANSWER, quote = t.firstReplyQuote))
         } else if (first == null) {
             // the plan as it streams (plain: FERB.app's PlanLineBlock)
             live?.streamingPlan?.takeIf { it.isNotBlank() }?.let { out.add(ChatRow.Rich("$e:first", plainBlocks(it), it)) }
@@ -395,7 +407,7 @@ object ChatModel {
                     // FERB.app's `isProvisional`: a reply that isn't a task's, still coming
                     if (t.taskId == null) out.add(ChatRow.Line("$e:draft", "Draft · still responding", small = true))
                 }
-                else -> t.answer?.let { answer(e, it, false, t.hidden, out, t.taskId, null) }
+                else -> t.answer?.let { answer(e, it, false, t.hidden, out, t.taskId, null, quote = t.answerQuote) }
             }
         }
         live?.replyNotice?.let { out.add(ChatRow.Line("$e:reply-notice", it, small = true)) }
@@ -404,10 +416,11 @@ object ChatModel {
     }
 
     private fun answer(key: String, a: AnswerView, card: Boolean, hidden: List<String>, out: MutableList<ChatRow>, taskId: String?, status: String?,
-                       gaps: Boolean = false) {
+                       gaps: Boolean = false, quote: ReplyQuote? = null) {
         val ui = Present.answer(a, card, hidden, taskId)
         if (ui.bubble || ui.above.isNotEmpty() || ui.below.isNotEmpty() || ui.sites.isNotEmpty() || ui.files.isNotEmpty() || ui.pages.isNotEmpty()) {
-            out.add(ChatRow.Answer("$key:answer", ui))
+            // only words in a bubble can be replied to (FERB.app's AnswerView quotes its bubble)
+            out.add(ChatRow.Answer("$key:answer", ui, quote.takeIf { ui.bubble }))
         }
         (status ?: ui.statusWords)?.let { out.add(ChatRow.Line("$key:status", it, small = true, amber = (if (status != null) gaps else a.status == GAPS))) }
     }
@@ -508,6 +521,25 @@ object ChatModel {
         // FERB.app's checklist folds once finished to "N steps done" (StepChecklistView)
         return ChatRow.Task("$e:checklist", c.taskId.ifEmpty { t.taskId }, c.collapsed ?: planLine ?: t.taskName.orEmpty(),
             ended.size, c.steps.size, parts, watch = watch)
+    }
+
+    /** What a reply to [row]'s bubble quotes (kb APP-1146): null when it offers none. */
+    fun quoteOf(row: ChatRow): ReplyQuote? = when (row) {
+        is ChatRow.Owner -> row.quote
+        is ChatRow.Rich -> row.quote
+        is ChatRow.Answer -> row.quote
+        is ChatRow.Notice -> row.quote
+        else -> null
+    }
+
+    /**
+     * Where a tap on a quote of [entryId] goes in [rows] (FERB.app's `shownTarget(ofEntry:)`): the bubble that quotes it,
+     * else the first row of [item] (the phone library's `quotedItem`); -1 when the rows shown don't hold it.
+     */
+    fun quotedRow(rows: List<ChatRow>, item: String, entryId: String): Int {
+        val bubble = rows.indexOfFirst { quoteOf(it)?.entryId == entryId }
+        if (bubble >= 0 || item.isEmpty()) return bubble
+        return rows.indexOfFirst { it !is ChatRow.Day && it.key.substringBefore(':') == item }
     }
 
     /** A row's words without their look (tests, and what reading the chat aloud would say). */

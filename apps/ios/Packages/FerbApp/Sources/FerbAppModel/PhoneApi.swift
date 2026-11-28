@@ -71,7 +71,9 @@ public protocol PhoneApi: AnyObject {
     /// on the main actor can wait inside it.
     func lastStatus() async -> PhoneStatus?
     func markReadLatest(conversation: String) async -> Outcome<Void>
-    func sendWith(_ text: String, attachments: [Attachment]) async -> Outcome<OutboxItem>
+    /// A message with files already on the Mac and, replying to a message, its quote (`replyTo`, kb APP-1146: `chat.send`'s
+    /// `reply_to`, kept with the outbox item).
+    func sendWith(_ text: String, attachments: [Attachment], replyTo: ReplyQuote?) async -> Outcome<OutboxItem>
 
     // files (PHN-113, PHN-115, PHN-127): a paused transfer ends with `Cancelled`
     func files(path: String?, signer: Signer?, after: String?) async -> Outcome<Folder>
@@ -227,8 +229,8 @@ public final class LibraryPhone: PhoneApi {
     }
     public func lastStatus() async -> PhoneStatus? { await phone.lastStatus() }
     public func markReadLatest(conversation: String) async -> Outcome<Void> { await phone.call { try $0.markReadLatest(conversation: conversation) } }
-    public func sendWith(_ text: String, attachments: [Attachment]) async -> Outcome<OutboxItem> {
-        await phone.call { try $0.sendWith(text: text, attachments: attachments) }
+    public func sendWith(_ text: String, attachments: [Attachment], replyTo: ReplyQuote?) async -> Outcome<OutboxItem> {
+        await phone.call { try $0.sendWith(text: text, attachments: attachments, replyTo: replyTo) }
     }
     public func files(path: String?, signer: Signer?, after: String?) async -> Outcome<Folder> { await phone.call { try $0.files(path: path, signer: signer, after: after) } }
     public func fetch(id: String, path: String, saveTo: String, offset: UInt64, signer: Signer?, listener: TransferListener) async -> Outcome<Fetched> {

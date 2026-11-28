@@ -78,6 +78,8 @@ data class Sending(
      * same way, then it goes with `fresh` (never the outbox); it shows only in the temporary chat and goes when it ends.
      */
     val temporary: Boolean = false,
+    /** The message it quotes (kb APP-1146): drawn above it, and sent as `reply_to` with it; kept across a restart. */
+    val replyTo: com.ferb.mobile.ReplyQuote? = null,
 ) {
     val fraction: Float get() = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
 }
@@ -138,12 +140,13 @@ class Outgoing(
      * Send with the box's files: false when the box has none (the message then goes as before). The box empties; the
      * message shows in the chat and goes as soon as its files are on the Mac.
      */
-    fun send(text: String, onMac: List<Attachment>, temporary: Boolean = false): Boolean {
+    fun send(text: String, onMac: List<Attachment>, temporary: Boolean = false, replyTo: com.ferb.mobile.ReplyQuote? = null): Boolean {
         val chips = _chips.value
         if (chips.isEmpty()) return false
         val id = "m${System.currentTimeMillis()}-${n.incrementAndGet()}"
         _chips.value = emptyList()
-        _messages.update { it + Sending(id, text, chips, onMac, SendPhase.UPLOADING, total = chips.sumOf { c -> c.size }, temporary = temporary) }
+        _messages.update { it + Sending(id, text, chips, onMac, SendPhase.UPLOADING, total = chips.sumOf { c -> c.size }, temporary = temporary,
+            replyTo = replyTo.takeIf { !temporary }) }
         start(id)
         return true
     }
@@ -221,7 +224,7 @@ class Outgoing(
                 }
                 return@launch
             }
-            when (val r = withContext(io) { if (m.onMac.isEmpty()) api.send(m.text) else api.sendWith(m.text, m.onMac) }) {
+            when (val r = withContext(io) { if (m.onMac.isEmpty() && m.replyTo == null) api.send(m.text) else api.sendWith(m.text, m.onMac, m.replyTo) }) {
                 is Outcome.Ok -> { drop(id); sent(r.value) }
                 is Outcome.Failed -> { set(id) { it.copy(phase = SendPhase.WAITING_PATH, note = FerbViewModel.errorNote(r.error)) }; save() }
             }
@@ -267,7 +270,7 @@ class Outgoing(
                 }
                 return@launch
             }
-            when (val r = withContext(io) { api.sendWith(m.text, files) }) {
+            when (val r = withContext(io) { api.sendWith(m.text, files, m.replyTo) }) {
                 is Outcome.Ok -> {
                     transfers.forgetBatch(id)
                     drop(id)
@@ -340,9 +343,14 @@ class Outgoing(
                 was == SendPhase.WAITING_LINK || was == SendPhase.WAITING_PATH || was == SendPhase.STOPPED -> was
                 else -> SendPhase.CLOSED
             }
+            val quoted = (o["replyTo"] as? Map<*, *>)?.let { x ->
+                (x["entryId"] as? String)?.takeIf { it.isNotEmpty() }?.let {
+                    com.ferb.mobile.ReplyQuote(it, x["kind"] as? String ?: "", x["byOwner"] == true, x["excerpt"] as? String ?: "")
+                }
+            }
             Sending(o["id"] as? String ?: return@mapNotNull null, o["text"] as? String ?: "", chips, onMac, phase,
                 note = if (lost) Note(R.string.send_files_gone) else null,
-                done = chips.filter { it.onMac }.sumOf { it.size }, total = chips.sumOf { it.size })
+                done = chips.filter { it.onMac }.sumOf { it.size }, total = chips.sumOf { it.size }, replyTo = quoted)
         }
         _chips.value = box
         _messages.value = messages
@@ -364,7 +372,8 @@ class Outgoing(
             out.append("],\"messages\":[")
             messages.joinTo(out, ",") { m ->
                 "{\"id\":${q(m.id)},\"text\":${q(m.text)},\"phase\":${q(m.phase.name)},\"chips\":[${m.chips.joinToString(",") { chipJson(it) }}]," +
-                    "\"onMac\":[${m.onMac.joinToString(",") { "{\"uploadId\":${q(it.uploadId)},\"name\":${q(it.name)}}" }}]}"
+                    "\"onMac\":[${m.onMac.joinToString(",") { "{\"uploadId\":${q(it.uploadId)},\"name\":${q(it.name)}}" }}]" +
+                    (m.replyTo?.let { r -> ",\"replyTo\":{\"entryId\":${q(r.entryId)},\"kind\":${q(r.kind)},\"byOwner\":${r.byOwner},\"excerpt\":${q(r.excerpt)}}" } ?: "") + "}"
             }
             out.append("]}")
             synchronized(this@Outgoing) {

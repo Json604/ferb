@@ -189,6 +189,7 @@ struct Composer: View {
         // the temporary chat's box is the chat's: + and its files too (the owner, 2026-11-24, ORCH-715)
         let temporary = model.temporary != nil
         let hasFiles = !chips.isEmpty || !t.ready.isEmpty
+        let quote = model.shownQuote
         VStack(spacing: 8) {
             if toast { AlertToastView(model: model) }
             // the work row above the message box (kb PHN-725; FERB.app ChatBody.swift WorkRowView)
@@ -210,18 +211,28 @@ struct Composer: View {
                           onMicUp: { model.voiceRelease() }, listening: model.listening,
                           listeningText: micText ?? L.s("voice_listening"), micLabel: L.s("voice_speak"),
                           micState: model.mic, micLevel: model.micLevel,
-                          attachments: !hasFiles ? nil : AnyView(AttachmentRow {
-                              ForEach(chips, id: \.key) { c in
-                                  AttachmentChip(c.name, detail: ByteCountFormatter.string(fromByteCount: c.size, countStyle: .file),
-                                                 thumbnail: Thumbnail.of(c.path, c.name),
-                                                 removeLabel: L.s("attach_remove", c.name)) { model.unpick(c.key) }
+                          // the message he replies to (kb APP-1146) and the box's files, inside the box above the words
+                          attachments: !hasFiles && quote == nil ? nil : AnyView(VStack(spacing: 8) {
+                              if let quote {
+                                  ReplyQuoteBar(quoteShown(quote, model: model), dropLabel: L.s("reply_drop")) { model.dropReplyQuote() }
+                                      .accessibilityIdentifier("reply-quote")
                               }
-                              ForEach(t.ready, id: \.uploadId) { a in
-                                  AttachmentChip(a.name, detail: L.s("attach_on_mac"), removeLabel: L.s("attach_remove", a.name)) { t.unattach(a.uploadId) }
+                              if hasFiles {
+                                  AttachmentRow {
+                                      ForEach(chips, id: \.key) { c in
+                                          AttachmentChip(c.name, detail: ByteCountFormatter.string(fromByteCount: c.size, countStyle: .file),
+                                                         thumbnail: Thumbnail.of(c.path, c.name),
+                                                         removeLabel: L.s("attach_remove", c.name)) { model.unpick(c.key) }
+                                      }
+                                      ForEach(t.ready, id: \.uploadId) { a in
+                                          AttachmentChip(a.name, detail: L.s("attach_on_mac"), removeLabel: L.s("attach_remove", a.name)) { t.unattach(a.uploadId) }
+                                      }
+                                  }.accessibilityIdentifier("attachments")
                               }
-                          }.accessibilityIdentifier("attachments")),
+                          }),
                           focus: $boxFocused)
         }
+        .animation(FerbMotion.item.animation, value: quote?.entryId)
         // FERB's own question (a clarify) is answered by a message: its notification's tap puts the cursor here
         .task(id: model.focusAsk) {
             if model.focusAsk { boxFocused = true; model.focusTaken() }
@@ -389,7 +400,8 @@ struct ChatView: View {
                               // the Chat tab tapped on today's chat: to its end (kb PHN-662; in the earlier days it goes
                               // back to today, PHN-698); a notification's tap or the Tasks tab's row: the question's box
                               // in view (kb PHN-770)
-                              toEnd: model.chatToEnd, reveal: model.toQuestion.map { ListReveal(id: "q:\($0.id)", n: $0.n) },
+                              // or a tap on a quote: the quoted message (kb APP-1146)
+                              toEnd: model.chatToEnd, reveal: model.chatReveal.map { ListReveal(id: $0.id, n: $0.n) },
                               jump: { s in
                                   let jump = ChatJump.of(atEnd: s.atEnd, unseen: s.unseen, shownDay: shownDay(s), endDay: endDay, earlier: earlier)
                                   if jump == .none { return nil }
@@ -414,7 +426,9 @@ struct ChatView: View {
                               }) {
                     ForEach(rows) { row in
                         // each row gets only what it draws: a streamed word re-evaluates its own row (kb PHN-714)
-                        ChatRowView(model: model, row: row, today: todayDay, olderLoading: model.ui.busy.contains("older")).id(row.key)
+                        // a quotable bubble swipes to reply; his message shows what it quotes (kb APP-1146)
+                        ChatRowView(model: model, row: row, today: todayDay, olderLoading: model.ui.busy.contains("older"),
+                                    reply: temporary == nil ? model.replies[row.key] : nil, lit: model.quoteLit == row.key).id(row.key)
                             // only the earlier days load older pages; today's chat never does
                             .onAppear { if earlier, case .older(_, .available) = row { model.loadOlder() } }
                             .transition(.motionItem)  // a row that arrives rises in (kb PHN-624)
@@ -463,6 +477,10 @@ struct ChatRowView: View {
     /// The chat's today and whether older pages are on their way, handed in: a row never reads the model's whole state.
     var today: Int
     var olderLoading: Bool
+    /// What its bubble offers as a quote and what his message quotes (kb APP-1146), and whether it is lit up as the
+    /// quoted message just now.
+    var reply: RowReply? = nil
+    var lit = false
     @Environment(\.skyInk) private var ink
 
     /// Whatever FERB says or did sits on FERB's dark surface; the owner's own messages stay white (kb PHN-734).
@@ -474,14 +492,16 @@ struct ChatRowView: View {
     }
 
     var body: some View {
+        // its bubble swipes to reply and lights up as the quoted message (kb APP-1146)
         content.environment(\.onFerb, fromFerb)
+            .bubbleReply(reply?.quote.map { q in BubbleReply(label: L.s("reply_action")) { model.reply(to: q) } }, lit: lit)
     }
 
     @ViewBuilder private var content: some View {
         switch row {
         case .owner(_, let text, let files, let note):
             VStack(alignment: .trailing, spacing: 4) {
-                OwnerBubble(text)
+                OwnerBubble(text, quote: reply?.quoting.map { quoteShown($0, model: model) })
                 ForEach(files, id: \.self) { f in
                     HStack(spacing: 6) {
                         FileIcon(name: f, width: 18)
@@ -597,6 +617,14 @@ struct ChatRowView: View {
     }
 }
 
+/// A quote as the chat and the message box show it (kb APP-1146; FERB.app's `speaker + ": " + line`, Android's): "You: …"
+/// or "FERB: …" on one line, said to VoiceOver as what is replied to; a tap shows the quoted message.
+@MainActor func quoteShown(_ q: ReplyQuote, model: AppModel) -> QuoteShown {
+    QuoteShown(line: L.s(q.byOwner ? "reply_you" : "reply_ferb") + ": " + q.excerpt,
+               label: L.s(q.byOwner ? "reply_to_yours" : "reply_to_ferb", q.excerpt),
+               hint: L.s("reply_show"), onTap: { model.showQuoted(q) })
+}
+
 /// A file a finished task made, on its result card (Android's TaskFileRow): a tap fetches it (by the task and its
 /// place, never by a path read in the chat), the row says how far it got, and once here a tap opens it.
 struct TaskFileRow: View {
@@ -642,6 +670,8 @@ struct OutboxRow: View {
             // the Mac asleep (insomnia mode was on, APP-981, or it said so, SENSE-430) says so; else what it waits for
             : L.s(MacAsleep.waitingLine(item.waitingFor, asleep: MacAsleep.waiting(model.ui.status, model.ui.link, lost: model.ui.linkLost)))
         VStack(alignment: .trailing, spacing: 4) {
+            // the quote keeps the sent message's colour: only the waiting words are dimmed (owner, 2026-11-28)
+            if let q = item.replyTo { SentQuote(quoteShown(q, model: model)) }
             OwnerBubble(item.text).opacity(failed ? 1 : 0.7)
             HStack(spacing: 12) {
                 Text(status).type(13.5, .medium, failed ? Ink.red : ink.low).frame(maxWidth: 240, alignment: .trailing)
@@ -863,7 +893,7 @@ struct WithFilesRow: View {
         }
         return FilesMessage(files: m.chips.map { (name: $0.name, detail: ByteCountFormatter.string(fromByteCount: $0.size, countStyle: .file),
                                                     thumbnail: Thumbnail.of($0.path, $0.name)) },
-                            text: m.text, status: status, bad: bad, actions: actions)
+                            text: m.text, status: status, bad: bad, actions: actions, quote: m.replyTo.map { quoteShown($0, model: model) })
             .accessibilityIdentifier("sending")
     }
 }

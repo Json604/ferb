@@ -214,6 +214,8 @@ public struct FerbRichBubble<Content: View>: View {
         VStack(alignment: .leading, spacing: 8) { content }
             .padding(.horizontal, 16).padding(.vertical, 11)
             .background(Ink.black, in: UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 6, bottomTrailingRadius: 22, topTrailingRadius: 22, style: .continuous))
+            // swipes to reply and lights up as a quoted message when its row says so (kb APP-1146)
+            .modifier(Quotable(shape: UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 6, bottomTrailingRadius: 22, topTrailingRadius: 22, style: .continuous)))
             .frame(maxWidth: 320, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
     }

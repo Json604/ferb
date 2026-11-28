@@ -4,6 +4,11 @@ import android.view.HapticFeedbackConstants
 import androidx.compose.ui.platform.LocalView
 import com.ferb.design.components.MicState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.foundation.gestures.animateScrollBy
+import com.ferb.design.components.replySwipe
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -195,13 +200,19 @@ fun Main(vm: FerbViewModel, ui: UiState, tab: PhoneTab, home: Boolean, insets: P
  */
 @Composable
 private fun Composer(vm: FerbViewModel, draft: String, placeholder: String, modifier: Modifier, host: Host, running: com.ferb.app.model.RunningUi? = null,
-                     alerts: UiState? = null) {
+                     alerts: UiState? = null, temporary: Boolean = false) {
     val chips by vm.outgoing.chips.collectAsState()
     val ready by vm.transfers.ready.collectAsState()
     val ink = LocalSkyInk.current
     val context = LocalContext.current
     val hasFiles = chips.isNotEmpty() || ready.isNotEmpty()
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // the message he replies to (kb APP-1146): taken in the kept chat, so the temporary chat doesn't show it (it waits)
+    val held by vm.replyQuote.collectAsState()
+    val quote = held.takeIf { !temporary }
+    // Esc (a keyboard's) drops the quote, as on FERB.app; without one it does what it did
+    Column(modifier.onPreviewKeyEvent { e ->
+        e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && e.key == androidx.compose.ui.input.key.Key.Escape && quote != null && vm.dropReplyQuote()
+    }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         val listening by vm.listening.collectAsState()
         val mic by vm.mic.collectAsState()
         val level by vm.micLevel.collectAsState()
@@ -253,6 +264,12 @@ private fun Composer(vm: FerbViewModel, draft: String, placeholder: String, modi
             onMicUp = { vm.voiceRelease() },
             listening = listening, listeningText = micText ?: stringResource(R.string.voice_listening), micLabel = stringResource(R.string.voice_speak),
             mic = mic, micLevel = level, focus = focus,
+            quote = quote?.let { q ->
+                {
+                    com.ferb.design.components.ComposerQuote(quoteText(q), Modifier.testTag("composer-quote"), description = quoteDescription(q),
+                        onShow = { vm.showQuoted(q) }, onDrop = { vm.dropReplyQuote() }, dropLabel = stringResource(R.string.reply_drop))
+                }
+            },
         )
     }
 }
@@ -510,6 +527,19 @@ private fun ChatOf(vm: FerbViewModel, ui: UiState, temporary: com.ferb.app.Tempo
             if (at >= 0) list.animateScrollToItem(at) else follow.toEnd(animate = true)
         }
     }
+    // a tapped quote (kb APP-1146): its message into view, a little below the top, then it lights up; this chat may be
+    // the page the tap opened, so the quote waits for it (the view model lets it go if no chat finds it)
+    val quoted by vm.quoted.collectAsState()
+    LaunchedEffect(quoted, rows) {
+        val q = quoted ?: return@LaunchedEffect
+        val at = ChatModel.quotedRow(rows, q.item, q.entryId)
+        if (at < 0) return@LaunchedEffect
+        androidx.compose.runtime.withFrameNanos { }
+        list.animateScrollToItem(at)
+        list.animateScrollBy(-list.layoutInfo.viewportSize.height / 5f)
+        vm.quotedReached(q)
+    }
+    val lit = vm.quoteLit.collectAsState()
     Column(Modifier.fillMaxSize()) {
         TopBar(PhoneTab.CHAT, waiting = waiting, onTab = onTab, onProfile = onProfile, temporary = temporaryToggle(vm, ui))
         // the temporary chat says what it is above everything in it
@@ -530,7 +560,7 @@ private fun ChatOf(vm: FerbViewModel, ui: UiState, temporary: com.ferb.app.Tempo
         val density = androidx.compose.ui.platform.LocalDensity.current
         Box(Modifier.weight(1f).fillMaxWidth().onSizeChanged { if (it.height > tallest) tallest = it.height }) {
           CompositionLocalProvider(LocalChatViewport provides with(density) { tallest.toDp() }, LocalCardsLive provides !earlier,
-              LocalQuestions provides questions, LocalBusy provides ui.busy) {
+              LocalQuestions provides questions, LocalBusy provides ui.busy, LocalQuoteLit provides lit) {
             if (temporary != null) {
                 // an empty temporary chat: how it ends, where its conversation will be
                 if (rows.isEmpty()) com.ferb.design.components.TemporaryEmpty(stringResource(R.string.temporary_empty), Modifier.align(Alignment.Center).testTag("temporary-empty"))
@@ -557,7 +587,8 @@ private fun ChatOf(vm: FerbViewModel, ui: UiState, temporary: com.ferb.app.Tempo
             AlertToast(vm, ui, Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
           }
         }
-        Composer(vm, draft, stringResource(R.string.chat_placeholder), Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp), host, running)
+        Composer(vm, draft, stringResource(R.string.chat_placeholder), Modifier.paddingOverBottom(insets, 8.dp, start = 16.dp, end = 16.dp), host, running,
+            temporary = temporary != null)
     }
 }
 
@@ -703,7 +734,9 @@ private fun ChatRowContent(vm: FerbViewModel, today: Long, olderLoading: Boolean
     val ink = LocalSkyInk.current
     when (row) {
         is ChatRow.Owner -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            OwnerBubble(row.text)
+            // what his message quotes, above it; a tap shows the quoted message (kb APP-1146)
+            row.replyTo?.let { q -> SentQuoteFor(vm, q) }
+            OwnerBubble(row.text, bubble = Modifier.replyOn(vm, row.quote, com.ferb.design.components.OwnerBubbleShape, owner = true))
             for (f in row.files) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 FileIcon(f, 18.dp)
                 PhoneText(f, 13.5f, FerbType.Medium, ink.low, maxLines = 1)
@@ -724,7 +757,7 @@ private fun ChatRowContent(vm: FerbViewModel, today: Long, olderLoading: Boolean
         is ChatRow.Task -> TaskRow(vm, row)
         // while FERB brings in what he said in other assistants: the Mac's words, its bars (kb MEM-456)
         is ChatRow.ImportProgress -> com.ferb.design.components.ImportCard(row.title, row.rows, Modifier.testTag("memory-import"))
-        is ChatRow.Rich -> FerbRichBubble(copy = row.copy) {
+        is ChatRow.Rich -> FerbRichBubble(copy = row.copy, bubble = Modifier.replyOn(vm, row.quote, com.ferb.design.components.RoundedFerb)) {
             val tail = remember(row.tail) { row.tail.map { it to false } }
             com.ferb.design.components.RichBlocks(row.blocks, onBlack, row.key, row.fold, more = stringResource(R.string.show_all),
                 less = stringResource(R.string.show_less), tail = tail)
@@ -780,7 +813,7 @@ private fun AnswerRow(vm: FerbViewModel, row: ChatRow.Answer, host: Host) {
     val uri = androidx.compose.ui.platform.LocalUriHandler.current
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for (c in a.above) ResultCard(c, Modifier.padding(end = 28.dp))
-        if (a.bubble) FerbRichBubble(copy = a.copy) {
+        if (a.bubble) FerbRichBubble(copy = a.copy, bubble = Modifier.replyOn(vm, row.quote, com.ferb.design.components.RoundedFerb)) {
             val tail = remember(a.gaps, a.note, a.lines) {
                 a.gaps.map { "${com.ferb.app.model.GapLines.LABEL} $it" to true } +
                     listOfNotNull(a.note?.let { "Couldn't confirm: $it" to true }) + a.lines.map { it to false }
@@ -818,9 +851,11 @@ private fun AnswerRow(vm: FerbViewModel, row: ChatRow.Answer, host: Host) {
 @Composable
 private fun NoticeRow(vm: FerbViewModel, row: ChatRow.Notice) {
     val ink = LocalSkyInk.current
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // a reminder's or timer's arrival is its box: the box is what a reply quotes then (kb APP-1146)
+    val boxReply = if (row.ui.boxSays) Modifier.replyOn(vm, row.quote, androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) else Modifier
+    Column(Modifier.fillMaxWidth().then(boxReply), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for (c in row.ui.above) ResultCard(c, Modifier.padding(end = 28.dp))
-        if (!row.ui.boxSays) FerbRichBubble(copy = row.text) {
+        if (!row.ui.boxSays) FerbRichBubble(copy = row.text, bubble = Modifier.replyOn(vm, row.quote, com.ferb.design.components.RoundedFerb)) {
             val text = remember(row.text) { richText(com.ferb.design.components.plainBlocks(row.text), onBlack) }
             RichWords(text, onBlack, row.key)
             for (c in row.ui.notes) ResultCard(c)
@@ -885,6 +920,9 @@ private fun OutboxRow(vm: FerbViewModel, row: ChatRow.Outbox) {
         else -> stringResource(com.ferb.app.model.MacAsleep.waitingLine(o.waitingFor, com.ferb.app.model.MacAsleep.waiting(ui.status, ui.link, ui.linkLost)))
     }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // a message that waits keeps what it quotes (kb APP-1146), drawn as on the sent message
+        // the quote keeps the sent message's colour: only the waiting words are dimmed (owner, 2026-11-28)
+        o.replyTo?.let { q -> SentQuoteFor(vm, q) }
         Box(Modifier.alpha(if (failed) 1f else 0.7f)) { OwnerBubble(o.text) }
         Row(Modifier.padding(horizontal = 6.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -938,6 +976,8 @@ private fun WithFilesRow(vm: FerbViewModel, m: Sending) {
         }
     }
     Column(Modifier.fillMaxWidth().testTag("sending"), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // the quote keeps the sent message's colour: only the waiting message is dimmed (owner, 2026-11-28)
+        m.replyTo?.let { q -> SentQuoteFor(vm, q) }
         Column(Modifier.alpha(if (bad) 1f else 0.85f), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
             for (c in m.chips.take(4)) {
                 AttachmentChip(c.name, android.text.format.Formatter.formatShortFileSize(context, c.size), thumbnail = rememberThumbnail(c.path, c.name))
@@ -955,6 +995,39 @@ private fun WithFilesRow(vm: FerbViewModel, m: Sending) {
             }
         }
     }
+}
+
+/** The entry of the quoted message lit up now (kb APP-1146): read only where a bubble asks whether it is the one. */
+internal val LocalQuoteLit = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.runtime.State<String?>> { mutableStateOf(null) }
+
+/** "You: …" or "FERB: …" (FERB.app's quote line). */
+@Composable
+private fun quoteText(q: com.ferb.mobile.ReplyQuote): String =
+    com.ferb.design.components.quoteLine(q.byOwner, q.excerpt, stringResource(R.string.reply_you), stringResource(R.string.reply_ferb))
+
+/** What TalkBack says of a quote (FERB.app's "Replying to your message: …" / "Replying to FERB: …"). */
+@Composable
+private fun quoteDescription(q: com.ferb.mobile.ReplyQuote): String =
+    stringResource(if (q.byOwner) R.string.reply_to_yours else R.string.reply_to_ferb, q.excerpt)
+
+/** The quote above a sent (or waiting) message of his; a tap shows the quoted message (kb APP-1146). */
+@Composable
+private fun SentQuoteFor(vm: FerbViewModel, q: com.ferb.mobile.ReplyQuote) {
+    com.ferb.design.components.SentQuote(quoteText(q), Modifier.testTag("sent-quote"), description = quoteDescription(q), onShow = { vm.showQuoted(q) })
+}
+
+/**
+ * A bubble that can be replied to (kb APP-1146): swiped right (or TalkBack's Reply) its [quote] goes above the message
+ * box; it lights up when a quote of it was tapped. No quote: it offers no reply (a legacy row, the temporary chat).
+ * Only the one bubble whose lit state changes is drawn again.
+ */
+@Composable
+private fun Modifier.replyOn(vm: FerbViewModel, quote: com.ferb.mobile.ReplyQuote?, shape: androidx.compose.ui.graphics.Shape, owner: Boolean = false): Modifier {
+    val litNow = LocalQuoteLit.current
+    val id = quote?.entryId
+    val lit by remember(litNow, id) { derivedStateOf { id != null && litNow.value == id } }
+    return replySwipe(quote?.let { q -> { vm.reply(q) } }, stringResource(R.string.reply_action), shape, lit,
+        litTint = if (owner) androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.06f) else androidx.compose.ui.graphics.Color.White.copy(alpha = 0.16f))
 }
 
 /** A small picture of a photo in the phone's own copy, made off the main thread; null for other files. */

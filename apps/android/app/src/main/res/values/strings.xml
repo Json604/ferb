@@ -95,6 +95,14 @@
     <string name="outbox_cancel">Cancel</string>
     <string name="outbox_remove">Remove</string>
     <string name="chat_placeholder_files">Add a note or just send</string>
+    <!-- Reply to a message (kb APP-1146): FERB.app's own words (ReplyViews.swift) -->
+    <string name="reply_you">You</string>
+    <string name="reply_ferb">FERB</string>
+    <string name="reply_action">Reply</string>
+    <string name="reply_drop">Don\'t reply to this message</string>
+    <string name="reply_show">Show this message</string>
+    <string name="reply_to_yours">Replying to your message: %1$s</string>
+    <string name="reply_to_ferb">Replying to FERB: %1$s</string>
     <string name="attach_on_mac">On your Mac</string>
     <string name="send_progress">Sending to your Mac · %1$d%%</string>
     <string name="send_waiting_path">Files wait for a direct connection or your own relay</string>
