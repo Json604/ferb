@@ -152,6 +152,13 @@ pub trait Daemon: Send + Sync {
     fn lean_check(&self) -> bool {
         true
     }
+    /// ORCH-757: whether the owner's check reads the middle path (each run's newest look per place and what the answer
+    /// cites in full, the rest one line each, the calls first and the live facts last). True here and in the tests;
+    /// the real daemon keeps it off until a replay on a real model shows the checker still catches what it caught
+    /// (owner 2026-11-28: faster only if the work doesn't get worse).
+    fn check_middle_path(&self) -> bool {
+        true
+    }
     /// GATE-609: whether the words typed in a safety check's box are read by the planner for the sites they name
     /// (true). A replay of a Python recording, whose card replies reached the task with no planner call, says false
     /// (the named difference).
@@ -921,6 +928,9 @@ pub struct TreeState {
     pub stop_reason: String,
     pub stop_by_code: bool,
     pub stands_unconfirmed: bool,
+    /// ORCH-738: the last check's few words naming what it couldn't confirm (redacted), for the unconfirmed line's
+    /// bracket; "" for none.
+    pub unconfirmed_short: String,
     pub kept_contradicted: bool,
     pub declined: bool,
     pub check_told: String,
@@ -1206,6 +1216,7 @@ impl Supervisor {
             clock: inner.deps.clock.clone(),
             policy: inner.deps.policy.clone(),
             activity: inner.activity.clone(),
+            live_held: Default::default(),
         });
         let config = ferb_worker::WorkerConfig {
             heartbeat_poll_s: inner.deps.heartbeat_poll_s,

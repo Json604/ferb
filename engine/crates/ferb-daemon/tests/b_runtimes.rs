@@ -916,10 +916,11 @@ async fn codex_cache_roles_and_their_journal_lines() {
     assert_eq!(off[2].1, r("checker"));
 }
 
-/// ORCH-652's and ORCH-679's named differences: a report or check recorded against Python's schema, answered as a model
-/// given today's (whose `gaps`, and a check's `progress` and each result's `left`, are required) answers it: with
-/// `"gaps": []`, `"progress": null` and `"left": null`.
-// decision: ORCH-675, ORCH-679
+/// ORCH-652's, ORCH-679's and ORCH-738's named differences: a report or check recorded against Python's schema,
+/// answered as a model given today's (whose `gaps`, and a check's `progress`, each result's `left` and its
+/// `unconfirmed_short`, are required) answers it: with `"gaps": []`, `"progress": null`, `"left": null` and
+/// `"unconfirmed_short": ""`.
+// decision: ORCH-675, ORCH-679, ORCH-738
 fn gaps_answered(data: &mut Map<String, Value>) {
     for v in data.values_mut() {
         let Some(text) = v.as_str() else { continue };
@@ -940,6 +941,10 @@ fn gaps_answered(data: &mut Map<String, Value>) {
                     r.entry("left").or_insert(Value::Null);
                 }
             }
+            changed = true;
+        }
+        if check && !report.contains_key("unconfirmed_short") {
+            report.insert("unconfirmed_short".into(), json!(""));
             changed = true;
         }
         if changed {

@@ -163,6 +163,7 @@ fn verifier(r: &Value) -> VerifierReads {
         observations: r["observations"].as_array().cloned().unwrap_or_default(),
         calls_since: r["calls_since"].as_i64().unwrap_or(0),
         began: r["began"].as_array().map(|b| s(&b[0])),
+        calls_first: false,
     }
 }
 

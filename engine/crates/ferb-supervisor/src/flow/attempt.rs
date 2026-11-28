@@ -409,6 +409,7 @@ impl Inner {
         st.verification.clear();
         st.check_problem.clear();
         st.unconfirmed.clear();
+        st.unconfirmed_short.clear();
         st.owner_answer.clear();
         st.reason.clear();
         st.how.clear();
@@ -1237,6 +1238,9 @@ impl Inner {
             next.reason = tree.lock().reason.clone();
             return Ok(next);
         };
+        // ORCH-738: what the check named as unconfirmed, for the line's bracket (code cleans it when it shows it)
+        let short = self.redact_text(verdict.unconfirmed_short.trim());
+        tree.lock().unconfirmed_short = short;
         Ok(self.next(tree, out, &verdict))
     }
 
@@ -2214,6 +2218,7 @@ impl Inner {
                     observations,
                     calls_since: st.calls_since,
                     began: None,
+                    calls_first: false,
                 },
                 st.calls_since,
             )
@@ -2224,11 +2229,15 @@ impl Inner {
         } else {
             self.request_began(&tree.id, &task.request_id, &task.id)
         };
-        let mut reads = reads;
-        reads.began = began.as_ref().map(|b| b.0.clone());
-        let report = worker_context::verifier_report(&reads, &|t| self.wrap(t));
         // ORCH-694: the owner's check (code's look, no rerun, a cap); a Python recording's replay keeps its own
         let lean = self.deps.daemon.lean_check();
+        // ORCH-757's middle path: only within the owner's check, and only while the daemon has it on
+        let middle = lean && self.deps.daemon.check_middle_path();
+        let mut reads = reads;
+        reads.began = began.as_ref().map(|b| b.0.clone());
+        // ORCH-757: the owner's check opens with the recorded calls, the middle path; a replay keeps Python's order
+        reads.calls_first = middle;
+        let report = worker_context::verifier_report(&reads, &|t| self.wrap(t));
         let mut context = self.context(tree, false).await?;
         // ORCH-655: what changes between checks of one step comes after what doesn't, so a later check's first call
         // can reuse the earlier one's cached prefix: the previous attempts' block goes last among the task's blocks
@@ -2256,25 +2265,55 @@ impl Inner {
             let daemon = self.deps.daemon.clone();
             let observes = move |tool: &str| daemon.observes(tool);
             let priority = above(&ctx);
-            self.with_spans(|s| {
-                ferb_orchestrator::evidence::recorded_calls(
-                    s,
-                    &task.id,
-                    &tree.id,
-                    &observes,
-                    &redact,
-                    &secrets,
-                    &wrap,
-                    priority,
-                    began.as_ref().map(|b| b.1).unwrap_or(0),
-                    calls_since,
-                )
-            })
-            .map_err(Failure::from)?
+            if middle {
+                // decision: ORCH-757 — each run's newest look at each place and what the answer cites in full, the
+                // rest one line each; text fixed per call (an id per span), so a later check reuses the prefix
+                let cited = [reads.owner_answer.as_str()]
+                    .into_iter()
+                    .chain(reads.artifacts.iter().map(String::as_str))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let wrap = ferb_orchestrator::check_evidence::per_span_wrap();
+                self.with_spans(|s| {
+                    ferb_orchestrator::check_evidence::checker_evidence(
+                        s,
+                        &task.id,
+                        &tree.id,
+                        &observes,
+                        &cited,
+                        &redact,
+                        &secrets,
+                        &wrap,
+                        priority,
+                        calls_since,
+                    )
+                })
+                .map_err(Failure::from)?
+            } else {
+                self.with_spans(|s| {
+                    ferb_orchestrator::evidence::recorded_calls(
+                        s,
+                        &task.id,
+                        &tree.id,
+                        &observes,
+                        &redact,
+                        &secrets,
+                        &wrap,
+                        priority,
+                        began.as_ref().map(|b| b.1).unwrap_or(0),
+                        calls_since,
+                    )
+                })
+                .map_err(Failure::from)?
+            }
         };
-        ctx.extend(calls);
-        let tail = "\nThe worker's recorded tool calls and their results follow. More: task_evidence; memory.read; \
-                    chat.history";
+        if middle {
+            // ORCH-757: what stays between two checks of a task first (journal 251)
+            ctx = calls.into_iter().chain(ctx).collect();
+        } else {
+            ctx.extend(calls);
+        }
+        let tail = worker_context::report_tail(middle);
         let plain_report = format!(
             "{}\nThis check's context holds no recorded tool calls: with them, it overflowed the model's window; list \
              and read them with task_evidence. Full observations: task_evidence; memory.read; chat.history",

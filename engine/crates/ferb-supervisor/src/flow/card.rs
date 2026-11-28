@@ -19,7 +19,6 @@ use super::tree::step_task;
 use super::{Inner, Tree};
 use crate::words::{
     COULDNT_DO, NOT_ACCEPTED, REPORT_SHORT_CHARS, RESTARTED, RESTARTED_SAID, STOPPED_BY_YOU,
-    UNCONFIRMED_LINE,
 };
 
 /// A card and the part events it emitted that are not yet told (its `emit` only queues them: Python's `emit` reads
@@ -273,6 +272,15 @@ impl Inner {
                     let out = m.lock().outcome.clone()?;
                     Some(self.checked_answer(m, &out))
                 });
+                // ORCH-738: what the step's check named as unconfirmed, for the row's line
+                let short = match member {
+                    Some(m) => m.lock().unconfirmed_short.clone(),
+                    None => output
+                        .get("unconfirmed_short")
+                        .filter(|v| ferb_py::value::truthy(v))
+                        .map(text_of)
+                        .unwrap_or_default(),
+                };
                 let (text, note, verified) = match checked {
                     Some(c) => c,
                     None => {
@@ -303,7 +311,7 @@ impl Inner {
                 let mut shown =
                     crate::lines::with_gap_lines(ferb_orchestrator::py::strip(&text), &gaps);
                 if !note.is_empty() && !verified {
-                    shown.push_str(&format!("\n\n{UNCONFIRMED_LINE}"));
+                    shown.push_str(&format!("\n\n{}", crate::words::unconfirmed_line(&short)));
                 }
                 let row = self.said(&shown);
                 let state = if gaps.is_empty() {

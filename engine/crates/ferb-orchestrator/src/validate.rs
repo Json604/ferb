@@ -617,8 +617,10 @@ pub(crate) fn models() -> Vec<ModelDef> {
                 opt("gaps", lm("CheckGap"), nothing),
                 // ORCH-679 (not Python's): what the work reached and what is missing, for the owner
                 opt("progress", T::Opt(Box::new(T::Dict)), none),
+                // ORCH-738 (not Python's): what couldn't be confirmed, in a few words for the owner's bracket
+                opt("unconfirmed_short", s(), empty),
             ],
-            vec![loose_progress, older_shape],
+            vec![loose_progress, loose_unconfirmed_short, older_shape],
             Some(checker_tags),
         ),
     ]
@@ -891,6 +893,23 @@ fn loose_left(data: Py) -> Result<Py, Raised> {
 /// ORCH-680: a check's `progress` that isn't an object (or null) is dropped, as `left`.
 fn loose_progress(data: Py) -> Result<Py, Raised> {
     Ok(drop_unless_dict(data, "progress"))
+}
+
+/// ORCH-738: a check's `unconfirmed_short` that isn't a string is dropped: a malformed bracket leaves the check as it
+/// is (the line then reads as before), never fails it.
+fn loose_unconfirmed_short(data: Py) -> Result<Py, Raised> {
+    Ok(match data {
+        Py::Dict(mut d) => {
+            if d.0
+                .get("unconfirmed_short")
+                .is_some_and(|v| !matches!(v, Py::Str(_)))
+            {
+                d.0.shift_remove("unconfirmed_short");
+            }
+            Py::Dict(d)
+        }
+        other => other,
+    })
 }
 
 fn drop_unless_dict(data: Py, key: &str) -> Py {
@@ -2191,6 +2210,7 @@ fn checker_from(v: &Py) -> CheckerOutcome {
         dropped_edits: r.ls("dropped_edits"),
         gaps: r.each("gaps", check_gap_from),
         progress: r.maybe("progress", progress_from),
+        unconfirmed_short: r.s("unconfirmed_short"),
     }
 }
 fn checker_to(m: &CheckerOutcome) -> Py {
@@ -2198,6 +2218,11 @@ fn checker_to(m: &CheckerOutcome) -> Py {
     // ORCH-679: in a dump only when given
     if let (Py::Dict(map), Some(p)) = (&mut d, &m.progress) {
         map.0.insert("progress".into(), progress_to(p));
+    }
+    // ORCH-738: in a dump only when given
+    if let (Py::Dict(map), false) = (&mut d, m.unconfirmed_short.is_empty()) {
+        map.0
+            .insert("unconfirmed_short".into(), ps(&m.unconfirmed_short));
     }
     d
 }

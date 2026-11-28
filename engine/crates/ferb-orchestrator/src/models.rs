@@ -633,4 +633,7 @@ pub struct CheckerOutcome {
     pub gaps: Vec<CheckGap>,
     /// ORCH-679: with an unmet condition, what was reached and what is missing; None when not given.
     pub progress: Option<CheckProgress>,
+    /// ORCH-738: a few words naming what couldn't be confirmed, for the bracket after the unconfirmed line's opening;
+    /// "" when not given.
+    pub unconfirmed_short: String,
 }

@@ -15442,6 +15442,111 @@ daemon looked a quoted entry up only in the stored chat, so the quote was droppe
 **Unverified.** Nothing ran live. One Android full run had 35 unrelated failures that passed alone and on a rerun
 (load).
 
+## 2026-11-28 · 288 · The checker's middle path, its calls first; the unconfirmed line names what wasn't confirmed (T-1336, T-1348)
+
+**Why.** ORCH-719 item 5 (owner, 2026-11-25): the checker gets the newest look at each page, app window and file in
+full, plus what the answer cites; the rest is an index; tested offline on the recorded checks first. It supersedes the
+parked slim checker (T-1303, index only). T-1336's note (journal 251): two checks of one task shared 4.2% of their
+prefix. ORCH-738 (owner, 2026-11-27): the unconfirmed line names, in a short bracket written by a model, what wasn't
+confirmed; the coordinator ruled that the checker's existing answer writes it (no new model call).
+
+**What (ORCH-757, agent).**
+- `ferb-orchestrator/src/check_evidence.rs`. Every recorded call of the task in recorded order is either in full or one
+  line of an index:
+  - In full, as `recorded_calls` shows a record (first 12,000 characters, the offset of the rest): each worker run's
+    newest look of each kind at each place. A place is a tab at its URL without fragment, a Mac app's window, a file
+    or a process; the kind is the tool and its other arguments (an offset, a search text). When that newest look
+    failed, the run's newest one with a result stays in full too.
+  - A line: number, span_id, tool, kind, time, place, a short fact (title; an action's arguments and result, each
+    cut), the record's size. task.evidence opens it.
+  - The calls the worker's answer (and its artifacts' names) cites by span id, URL or path, when they are lines in
+    their place, follow at the end in full.
+  - Per run rather than overall: a run's calls are all recorded when it is checked, so a call's form never changes
+    after. With "newest overall" a retry's new look turned the first run's look into a line and the shared prefix
+    broke at call 1 (the first build, newest overall with the cited calls in place: 30.8% shared instead of 49.2%).
+- Text fixed per call: no totals ("Recorded call 3:"), a marker per run with its start time ("Worker run 2, began at
+  …:"; the report's "began at" sentence tells which run the latest message's is), and the wrapper id a keyed hash of the
+  span id (`wrap_keyed`; `per_span_wrap` takes a random key once per process), so outside text still can't guess it.
+- The supervisor (`verifier`, with `lean_check`): the evidence goes first, then the task's blocks, code facts, the
+  report (its last line now says the calls are at the start), changed files and code's fresh look. `Host::system`
+  builds the check's instructions without the live facts (one `system_inputs` read, as before) and
+  `with_newly_always_on` puts them last under `words::LIVE_FACTS`. A Python recording's replay (`lean_check` false)
+  keeps the old block and order byte for byte.
+- ORCH-694's "every recorded call in full" is replaced by this, as ORCH-719 (the later owner decision) says.
+
+**ORCH-738 (T-1348).**
+- The check's answer schema gains `unconfirmed_short`, last, a string whose description is the only instruction:
+  > When something the owner asked for stays unconfirmed (a condition met=null, accept_unconfirmed, a finding the
+  > evidence doesn't bear), a few plain words naming what couldn't be confirmed, at most 12, for the owner: FERB shows
+  > them in brackets after "I couldn't confirm part of this". Name the thing itself ("whether the form was
+  > submitted", "the price on the seller's page"), never this check, a tool or an id; no brackets or line breaks. ""
+  > when everything was confirmed.
+- The validator drops it when it isn't a string. The tree keeps the last check's (redacted). A step's record carries it
+  when it has a note. A plan joins its steps' with "; ". The card row reads the member's or the record's.
+- `words::unconfirmed_line`: "I couldn't confirm part of this (<words>)." Line breaks, control characters and brackets
+  become spaces, and a closing stop is dropped. Empty, over 15 words or over 120 characters: "I couldn't confirm part
+  of this." as before. Rate: no extra call; one short field, about 10 output tokens per check that leaves something
+  unconfirmed.
+- The named difference: `schemas::as_recorded` takes the field out (`before_unconfirmed_short`) for every comparison
+  with answer_schemas.json.
+
+**Measured offline (owner's store read only, no model).**
+- How: 95 recorded checks from 11-18 to 11-28, from a read-only extract of their tasks' spans. A scratch harness
+  (scratchpad `checker/harness`) builds the new block with the worktree's `check_evidence::blocks` from the spans
+  recorded before each check began. It compares with the block the check actually received, from its recorded input.
+- Evidence tokens (o200k): 4,870,251 → 3,106,419 (−36.2%). Whole context: 5,413,830 → 3,717,605 (−31.3%). Per check
+  from +3% (few calls: the run markers and the head cost more than the lines save) to −92% (repeated looks at one page);
+  26 of 93 checks with calls change by less than 10% (research tasks read each page once).
+- What the verdict relied on: span ids, links, file names and quoted phrases in each recorded verdict, matched
+  against the task's call records. Of 164 references, 120 are in a call shown in full, 19 in a line (one task.evidence
+  read away), 25 in no call of the task (code's fresh look, the check's own looks, earlier results). None was lost.
+  The 6 records the original checks opened with task_evidence are all in full now.
+- Shared prefix of consecutive checks of one task (system and context; reruns left out; 17 pairs): 9.6% → 49.2% mean
+  per pair, 5.1% → 44.0% of bytes. Journal 251 measured 4.2% on other pairs; its 32% estimate assumed overall-newest.
+  One pair stays at 3%: its two checks' instructions differ at 15k characters (a FERB update between).
+
+**Checked.**
+- ferb-orchestrator `tests/check_evidence.rs` (5), on invented spans through the real span store: each run's newest
+  look in full and the rest lines that one task.evidence read opens; the cited calls at the end, leaving the rest
+  unchanged; the first check's text a prefix of the second's while Python's parts at its first line; the keyed
+  wrapper; no calls.
+- ferb-supervisor:
+  - `lean_check.rs`: the check opens with the calls and ends with the live facts, which aren't in its instructions;
+    the replay path keeps Python's order. `the_check_gets_codes_fresh_look_and_every_call` now expects the replaced
+    long read as a line.
+  - `the_unconfirmed_line_names_what_the_check_couldnt_confirm`, through the real supervisor.
+  - `unconfirmed_line.rs`.
+- ferb-context `the_check_names_what_it_couldnt_confirm` (the schema, its named difference, Anthropic's and Gemini's
+  limits).
+- ferb-daemon `b_runtimes`: the runtime check's recorded checker answer gets `"unconfirmed_short": ""` beside
+  ORCH-652's and ORCH-679's fields (`gaps_answered`, the named difference); it failed without it.
+- Shown failing with the change off: `check_evidence.rs` with the newest look taken over all runs (2 of 5 fail);
+  the bracket tests against the plain line.
+- Run (worktree, own target folder, no debug info, `nice -n 10`, each binary on its own, no model, no real home):
+  - every ferb-supervisor test binary (46), ferb-orchestrator and ferb-context;
+  - ferbd `fixed_part`, `chat_replay` (10, 2 ignored), `crash_and_restart`, `follow_up_grid`,
+    `every_tool_through_the_program`, `catalog_mcp`, `front_door_replay`, `replay`, `seams_wired`,
+    `loops_supervised`, `lifecycle`, `wiring`, `task_trace`, `usage_stats`, `stats`;
+  - ferb-daemon `b_runtimes` and `b_browsers`. All pass.
+- `cargo fmt --all --check`, `cargo clippy -p ferb-orchestrator -p ferb-context -p ferb-supervisor -p ferb-daemon
+  --all-targets -D warnings` clean; `git diff --check` clean.
+- Not run: `./gate.sh lint` (the whole workspace and the phone crates), `./gate.sh test`, `./gate.sh portable`
+  (ferb-orchestrator gained getrandom 0.3, already in the lock for ferb-sanitize; check_evidence is behind `store`).
+
+**Unverified.**
+- No model saw the new block: whether checkers catch as much with lines in place of older looks (the slim check's
+  misses, T-1303) needs a replay with a call budget; this is the offline step only.
+- Whether a model fills `unconfirmed_short` well, and how the bracket reads to the owner, is not seen live. The
+  description's wording and the bracket's form were not shown to the owner before this entry.
+- The prefix figures are characters of the recorded system and context. A provider caches the prefix up to its first
+  difference in its own request (tools between them, its own framing), so the real cached share is not measured.
+- The harness's rest of the context keeps the recorded random wrapper ids. Its roles come from the recorded headers;
+  its redaction is none (the spans are stored redacted).
+- A temporary chat's check still puts its fresh block first (`context_final`), and a newly always-on note goes first,
+  ahead of the calls; neither is measured.
+- `kb check` reports check_evidence.rs as untracked until it is added.
+
+**Off in FERB.app until a real replay (coordinator, 2026-11-28).** The owner: faster only if the work doesn't get worse. The middle path has its own switch, `Daemon::check_middle_path`: true in the supervisor's default and the tests, false in ferbd's daemon. The real checker keeps every recorded call as before until a replay of recorded checks on a real model, with a call budget the owner sets, shows the verdicts hold. ORCH-738's bracket is on (it is the checker's own field, not the middle path).
 ## 2026-11-28 · 289 · The front door's leftovers: the first word and the relay in stats and trace, no phone picture taken, imported lines offer no Always on, the old path and step 7 checked
 
 **Why (T-1338, T-1339, T-1340, T-1342, T-1344; ORCH-726, kb/plans/front-door.md).** What journals 254-277 left

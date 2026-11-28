@@ -373,7 +373,42 @@ pub const LAPSED: &str = "question.lapsed";
 pub const OPEN_REQUEST: &str =
     "The owner's earlier request it asked about (their words, waiting for that answer):\n";
 pub const COULDNT_DO: &str = "Couldn't do:";
+/// ORCH-757: the heading of the facts that change by the minute, at the end of the check's context instead of in its
+/// instructions.
+pub const LIVE_FACTS: &str =
+    "Facts about this FERB now (they change between checks, so they come last):";
 pub const UNCONFIRMED_LINE: &str = "I couldn't confirm part of this.";
+/// ORCH-738: the opening words code keeps when the check named what it couldn't confirm.
+pub const UNCONFIRMED_OPENING: &str = "I couldn't confirm part of this";
+/// ORCH-738: the most words of the check's `unconfirmed_short` shown in the bracket (its description asks for at
+/// most 12); a longer one, or one that is empty once cleaned, leaves the line as UNCONFIRMED_LINE.
+pub const UNCONFIRMED_SHORT_WORDS: usize = 15;
+/// ORCH-738: ... and the most characters.
+pub const UNCONFIRMED_SHORT_CHARS: usize = 120;
+
+/// decision: ORCH-738 — the line a done answer with something unconfirmed ends with: the fixed opening words, then in
+/// a short bracket what the check named as unconfirmed (`unconfirmed_short`), on one line, without brackets of its
+/// own; UNCONFIRMED_LINE when the check named nothing usable.
+pub fn unconfirmed_line(short: &str) -> String {
+    let cleaned: String = short
+        .chars()
+        .map(|c| match c {
+            '(' | ')' | '[' | ']' | '{' | '}' => ' ',
+            c if c.is_control() => ' ',
+            c => c,
+        })
+        .collect();
+    let words: Vec<&str> = cleaned.split_whitespace().collect();
+    let flat = words.join(" ");
+    let flat = flat.trim_end_matches(['.', ',', ';', ':']).trim();
+    if flat.is_empty()
+        || words.len() > UNCONFIRMED_SHORT_WORDS
+        || flat.chars().count() > UNCONFIRMED_SHORT_CHARS
+    {
+        return UNCONFIRMED_LINE.to_string();
+    }
+    format!("{UNCONFIRMED_OPENING} ({flat}).")
+}
 /// ORCH-653: the question before a step with an outside effect after a step delivered with gaps, its options, and
 /// what a No leaves in the step's place.
 pub const GAPS_GO_ON: &str = "Yes";

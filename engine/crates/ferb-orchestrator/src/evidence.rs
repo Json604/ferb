@@ -69,7 +69,7 @@ pub fn inherits(record: &Value) -> bool {
         || (kind == Some("worker") && !record.get("origin").is_some_and(ferb_py::value::truthy))
 }
 
-fn origin_text(record: &Value) -> Option<String> {
+pub(crate) fn origin_text(record: &Value) -> Option<String> {
     record
         .get("origin")
         .and_then(|v| v.as_str())
@@ -257,7 +257,7 @@ pub struct TaskEvidence<'a> {
     pub record_sources: RecordSources,
 }
 
-fn substr(chars: &[char], a: usize, b: usize) -> String {
+pub(crate) fn substr(chars: &[char], a: usize, b: usize) -> String {
     let b = b.min(chars.len());
     if a >= b {
         String::new()
@@ -690,7 +690,7 @@ pub fn recorded_calls(
 }
 
 /// 114231 → "114,231".
-fn group(n: i64) -> String {
+pub(crate) fn group(n: i64) -> String {
     let s = n.abs().to_string();
     let mut out = String::new();
     for (i, c) in s.chars().enumerate() {

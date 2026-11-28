@@ -2287,6 +2287,17 @@ impl Inner {
             .map(ferb_py::value::py_str)
             .collect::<Vec<_>>()
             .join("; ");
+        // ORCH-738: each step's bracket words, as its notes are joined
+        let unconfirmed_short = outputs
+            .iter()
+            .filter(|o| o.get("note").is_some_and(ferb_py::value::truthy))
+            .filter_map(|o| {
+                o.get("unconfirmed_short")
+                    .filter(|n| ferb_py::value::truthy(n))
+            })
+            .map(ferb_py::value::py_str)
+            .collect::<Vec<_>>()
+            .join("; ");
         let planned = tree.spec().success_conditions.len() as i64;
         let one = outputs.len() == 1;
         let verification = if one
@@ -2304,6 +2315,7 @@ impl Inner {
         let mut st = tree.lock();
         st.owner_answer = answer;
         st.unconfirmed = unconfirmed;
+        st.unconfirmed_short = unconfirmed_short;
         if let Some(v) = verification {
             st.verification = v;
         }
@@ -2416,6 +2428,11 @@ impl Inner {
                     .collect();
                 let mut record =
                     obj(json!({"note": note, "verified": verified, "verification": verification}));
+                // ORCH-738: in the record only when the check named something
+                let short = member.lock().unconfirmed_short.clone();
+                if !note.is_empty() && !short.is_empty() {
+                    record.insert("unconfirmed_short".into(), json!(short));
+                }
                 let gaps = member.lock().gaps.clone();
                 if !gaps.is_empty() {
                     // ORCH-652: what was not done and why, for the plan's record and the steps after it (data)
@@ -3358,7 +3375,9 @@ impl Inner {
             answer = if note.is_empty() {
                 text
             } else {
-                format!("{text}\n\n{UNCONFIRMED_LINE}")
+                // decision: ORCH-738 — the fixed opening, then what the check named, in a short bracket
+                let short = src.lock().unconfirmed_short.clone();
+                format!("{text}\n\n{}", crate::words::unconfirmed_line(&short))
             };
             summary = answer.clone();
         } else if out.status == OutcomeStatus::NeedsUser {

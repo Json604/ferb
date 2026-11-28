@@ -928,3 +928,30 @@ fn report_and_check_schemas_carry_gaps() {
     );
     assert!(shape::for_anthropic(&c).is_ok());
 }
+
+/// ORCH-738's named difference: the check's answer has `unconfirmed_short` last (a string whose description is its
+/// only instruction, required as every field is); the recorded schema (answer_schemas.json) is FERB's without it.
+// decision: ORCH-738
+#[test]
+fn the_check_names_what_it_couldnt_confirm() {
+    let c = schemas::checker_schema();
+    let keys: Vec<&String> = c["properties"].as_object().unwrap().keys().collect();
+    assert_eq!(keys.last().unwrap().as_str(), "unconfirmed_short");
+    assert_eq!(c["properties"]["unconfirmed_short"]["type"], "string");
+    assert_eq!(
+        c["properties"]["unconfirmed_short"]["description"],
+        schemas::UNCONFIRMED_SHORT_DESCRIPTION
+    );
+    assert!(c["required"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("unconfirmed_short")));
+    let recorded = schemas::as_recorded(&c);
+    assert!(recorded["properties"].get("unconfirmed_short").is_none());
+    assert!(!recorded["required"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("unconfirmed_short")));
+    assert!(shape::for_anthropic(&c).is_ok());
+    assert!(shape::for_gemini(&c).is_ok());
+}

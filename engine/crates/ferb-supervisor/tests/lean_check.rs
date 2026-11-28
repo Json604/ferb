@@ -1,6 +1,7 @@
 //! The owner's check of 2026-11-23 (ORCH-694, ORCH-696, ORCH-697), through the real supervisor on recorded scenarios
 //! whose plan, report, check and recorded calls are changed by the test (invented hosts, sentences and pages): the
-//! check keeps every recorded call in full and gets code's own fresh look (ORCH-696); it is never rerun, and
+//! check opens with the recorded calls, each run's newest look at each place in full and the rest one line each
+//! (ORCH-719's middle path, ORCH-757), and gets code's own fresh look (ORCH-696); it is never rerun, and
 //! a pass with no look is can't tell at once; its token is capped and a run past the cap ends unconfirmed; a not-done
 //! report after acting is routed by one call without tools, the 5-attempt check-in kept (ORCH-697). The c252e651
 //! regression (a rerun dropped the first check's findings) runs on the Python recordings' own path, where reruns stay.
@@ -193,9 +194,10 @@ fn journal(w: &World, kind: &str) -> Vec<Value> {
     rows
 }
 
-/// The check keeps every recorded call in full and gets code's own look at tab t21, which counts as the check's look:
-/// done and verified, one check, its token capped at CHECK_CALLS.
-// decision: ORCH-696
+/// The check gets code's own look at tab t21, which counts as the check's look, and the recorded calls first: the
+/// newest look at the tab in full, the earlier long read of it one line naming its span (ORCH-757); done and
+/// verified, one check, its token capped at CHECK_CALLS.
+// decision: ORCH-696, ORCH-719, ORCH-757
 #[test]
 fn the_check_gets_codes_fresh_look_and_every_call() {
     let name = "one_step_task";
@@ -209,9 +211,10 @@ fn the_check_gets_codes_fresh_look_and_every_call() {
     assert_eq!(parts.len(), 1, "one check, no rerun");
     let p = &parts[0];
     assert!(
-        p.contains("BIGPAGE"),
-        "every recorded call, in full as today"
+        !p.contains("BIGPAGE"),
+        "the look a later one at the same tab replaced is one line"
     );
+    assert!(p.contains("1. span_id="), "{p}");
     assert!(
         p.contains("Refund requested."),
         "the look after the last action, in full"
@@ -454,4 +457,103 @@ fn a_not_done_report_that_did_nothing_still_skips_every_checker_call() {
     );
     let (row, _) = root_outcome(&w);
     assert_eq!(row, "failed");
+}
+
+/// The check's model input (its instructions and context parts).
+fn check_inputs(w: &World) -> Vec<Value> {
+    w.daemon
+        .calls
+        .lock()
+        .unwrap()
+        .started
+        .iter()
+        .filter(|c| {
+            c["task_id"]
+                .as_str()
+                .is_some_and(|t| t.ends_with(".verify"))
+        })
+        .cloned()
+        .collect()
+}
+
+/// The owner's check opens with the recorded calls (before the task, the report and code's look), and the facts
+/// that change by the minute leave its instructions for the end of its context, so a later check of the task can
+/// reuse the cached prefix; a Python recording's replay keeps its order (lean off).
+// decision: ORCH-719, ORCH-757
+#[test]
+fn the_check_opens_with_the_calls_and_ends_with_the_live_facts() {
+    let name = "one_step_task";
+    let mut w = lean(name, |c| planned(c, json!([])));
+    *w.daemon.code_look.lock().unwrap() = page_look("Refund processed today.");
+    let _ = run_with(&mut w, name, |_| {});
+    let checks = check_inputs(&w);
+    assert_eq!(checks.len(), 1);
+    let parts: Vec<&str> = checks[0]["parts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p.as_str().unwrap())
+        .collect();
+    assert!(
+        parts[0].starts_with(ferb_orchestrator::check_evidence::HEAD),
+        "{}",
+        parts[0]
+    );
+    let at = |needle: &str| parts.iter().position(|p| p.contains(needle)).unwrap();
+    assert!(at("Refund requested.") < at("The worker's answer to the owner"));
+    assert!(at("The worker's answer to the owner") < at("FERB's fresh look at tab t21"));
+    let live = parts
+        .iter()
+        .position(|p| p.starts_with(ferb_supervisor::words::LIVE_FACTS))
+        .expect("the live facts, in the context");
+    assert!(live > at("FERB's fresh look at tab t21"));
+    let facts = parts[live]
+        .strip_prefix(ferb_supervisor::words::LIVE_FACTS)
+        .unwrap()
+        .trim();
+    assert!(!facts.is_empty());
+    let system = checks[0]["system"].as_str().unwrap();
+    assert!(!system.contains(facts), "not in the check's instructions");
+    // a recording's replay: the calls after the report, the live facts in the instructions
+    let mut old = world_with(name, |c| planned(c, json!([])));
+    *old.daemon.literal.lock().unwrap() = Some(Arc::new(long_read_then_clicks));
+    let _ = run_with(&mut old, name, |_| {});
+    let checks = check_inputs(&old);
+    let first = checks[0]["parts"][0].as_str().unwrap();
+    assert!(!first.starts_with(ferb_orchestrator::check_evidence::HEAD));
+    assert!(!checks[0]["parts"].as_array().unwrap().iter().any(|p| p
+        .as_str()
+        .unwrap()
+        .starts_with(ferb_supervisor::words::LIVE_FACTS)));
+}
+
+/// ORCH-738: the check accepts with a condition it couldn't confirm and names it in a few words: the answer ends with
+/// the fixed opening and that bracket; code keeps it to one line without brackets of its own.
+// decision: ORCH-738
+#[test]
+fn the_unconfirmed_line_names_what_the_check_couldnt_confirm() {
+    let name = "one_step_task";
+    let mut w = lean(name, |c| {
+        planned(c, json!([]));
+        let v = index(c, "worker.verify");
+        answered(
+            &mut c[v],
+            json!({"results": [{"index": 0, "met": null, "applies": true,
+                                "evidence": "The page shows the request, not its processing.", "how": null}],
+                "next": "accept_unconfirmed", "findings": [], "missing": "", "instructions": "", "worker_type": null,
+                "question": "", "reason": "The refund's processing isn't shown.", "gaps": [],
+                "unconfirmed_short": "whether the\nrefund (TRIP-1) was processed."}),
+        );
+    });
+    *w.daemon.code_look.lock().unwrap() = page_look("Refund requested.");
+    let _ = run_with(&mut w, name, |_| {});
+    let (row, out) = root_outcome(&w);
+    assert_eq!(row, "done_unverified", "{out}");
+    assert_eq!(
+        out["answer"],
+        format!(
+            "{CLAIM_ANSWER}\n\nI couldn't confirm part of this (whether the refund TRIP-1 was processed)."
+        ),
+        "{out}"
+    );
 }

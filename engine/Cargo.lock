@@ -762,6 +762,7 @@ dependencies = [
  "ferb-sanitize",
  "ferb-store",
  "futures-util",
+ "getrandom 0.3.4",
  "indexmap",
  "libc",
  "regex",

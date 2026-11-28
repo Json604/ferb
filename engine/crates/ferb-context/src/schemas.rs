@@ -696,7 +696,21 @@ pub fn checker_schema() -> Value {
         ("reason", string()),
         ("gaps", check_gaps_schema()),
         ("progress", progress_schema()),
+        ("unconfirmed_short", unconfirmed_short_schema()),
     ])
+}
+
+/// ORCH-738 (not Python's): the check's `unconfirmed_short`: its description is the only instruction the checker
+/// gets about it; code shows it in brackets after the fixed opening words (supervisor words::unconfirmed_line).
+pub const UNCONFIRMED_SHORT_DESCRIPTION: &str = "When something the owner asked for stays unconfirmed (a condition \
+met=null, accept_unconfirmed, a finding the evidence doesn't bear), a few plain words naming what couldn't be \
+confirmed, at most 12, for the owner: FERB shows them in brackets after \"I couldn't confirm part of this\". Name the \
+thing itself (\"whether the form was submitted\", \"the price on the seller's page\"), never this check, a tool or an \
+id; no brackets or line breaks. \"\" when everything was confirmed.";
+
+/// ORCH-738 (not Python's): a check's `unconfirmed_short`, a string with its description.
+pub fn unconfirmed_short_schema() -> Value {
+    json!({"type": "string", "description": UNCONFIRMED_SHORT_DESCRIPTION})
 }
 
 /// ORCH-679 (not Python's): a check result's `left`: what is left of an unmet condition, labels only; null for a met
@@ -1313,8 +1327,28 @@ pub fn new_task(answer: &Value) -> Option<&Value> {
 /// that compare FERB's schemas with the recorded ones.
 pub fn as_recorded(schema: &Value) -> Value {
     before_reading(&before_uploaded(&before_profiles(&before_gaps(
-        &before_left(schema),
+        &before_left(&before_unconfirmed_short(schema)),
     ))))
+}
+
+/// ORCH-738's deliberate change (ENG-6): a check's `unconfirmed_short` taken out, as Python built the checker's
+/// schema; any other schema comes back as it is.
+pub fn before_unconfirmed_short(schema: &Value) -> Value {
+    let Some(props) = schema.get("properties").and_then(Value::as_object) else {
+        return schema.clone();
+    };
+    if !(props.contains_key("results") && props.contains_key("next")) {
+        return schema.clone();
+    }
+    let mut out = schema.clone();
+    let o = out.as_object_mut().expect("an object");
+    if let Some(Value::Object(p)) = o.get_mut("properties") {
+        p.shift_remove("unconfirmed_short");
+    }
+    if let Some(Value::Array(r)) = o.get_mut("required") {
+        r.retain(|v| v != "unconfirmed_short");
+    }
+    out
 }
 
 /// ORCH-679's deliberate change (ENG-6): a check's `results[].left` and `progress` taken out, as Python built the

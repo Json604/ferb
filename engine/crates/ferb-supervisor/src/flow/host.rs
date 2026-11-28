@@ -23,6 +23,9 @@ pub struct Host {
     pub policy: Arc<dyn Policy>,
     /// The supervisor's liveness record, shared (the worker reads it through its host).
     pub activity: Arc<ferb_orchestrator::guards::Activity>,
+    /// ORCH-757: a check's live facts, read with its instructions and held until its context is handed over, where
+    /// they go last (by the check's task id).
+    pub live_held: std::sync::Mutex<std::collections::HashMap<String, String>>,
 }
 
 impl Host {
@@ -233,11 +236,44 @@ impl WorkerHost for Host {
     }
     fn system(&self, task: &Task, prompt: &str, roles: &[String]) -> String {
         let roles: Vec<&str> = roles.iter().map(String::as_str).collect();
-        self.sup()
-            .system_for_request(prompt, true, &roles, &task.request_id)
+        let sup = self.sup();
+        if task.role == ferb_core::types::TaskRole::Verifier
+            && sup.deps.daemon.lean_check()
+            && sup.deps.daemon.check_middle_path()
+        {
+            // decision: ORCH-757 — the owner's check reads the facts that change by the minute at the end of its
+            // context, so its instructions stay the same from one check to the next; a replay keeps Python's
+            let inputs = sup
+                .deps
+                .daemon
+                .system_inputs(true, sup.fresh_for(&task.request_id).is_some());
+            self.live_held
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(task.id.clone(), inputs.live_facts.clone());
+            return crate::prompts::system(&sup.deps.prompts, Some(prompt), false, &roles, &inputs)
+                .unwrap_or_else(|e| panic!("the prompt package: {e}"));
+        }
+        sup.system_for_request(prompt, true, &roles, &task.request_id)
     }
     fn with_newly_always_on(&self, task: &Task, ctx: Vec<ContextBlock>) -> Vec<ContextBlock> {
-        self.sup().context_final(&task.request_id, ctx)
+        let mut ctx = self.sup().context_final(&task.request_id, ctx);
+        let held = self
+            .live_held
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&task.id);
+        // ORCH-757: the check's live facts, last
+        if let Some(live) = held.filter(|l| !l.is_empty()) {
+            ctx.push(ContextBlock {
+                protected: true,
+                ..ContextBlock::new(
+                    format!("{}\n{live}", crate::words::LIVE_FACTS),
+                    "live facts",
+                )
+            });
+        }
+        ctx
     }
     fn context_exposure(
         &self,

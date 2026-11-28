@@ -13,6 +13,8 @@ pub mod availability;
 pub mod browsing;
 #[cfg(feature = "store")]
 pub mod cards;
+#[cfg(feature = "store")]
+pub mod check_evidence;
 pub mod context_layers;
 #[cfg(feature = "store")]
 pub mod continuity;

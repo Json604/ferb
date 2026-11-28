@@ -825,15 +825,6 @@ why = "ORCH-719 (owner 2026-11-25); the design and its numbers are in kb/plans/c
 decisions = ["ORCH-719"]
 after = ["T-1334"]
 
-[T-1336]
-title = "Context step 7: the checker middle path, tested offline on the recorded checks"
-area = "orchestration"
-kind = "build"
-status = "open"
-why = "ORCH-719 (owner 2026-11-25); kb/plans/context.md. Also the checker's cache order (journal 251): shared prefix of two checks of a task 4.2% today; recorded calls first with stable text (an id per span, no totals, fixed run labels and markers) about 32%."
-decisions = ["ORCH-719"]
-after = ["T-1335"]
-
 [T-1337]
 title = "Context step 8: the planner day/month/year index, live open items, the confirmed profile core"
 area = "orchestration"
@@ -841,7 +832,7 @@ kind = "build"
 status = "open"
 why = "ORCH-719 (owner 2026-11-25); kb/plans/context.md. Also step 8 of kb/plans/front-door.md (ORCH-726): the library's contents list and the Librarian (code's day list, one model call a day and one a month); the running summary goes."
 decisions = ["ORCH-719", "ORCH-726", "ORCH-727"]
-after = ["T-1336"]
+after = ["T-1335"]
 
 [T-1339]
 title = "Front door step 2: use the answer on arrival, close after; fix Claude's doubled answer"
@@ -894,15 +885,6 @@ kind = "build"
 status = "open"
 why = "Owner 2026-11-27: \"when ferb has its own profile then things htat need a signin or account creation then ferb can do it in that after asking\". To discuss with him first: what code enforces vs the worker's instructions. After the front door. Today: APP-1."
 decisions = ["APP-1"]
-after = ["T-1337"]
-
-[T-1348]
-title = "The unconfirmed line names what couldn't be confirmed, in a short bracket"
-area = "orchestration"
-kind = "build"
-status = "open"
-why = "ORCH-738 (owner 2026-11-27). Which model writes the bracket and from which record (the checker's gaps, ORCH-606) is the agent's to propose, with its rate per answer. After the front door."
-decisions = ["ORCH-738"]
 after = ["T-1337"]
 
 [T-1349]

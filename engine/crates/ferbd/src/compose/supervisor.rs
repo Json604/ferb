@@ -741,6 +741,11 @@ impl Daemon for SupDaemon {
     fn lean_check(&self) -> bool {
         self.reads.lean_check()
     }
+    // decision: ORCH-757 — off in FERB.app until a replay on a real model shows the checker still catches what it
+    // caught with every call in full (owner 2026-11-28: faster only if the work doesn't get worse)
+    fn check_middle_path(&self) -> bool {
+        false
+    }
     fn reads_card_replies(&self) -> bool {
         self.reads.reads_card_replies()
     }

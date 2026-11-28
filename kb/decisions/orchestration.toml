@@ -2907,3 +2907,12 @@ rule = "For ORCH-726 step 1, refining ORCH-720. ferb stats then prints, each onl
 why = "The plan's numbers are set in the time to the first word, and a doubled Claude answer is named by the relay's record; neither was readable without SQL."
 evidence = "ferbd tests/usage_stats.rs (the three sections, and none on a store without them), ferb-trace tests/first_word_and_relay.rs, tests/parity.rs unchanged."
 paths = ["engine/crates/ferbd/src/usage_stats.rs", "engine/crates/ferbd/src/stats.rs", "engine/crates/ferb-trace/src/timing.rs"]
+[ORCH-757]
+title = "The checker's middle path: each run's newest look in full, the rest one line, the calls first"
+by = "agent"
+date = 2026-11-28
+status = "active"
+rule = "For ORCH-719 item 5; replaces ORCH-694's every call in full once on (off in FERB.app until a real replay). The owner's check opens with the task's recorded calls in order: each worker run's newest look of each kind at each place (a tab at its URL without fragment, a Mac window, a file, a process) in full as before, the rest one line each (span_id, tool, place, a short fact) task.evidence opens, then the calls the answer cites (span_id, URL, path) in full. No totals, wrapper ids keyed per span, a marker per run; the live facts end the context. Replays keep Python's (lean_check)."
+why = "Offline on the owner's 95 recorded checks (read only): evidence tokens -36%, whole context -31%; 120 of 139 verdict references in full, 19 one read away, none lost. Shared prefix of consecutive checks of a task: 9.6% to 49.2% (17 pairs; journal 251: 4.2%)."
+evidence = "ferb-orchestrator tests/check_evidence.rs (5, invented spans through the real span store); ferb-supervisor tests/lean_check.rs (the check's order, its instructions without the live facts); the measurement harness in journal 288."
+paths = ["engine/crates/ferb-orchestrator/src/check_evidence.rs", "engine/crates/ferb-supervisor/src/flow/attempt.rs", "engine/crates/ferb-supervisor/src/flow/host.rs", "engine/crates/ferb-supervisor/src/worker_context.rs"]

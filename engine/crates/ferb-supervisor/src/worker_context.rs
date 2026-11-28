@@ -607,6 +607,19 @@ pub struct VerifierReads {
     /// `spans.request_began(...)`: when the run for the owner's latest message began, if a follow-up carried the
     /// task on in place.
     pub began: Option<String>,
+    /// ORCH-757: the recorded calls open the check's context (the middle path), before this report; false: they
+    /// follow it, as Python's check had them.
+    pub calls_first: bool,
+}
+
+/// The report's last line: where the recorded calls are (ORCH-757 puts them first).
+pub fn report_tail(calls_first: bool) -> &'static str {
+    if calls_first {
+        "\nThe worker's recorded tool calls and their results are at the start of this context, before the task. More: \
+         task_evidence; memory.read; chat.history"
+    } else {
+        "\nThe worker's recorded tool calls and their results follow. More: task_evidence; memory.read; chat.history"
+    }
 }
 
 /// supervisor.py:7136-7175: the checker's report block text (its conditions, the worker's report and answer, the
@@ -696,11 +709,16 @@ pub fn verifier_report(v: &VerifierReads, wrap: &dyn Fn(&str) -> String) -> Stri
     let mut began = v.began.clone();
     if v.calls_since != 0 {
         began = None;
-        report.push_str(
-            "\nThis check judges one round of a loop. The recorded calls below are this round's alone; earlier \
+        report.push_str(&format!(
+            "\nThis check judges one round of a loop. The recorded calls {} are this round's alone; earlier \
              rounds were checked when they ran, and reach you only as the loop's one-line results in the plan step \
              (data).",
-        );
+            if v.calls_first {
+                "at the start of this context"
+            } else {
+                "below"
+            }
+        ));
     }
     if let Some(at) = began {
         report.push_str(&format!(
@@ -711,10 +729,7 @@ pub fn verifier_report(v: &VerifierReads, wrap: &dyn Fn(&str) -> String) -> Stri
              failing this run for it."
         ));
     }
-    report.push_str(
-        "\nThe worker's recorded tool calls and their results follow. More: task_evidence; memory.read; \
-         chat.history",
-    );
+    report.push_str(report_tail(v.calls_first));
     report
 }
 
