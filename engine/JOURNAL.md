@@ -15960,3 +15960,15 @@ times by hand here (20 runs of the race): every run resumed. The task stays open
 the full suite's load, not alone.
 
 **Unverified.** No live run: a real watchdog stall at start on the owner's Mac.
+
+## 2026-11-28 · 293 · ORCH-760's switch named in seams-off.txt; replays that failed once under the full run
+
+**What.** ferbd `seams_wired` refused `Reads::fresh_run` left at its default in RealReads (journal 291 added it):
+seams-off.txt now names it with its reason, as the other switches are (off in FERB.app until a real replay).
+
+**Evidence and what was seen.** The whole `./gate.sh test` with full output: every binary passed up to seams_wired,
+which failed only on that line; with it named, seams_wired and every ferbd test binary after it pass. Two replay
+tests each failed once in a push gate today and passed every run alone: chat_replay's stop_by_chat engine order (a bus
+`task.result` against a reply frame, the load-dependent order journal 233 saw) and front_door_replay (detail cut by the
+gate's 30-line tail; it passed alone 10 of 10, 156 s, and in the full run above). A third chat_replay failure
+(correct_pending_check's checker input) ran while journal 291's agent was editing the tree and is not counted.
